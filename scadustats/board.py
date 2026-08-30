@@ -1,25 +1,25 @@
 """5x5 bingo grid analysis: per-cell claim color and goal text."""
 
-import cv2
 import numpy as np
 
 from scadustats import layout, ocr
 from scadustats.models import CellColor
 
-# Classification is done in HSV rather than raw BGR distance: an unclaimed cell is a
-# low-saturation neutral gray regardless of overall brightness, while claimed cells are
-# strongly saturated red/blue at a near-constant hue -- calibrated by sampling real
-# claimed/unclaimed cells from both sample videos (720p mp4 and 1080p webm), which agree
-# closely (hue ~177 for red, ~104 for blue; unclaimed saturation 20-40 vs claimed 140-255).
-# This is far more robust than a raw-color distance to whole-frame brightness swings (e.g.
-# a stream fade-in/flash before the overlay appears), which raw BGR distance was fooled by.
-_SATURATION_THRESHOLD = 80  # below this -> neutral/unclaimed, regardless of hue
-# OpenCV hue is 0-179. Real samples cluster tightly (red ~177, blue ~104) across both
-# calibration videos, so these bands are kept narrow to reject near-miss contamination
-# (e.g. a progress-count badge bleeding into the sampled patch) that a wider band would
-# otherwise accept.
-_RED_HUE_RANGE = (168, 180)
-_BLUE_HUE_RANGE = (95, 115)
+# Classification uses raw BGR channel dominance rather than HSV hue. HSV hue was tried
+# first and looked solid on a handful of calibration frames (red clustering tightly
+# around hue~177, blue~104), but a full-video scan (one real ~4-hour match, sampled
+# every 3s across all 25 cells) showed hue is surprisingly unstable for this specific
+# palette: a genuinely, continuously red cell was observed drifting from hue 177 down to
+# 152 within a few seconds of real compressed footage, with saturation staying high the
+# whole time -- any hue band tight enough to reject a progress-count badge's contaminated
+# color (hue ~120, saturation ~100) was also tight enough to intermittently drop that
+# genuine red reading, causing claim-detection flicker. The red reference color (18,0,164
+# in BGR) has near-zero green, while blue (154,100,39) has substantial green -- so
+# red>blue dominance plus a red>green contrast check (to reject an unrelated high-green
+# "orange flash" artifact seen during a stream transition) turned out far more stable
+# across the full video than any hue band tried.
+_DOMINANCE_THRESHOLD = 50  # required margin of the dominant channel over the other color
+_RED_GREEN_CONTRAST_THRESHOLD = 80  # required R-over-G margin, to reject high-G false reds
 
 # Inset patch anchored at a cell's bottom-left corner, as a fraction of cell width/height.
 # Chosen to avoid the centered goal text and the numeric progress badge observed near
@@ -29,12 +29,10 @@ _PATCH_TOP, _PATCH_BOTTOM = 0.75, 0.93
 
 
 def classify_patch(patch: np.ndarray) -> CellColor:
-    hue, saturation, _ = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).reshape(-1, 3).mean(axis=0)
-    if saturation < _SATURATION_THRESHOLD:
-        return CellColor.UNCLAIMED
-    if _RED_HUE_RANGE[0] <= hue <= _RED_HUE_RANGE[1]:
+    blue, green, red = patch.reshape(-1, 3).mean(axis=0)
+    if red - blue > _DOMINANCE_THRESHOLD and red - green > _RED_GREEN_CONTRAST_THRESHOLD:
         return CellColor.RED
-    if _BLUE_HUE_RANGE[0] <= hue <= _BLUE_HUE_RANGE[1]:
+    if blue - red > _DOMINANCE_THRESHOLD:
         return CellColor.BLUE
     return CellColor.UNCLAIMED
 
