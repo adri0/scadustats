@@ -10,3 +10,5 @@ dist/
 downloads/
 .DS_Store
 .vscode
+*.duckdb
+calibration.png
