@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from scadustats import board, db, frames, layout, ocr, scoreboard, timer, winner
-from scadustats.models import CellColor, ClaimEvent, GameResult, WinType
+from scadustats.models import CellColor, ClaimEvent, EventType, GameResult, WinType
 from scadustats.segmentation import Observation, detect_boundaries
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,12 @@ def _collect_observations(video_path: Path, sample_rate_hz: float) -> list[Obser
     observations = []
     prev_counts = (0, 0)
     for i, (video_ts_s, frame) in enumerate(frames.sample_frames(video_path, sample_rate_hz)):
+        if not board.is_gameplay_frame(frame):
+            # Not showing the live overlay (e.g. a "POST GAME" recap screen, which
+            # reuses the same grid coordinates to cycle through other completed games'
+            # boards) -- cell colors and timer/label crops would be meaningless here.
+            continue
+
         colors = board.cell_colors(frame)
         timer_s = timer.read_timer(frame)
         label = _read_label(frame) if i % _LABEL_SAMPLE_INTERVAL == 0 else None
@@ -85,16 +91,21 @@ def _grab_frame(video_path: Path, video_ts_s: float) -> np.ndarray:
         cap.release()
 
 
-def _extract_claims(segment: list[Observation]) -> list[ClaimEvent]:
-    """Diff consecutive board states into claim events.
+def _extract_events(segment: list[Observation]) -> list[ClaimEvent]:
+    """Diff consecutive board states into claim/unclaim events.
 
     A color change is only accepted once the same new color has been observed on two
     consecutive samples -- this debounce rejects single-frame classification flicker
     (e.g. a transitional stream wipe/flash whose color transiently matches a reference
     hue) without meaningfully hurting timestamp precision at the ~1 sample/second rate
     this pipeline samples at.
+
+    UNCLAIMED -> RED/BLUE is a claim. RED/BLUE -> UNCLAIMED is a legitimate unclaim, not
+    an anomaly: a player can inadvertently mark the wrong square and undo it. A direct
+    RED <-> BLUE swap without an intervening unclaim isn't a real game mechanic though,
+    so that's still logged as a data-quality warning rather than recorded as an event.
     """
-    claims = []
+    events = []
     confirmed: list[list[CellColor]] = [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
     previous_observed: list[list[CellColor]] = [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
     for obs in segment:
@@ -103,12 +114,20 @@ def _extract_claims(segment: list[Observation]) -> list[ClaimEvent]:
                 observed = obs.board[r][c]
                 if observed == previous_observed[r][c] and observed != confirmed[r][c]:
                     old = confirmed[r][c]
+                    game_elapsed = obs.timer_s if obs.timer_s is not None else 0
                     if old is CellColor.UNCLAIMED and observed is not CellColor.UNCLAIMED:
-                        game_elapsed = obs.timer_s if obs.timer_s is not None else 0
-                        claims.append(ClaimEvent(r, c, observed, obs.video_ts_s, game_elapsed))
+                        events.append(
+                            ClaimEvent(
+                                r, c, observed, obs.video_ts_s, game_elapsed, EventType.CLAIM
+                            )
+                        )
+                    elif old is not CellColor.UNCLAIMED and observed is CellColor.UNCLAIMED:
+                        events.append(
+                            ClaimEvent(r, c, old, obs.video_ts_s, game_elapsed, EventType.UNCLAIM)
+                        )
                     else:
                         logger.warning(
-                            "unexpected cell transition %s -> %s at (%d,%d), ts=%.1fs",
+                            "unexpected direct color swap %s -> %s at (%d,%d), ts=%.1fs",
                             old,
                             observed,
                             r,
@@ -117,16 +136,22 @@ def _extract_claims(segment: list[Observation]) -> list[ClaimEvent]:
                         )
                     confirmed[r][c] = observed
                 previous_observed[r][c] = observed
-    return claims
+    return events
 
 
-def _determine_winner(claims: list[ClaimEvent]) -> tuple[CellColor | None, WinType]:
+def _determine_winner(events: list[ClaimEvent]) -> tuple[CellColor | None, WinType]:
+    """Replay every event (including unclaims) to the final board state and evaluate the
+    win condition once there -- rather than stopping at the first claim that completes a
+    line, since a mistaken claim can complete a line and then be immediately unclaimed
+    (the game doesn't actually end in that case). The schema doesn't record a win
+    timestamp, so evaluating only the final state loses nothing for the normal case
+    either: a genuine win ends the game, so no further events should follow it anyway.
+    """
     state: list[list[CellColor]] = [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
-    for claim in claims:
-        state[claim.row][claim.col] = claim.color
-        line_winner = winner.check_line_winner(state)
-        if line_winner is not None:
-            return line_winner, WinType.LINE
+    for event in events:
+        state[event.row][event.col] = (
+            event.color if event.event_type is EventType.CLAIM else CellColor.UNCLAIMED
+        )
     return winner.determine_winner(state)
 
 
@@ -148,8 +173,8 @@ def extract_video(
         player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
         label = next((obs.label for obs in segment if obs.label), None)
 
-        claims = _extract_claims(segment)
-        winner_color, win_type = _determine_winner(claims)
+        events = _extract_events(segment)
+        winner_color, win_type = _determine_winner(events)
 
         games.append(
             GameResult(
@@ -160,7 +185,7 @@ def extract_video(
                 player_red_name=player_red_name,
                 player_blue_name=player_blue_name,
                 goal_texts=goal_texts,
-                claims=claims,
+                claims=events,
                 winner_color=winner_color,
                 win_type=win_type,
             )
@@ -172,5 +197,7 @@ def extract_video(
     return ExtractionSummary(
         video_id=video_id,
         num_games=len(games),
-        num_claims=sum(len(game.claims) for game in games),
+        num_claims=sum(
+            1 for game in games for event in game.claims if event.event_type is EventType.CLAIM
+        ),
     )

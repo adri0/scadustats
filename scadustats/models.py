@@ -18,6 +18,15 @@ class WinType(Enum):
     NONE = "none"
 
 
+class EventType(Enum):
+    """A square can be unmarked after being marked -- a player can inadvertently claim
+    the wrong square and undo it -- so a claim's lifecycle is an event, not just a
+    one-time transition."""
+
+    CLAIM = "claim"
+    UNCLAIM = "unclaim"
+
+
 class FractionalBox(NamedTuple):
     """A bounding box expressed as fractions (0-1) of frame width/height."""
 
@@ -39,9 +48,10 @@ class VideoInfo:
 class ClaimEvent:
     row: int
     col: int
-    color: CellColor
+    color: CellColor  # for an UNCLAIM, the color that was removed
     video_ts_s: float
     game_elapsed_s: int
+    event_type: EventType = EventType.CLAIM
 
 
 @dataclass

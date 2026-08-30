@@ -54,6 +54,19 @@ def cell_colors(frame: np.ndarray) -> list[list[CellColor]]:
     return [[classify_patch(_cell_patch(frame, r, c)) for c in range(5)] for r in range(5)]
 
 
+def is_gameplay_frame(frame: np.ndarray) -> bool:
+    """Whether this frame is showing the live-gameplay overlay (grid + colored score
+    bars + bottom-left timer), as opposed to e.g. a "POST GAME" recap screen that
+    reuses the same grid coordinates to cycle through completed games' final boards
+    but replaces the score bars with plain background and moves the timer elsewhere.
+    Cell colors and the timer/label crops are only meaningful when this is true.
+    """
+    height, width = frame.shape[:2]
+    red_bar = layout.crop(frame, layout.SCORE_BOX_RED, width, height)
+    blue_bar = layout.crop(frame, layout.SCORE_BOX_BLUE, width, height)
+    return classify_patch(red_bar) is CellColor.RED and classify_patch(blue_bar) is CellColor.BLUE
+
+
 def cell_goal_texts(frame: np.ndarray) -> list[list[str]]:
     height, width = frame.shape[:2]
     texts = []
