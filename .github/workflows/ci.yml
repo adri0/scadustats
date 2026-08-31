@@ -27,6 +27,3 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
-
-      - name: Run integration tests
-        run: uv run pytest -m integration

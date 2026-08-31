@@ -53,4 +53,5 @@ The Bingo Brawlers broadcast overlay (5x5 goal grid with per-cell claim color, a
 ## CI
 
 - GitHub Actions workflow at `.github/workflows/ci.yml`, triggered on push to `main` and on pull requests.
-- Steps: install `ffmpeg`, install `uv` (`astral-sh/setup-uv`), `uv sync --locked`, `uv build`, then run tests in two steps — a plain `uv run pytest` (unit tests, default marker filter applies) followed by `uv run pytest -m integration` (explicitly runs the integration suite) — so CI covers both, while local runs stay integration-free by default.
+- Steps: install `ffmpeg`, install `uv` (`astral-sh/setup-uv`), `uv sync --locked`, `uv build`, then `uv run pytest` (unit tests, default marker filter applies).
+- The integration suite (`uv run pytest -m integration`) is *not* run in CI: it hits real YouTube via `yt-dlp` to download a video, and GitHub Actions runner IPs get throttled/bot-detected by YouTube badly enough to cause CI timeouts. Run it locally instead (see Testing section).
