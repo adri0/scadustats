@@ -1,5 +1,7 @@
 """5x5 bingo grid analysis: per-cell claim color and goal text."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 
 from scadustats import layout, ocr
@@ -68,12 +70,19 @@ def is_gameplay_frame(frame: np.ndarray) -> bool:
 
 
 def cell_goal_texts(frame: np.ndarray) -> list[list[str]]:
+    """OCR all 25 cells' goal text.
+
+    Each cell is an independent tesseract subprocess call (~70ms fixed overhead
+    regardless of crop size, per profiling -- see CLAUDE.md), so this is run as one
+    bounded batch of 25 concurrent calls rather than sequentially -- there's no per-video
+    stream to bound here, just a fixed 5x5 grid read once per game.
+    """
     height, width = frame.shape[:2]
-    texts = []
-    for r in range(5):
-        row_texts = []
-        for c in range(5):
-            crop = layout.crop(frame, layout.grid_cell_box(r, c), width, height)
-            row_texts.append(ocr.read_text(crop, psm=6))
-        texts.append(row_texts)
-    return texts
+    crops = [
+        layout.crop(frame, layout.grid_cell_box(r, c), width, height)
+        for r in range(5)
+        for c in range(5)
+    ]
+    with ThreadPoolExecutor(max_workers=len(crops)) as executor:
+        flat_texts = list(executor.map(lambda crop: ocr.read_text(crop, psm=6), crops))
+    return [flat_texts[r * 5 : r * 5 + 5] for r in range(5)]

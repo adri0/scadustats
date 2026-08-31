@@ -4,7 +4,10 @@ claim detection -> winner determination -> DuckDB.
 
 import logging
 import math
+import os
+import threading
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +24,14 @@ logger = logging.getLogger(__name__)
 # the label only needs to be read occasionally since it's one of three redundant
 # game-boundary signals, and label OCR is comparatively expensive.
 _LABEL_SAMPLE_INTERVAL = 5
+
+# Profiling showed OCR (pytesseract shelling out to the tesseract binary) is 80-90% of
+# extraction's wall time, dominated by the per-sample timer read -- each call has a fixed
+# ~70ms process-spawn/IPC cost regardless of crop size. tesseract runs as a subprocess, so
+# the calling thread releases the GIL while waiting on it; running several concurrently
+# overlaps that wait instead of serializing it. Capped well below "one per sample" so a
+# long video doesn't queue thousands of frames/tesseract processes at once.
+_OCR_WORKERS = min(8, os.cpu_count() or 4)
 
 
 @dataclass
@@ -49,44 +60,77 @@ def _collect_observations(
     sample_rate_hz: float,
     on_progress: Callable[[], None] | None = None,
 ) -> list[Observation]:
-    observations = []
     prev_counts = (0, 0)
-    for i, (video_ts_s, frame) in enumerate(frames.sample_frames(video_path, sample_rate_hz)):
-        if on_progress is not None:
-            on_progress()
+    # (index, video_ts_s, colors, timer_future, label_future) per gameplay sample, in
+    # sample order -- OCR runs in the background via the futures below, so this fills in
+    # while later samples are still being decoded, and is drained into Observations only
+    # once every future for it has resolved.
+    pending: list[
+        tuple[int, float, list[list[CellColor]], Future[int | None], Future[str] | None]
+    ] = []
+    ocr_slots = threading.Semaphore(_OCR_WORKERS)
 
-        if not board.is_gameplay_frame(frame):
-            # Not showing the live overlay (e.g. a "POST GAME" recap screen, which
-            # reuses the same grid coordinates to cycle through other completed games'
-            # boards) -- cell colors and timer/label crops would be meaningless here.
-            continue
+    def _release_slot(_future: Future) -> None:
+        ocr_slots.release()
 
-        colors = board.cell_colors(frame)
-        timer_s = timer.read_timer(frame)
-        label = _read_label(frame) if i % _LABEL_SAMPLE_INTERVAL == 0 else None
+    with ThreadPoolExecutor(max_workers=_OCR_WORKERS) as executor:
+        for i, (video_ts_s, frame) in enumerate(frames.sample_frames(video_path, sample_rate_hz)):
+            if on_progress is not None:
+                on_progress()
 
-        red = sum(cell is CellColor.RED for row in colors for cell in row)
-        blue = sum(cell is CellColor.BLUE for row in colors for cell in row)
-        if (red, blue) != prev_counts:
-            board_red, board_blue = scoreboard.read_scores(frame)
-            if board_red is not None and board_red != red:
-                logger.warning(
-                    "red claim count mismatch at %.1fs: board=%d scoreboard=%d",
-                    video_ts_s,
-                    red,
-                    board_red,
-                )
-            if board_blue is not None and board_blue != blue:
-                logger.warning(
-                    "blue claim count mismatch at %.1fs: board=%d scoreboard=%d",
-                    video_ts_s,
-                    blue,
-                    board_blue,
-                )
-            prev_counts = (red, blue)
+            if not board.is_gameplay_frame(frame):
+                # Not showing the live overlay (e.g. a "POST GAME" recap screen, which
+                # reuses the same grid coordinates to cycle through other completed games'
+                # boards) -- cell colors and timer/label crops would be meaningless here.
+                continue
 
-        observations.append(Observation(i, video_ts_s, colors, timer_s, label))
-    return observations
+            colors = board.cell_colors(frame)
+
+            red = sum(cell is CellColor.RED for row in colors for cell in row)
+            blue = sum(cell is CellColor.BLUE for row in colors for cell in row)
+            if (red, blue) != prev_counts:
+                board_red, board_blue = scoreboard.read_scores(frame)
+                if board_red is not None and board_red != red:
+                    logger.warning(
+                        "red claim count mismatch at %.1fs: board=%d scoreboard=%d",
+                        video_ts_s,
+                        red,
+                        board_red,
+                    )
+                if board_blue is not None and board_blue != blue:
+                    logger.warning(
+                        "blue claim count mismatch at %.1fs: board=%d scoreboard=%d",
+                        video_ts_s,
+                        blue,
+                        board_blue,
+                    )
+                prev_counts = (red, blue)
+
+            # Acquiring a slot (rather than submitting unboundedly) is what keeps this a
+            # bounded pipeline instead of decoding/queueing the whole video's frames in
+            # memory before OCR has processed any of them.
+            ocr_slots.acquire()
+            timer_future = executor.submit(timer.read_timer, frame)
+            timer_future.add_done_callback(_release_slot)
+
+            label_future = None
+            if i % _LABEL_SAMPLE_INTERVAL == 0:
+                ocr_slots.acquire()
+                label_future = executor.submit(_read_label, frame)
+                label_future.add_done_callback(_release_slot)
+
+            pending.append((i, video_ts_s, colors, timer_future, label_future))
+
+        return [
+            Observation(
+                i,
+                video_ts_s,
+                colors,
+                timer_future.result(),
+                label_future.result() if label_future is not None else None,
+            )
+            for i, video_ts_s, colors, timer_future, label_future in pending
+        ]
 
 
 def _segment_games(observations: list[Observation]) -> list[list[Observation]]:
