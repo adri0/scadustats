@@ -1,51 +1,51 @@
 """Command-line entry point for scadustats."""
 
-import argparse
+import enum
+from pathlib import Path
+from typing import Annotated
+
+import typer
 
 from scadustats.download import download_video
 from scadustats.extract import extract_video
 
+app = typer.Typer()
 
-def _download(args: argparse.Namespace) -> None:
-    path = download_video(args.url, output_dir=args.output_dir)
+
+class IfExists(enum.StrEnum):
+    replace = "replace"
+    append = "append"
+    error = "error"
+
+
+@app.command()
+def download(
+    url: Annotated[str, typer.Argument(help="YouTube video URL")],
+    output_dir: Annotated[
+        Path,
+        typer.Option("-o", "--output-dir", help="Directory to save the video to"),
+    ] = Path("downloads"),
+) -> None:
+    """Download a YouTube video."""
+    path = download_video(url, output_dir=output_dir)
     print(path)
 
 
-def _extract(args: argparse.Namespace) -> None:
-    summary = extract_video(args.video_path, db_path=args.db, if_exists=args.if_exists)
+@app.command()
+def extract(
+    video_path: Annotated[Path, typer.Argument(help="Path to a downloaded match video")],
+    db: Annotated[
+        Path, typer.Option(help="DuckDB database file path")
+    ] = Path("scadustats.duckdb"),
+    if_exists: Annotated[
+        IfExists,
+        typer.Option(help="Behavior when this video was already extracted into the DB"),
+    ] = IfExists.replace,
+) -> None:
+    """Extract bingo board stats from a match video into DuckDB."""
+    summary = extract_video(video_path, db_path=db, if_exists=if_exists.value)
     print(summary)
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="scadustats")
-    subparsers = parser.add_subparsers(required=True)
-
-    download_parser = subparsers.add_parser("download", help="Download a YouTube video.")
-    download_parser.add_argument("url", help="YouTube video URL")
-    download_parser.add_argument(
-        "-o",
-        "--output-dir",
-        default="downloads",
-        help="Directory to save the video to (default: downloads)",
-    )
-    download_parser.set_defaults(func=_download)
-
-    extract_parser = subparsers.add_parser(
-        "extract", help="Extract bingo board stats from a match video into DuckDB."
-    )
-    extract_parser.add_argument("video_path", help="Path to a downloaded match video")
-    extract_parser.add_argument(
-        "--db",
-        default="scadustats.duckdb",
-        help="DuckDB database file path (default: scadustats.duckdb)",
-    )
-    extract_parser.add_argument(
-        "--if-exists",
-        choices=["replace", "append", "error"],
-        default="replace",
-        help="Behavior when this video was already extracted into the DB (default: replace)",
-    )
-    extract_parser.set_defaults(func=_extract)
-
-    args = parser.parse_args(argv)
-    args.func(args)
+def main() -> None:
+    app()
