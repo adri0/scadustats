@@ -3,6 +3,8 @@ claim detection -> winner determination -> DuckDB.
 """
 
 import logging
+import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,10 +36,25 @@ def _read_label(frame: np.ndarray) -> str:
     return ocr.read_text(crop, psm=7)
 
 
-def _collect_observations(video_path: Path, sample_rate_hz: float) -> list[Observation]:
+def estimate_sample_count(video_path: str | Path, sample_rate_hz: float = 1.0) -> int:
+    """Estimate how many samples `extract_video` will process, for sizing a progress bar
+    upfront -- an estimate only, since the true count depends on exactly where decoding
+    stops near the end of the video."""
+    video_info = frames.probe(video_path)
+    return math.ceil(video_info.duration_s * sample_rate_hz)
+
+
+def _collect_observations(
+    video_path: Path,
+    sample_rate_hz: float,
+    on_progress: Callable[[], None] | None = None,
+) -> list[Observation]:
     observations = []
     prev_counts = (0, 0)
     for i, (video_ts_s, frame) in enumerate(frames.sample_frames(video_path, sample_rate_hz)):
+        if on_progress is not None:
+            on_progress()
+
         if not board.is_gameplay_frame(frame):
             # Not showing the live overlay (e.g. a "POST GAME" recap screen, which
             # reuses the same grid coordinates to cycle through other completed games'
@@ -161,10 +178,11 @@ def extract_video(
     if_exists: str = "replace",
     json_dir: str | Path | None = None,
     sample_rate_hz: float = 1.0,
+    on_progress: Callable[[], None] | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     video_info = frames.probe(video_path)
-    observations = _collect_observations(video_path, sample_rate_hz)
+    observations = _collect_observations(video_path, sample_rate_hz, on_progress)
     segments = _segment_games(observations)
 
     games = []

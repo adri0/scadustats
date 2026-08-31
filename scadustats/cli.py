@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from scadustats.download import download_video
-from scadustats.extract import extract_video
+from scadustats.extract import estimate_sample_count, extract_video
 
 app = typer.Typer()
 
@@ -50,7 +50,15 @@ def extract(
     ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into DuckDB."""
-    summary = extract_video(video_path, db_path=db, if_exists=if_exists.value, json_dir=json_dir)
+    total = estimate_sample_count(video_path)
+    with typer.progressbar(length=total, label="Extracting") as progress:
+        summary = extract_video(
+            video_path,
+            db_path=db,
+            if_exists=if_exists.value,
+            json_dir=json_dir,
+            on_progress=lambda: progress.update(1),
+        )
     print(summary)
 
 

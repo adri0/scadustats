@@ -3,7 +3,7 @@ import json
 import duckdb
 import pytest
 
-from scadustats.extract import extract_video
+from scadustats.extract import estimate_sample_count, extract_video
 
 # A short (80s), downscaled, re-encoded clip trimmed from a real match video, covering
 # exactly one known claim transition (see CLAUDE.md for how it was produced) -- small
@@ -16,10 +16,21 @@ def test_extract_video_end_to_end(tmp_path):
     db_path = tmp_path / "extract.duckdb"
     json_dir = tmp_path / "json"
 
-    summary = extract_video(_CLIP_PATH, db_path=db_path, json_dir=json_dir)
+    progress_calls = 0
+
+    def on_progress() -> None:
+        nonlocal progress_calls
+        progress_calls += 1
+
+    summary = extract_video(
+        _CLIP_PATH, db_path=db_path, json_dir=json_dir, on_progress=on_progress
+    )
 
     assert summary.num_games == 1
     assert summary.num_claims == 1
+    # on_progress fires once per sampled frame, so this should track estimate_sample_count
+    # (an estimate, not exact -- see its docstring) within a sample or two.
+    assert progress_calls == pytest.approx(estimate_sample_count(_CLIP_PATH), abs=2)
 
     json_path = json_dir / f"{summary.video_id}-1.json"
     assert json_path.exists()
