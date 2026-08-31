@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from scadustats import board, db, frames, layout, ocr, scoreboard, timer, winner
+from scadustats import board, db, frames, json_export, layout, ocr, scoreboard, timer, winner
 from scadustats.models import CellColor, ClaimEvent, EventType, GameResult, WinType
 from scadustats.segmentation import Observation, detect_boundaries
 
@@ -159,6 +159,7 @@ def extract_video(
     video_path: str | Path,
     db_path: str | Path = "scadustats.duckdb",
     if_exists: str = "replace",
+    json_dir: str | Path | None = None,
     sample_rate_hz: float = 1.0,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
@@ -193,6 +194,10 @@ def extract_video(
 
     video_id = video_path.stem
     db.write_extraction(db_path, video_id, str(video_path), video_info, games, if_exists=if_exists)
+
+    if json_dir is not None:
+        for game in games:
+            json_export.write_game(json_dir, video_id, game, if_exists=if_exists)
 
     return ExtractionSummary(
         video_id=video_id,

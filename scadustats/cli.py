@@ -41,9 +41,16 @@ def extract(
         IfExists,
         typer.Option(help="Behavior when this video was already extracted into the DB"),
     ] = IfExists.replace,
+    json_dir: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory to also write one human-reviewable JSON file per game into "
+            "(optional; omit to skip JSON export)"
+        ),
+    ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into DuckDB."""
-    summary = extract_video(video_path, db_path=db, if_exists=if_exists.value)
+    summary = extract_video(video_path, db_path=db, if_exists=if_exists.value, json_dir=json_dir)
     print(summary)
 
 

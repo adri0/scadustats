@@ -1,3 +1,5 @@
+import json
+
 import duckdb
 import pytest
 
@@ -12,11 +14,17 @@ _CLIP_PATH = "tests/fixtures/clip_claim.mp4"
 @pytest.mark.integration
 def test_extract_video_end_to_end(tmp_path):
     db_path = tmp_path / "extract.duckdb"
+    json_dir = tmp_path / "json"
 
-    summary = extract_video(_CLIP_PATH, db_path=db_path)
+    summary = extract_video(_CLIP_PATH, db_path=db_path, json_dir=json_dir)
 
     assert summary.num_games == 1
     assert summary.num_claims == 1
+
+    json_path = json_dir / f"{summary.video_id}-1.json"
+    assert json_path.exists()
+    game_data = json.loads(json_path.read_text())
+    assert [(c["row"], c["col"], c["color"]) for c in game_data["claims"]] == [(0, 4, "red")]
 
     con = duckdb.connect(str(db_path))
     try:
