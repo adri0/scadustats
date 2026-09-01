@@ -1,11 +1,24 @@
 """5x5 bingo grid analysis: per-cell claim color and square text."""
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
 from scadustats import layout, ocr
 from scadustats.models import CellColor
+
+# Tesseract's PSM 6 reads square text as multiple lines wrapped to the cell width; only
+# letters, digits, spaces, and apostrophes (e.g. "Rennala's") are meaningful goal text,
+# so anything else (line breaks, stray punctuation from OCR noise) is stripped rather
+# than kept as literal output.
+_NON_ALPHANUMERIC_SPACE = re.compile(r"[^A-Za-z0-9 ']+")
+
+
+def _sanitize_square_text(text: str) -> str:
+    collapsed = _NON_ALPHANUMERIC_SPACE.sub(" ", text)
+    return " ".join(collapsed.split())
+
 
 # Classification uses raw BGR channel dominance rather than HSV hue. HSV hue was tried
 # first and looked solid on a handful of calibration frames (red clustering tightly
@@ -85,4 +98,5 @@ def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
     ]
     with ThreadPoolExecutor(max_workers=len(crops)) as executor:
         flat_texts = list(executor.map(lambda crop: ocr.read_text(crop, psm=6), crops))
+    flat_texts = [_sanitize_square_text(text) for text in flat_texts]
     return [flat_texts[r * 5 : r * 5 + 5] for r in range(5)]

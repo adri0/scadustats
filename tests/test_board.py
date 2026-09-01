@@ -1,8 +1,20 @@
 import cv2
 
-from scadustats.board import CellColor, cell_colors
+from scadustats.board import CellColor, _sanitize_square_text, cell_colors
 
 _FIXTURES = "tests/fixtures"
+
+
+def test_sanitize_square_text_strips_line_breaks_and_punctuation():
+    assert _sanitize_square_text("Deal 100\ndamage w/ a\n\nbow!") == "Deal 100 damage w a bow"
+
+
+def test_sanitize_square_text_keeps_apostrophes():
+    assert _sanitize_square_text("Defeat Rennala's\nknight") == "Defeat Rennala's knight"
+
+
+def test_sanitize_square_text_collapses_whitespace():
+    assert _sanitize_square_text("  Kill   3  enemies  ") == "Kill 3 enemies"
 
 
 def test_cell_colors_all_unclaimed():
