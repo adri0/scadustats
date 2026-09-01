@@ -6,7 +6,7 @@ from scadustats.models import CellColor, ClaimEvent, GameResult, VideoInfo, WinT
 
 
 def _sample_game() -> GameResult:
-    goal_texts = [[f"goal {r}-{c}" for c in range(5)] for r in range(5)]
+    square_texts = [[f"goal {r}-{c}" for c in range(5)] for r in range(5)]
     return GameResult(
         game_index=1,
         label="GAME 1",
@@ -14,7 +14,7 @@ def _sample_game() -> GameResult:
         end_video_ts_s=100.0,
         player_red_name="alice",
         player_blue_name="bob",
-        goal_texts=goal_texts,
+        square_texts=square_texts,
         claims=[ClaimEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
         winner_color=None,
         win_type=WinType.NONE,

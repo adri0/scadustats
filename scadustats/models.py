@@ -23,8 +23,8 @@ class EventType(Enum):
     the wrong square and undo it -- so a claim's lifecycle is an event, not just a
     one-time transition."""
 
-    CLAIM = "claim"
-    UNCLAIM = "unclaim"
+    MARK = "mark"
+    UNMARK = "unmark"
 
 
 class FractionalBox(NamedTuple):
@@ -48,10 +48,10 @@ class VideoInfo:
 class ClaimEvent:
     row: int
     col: int
-    color: CellColor  # for an UNCLAIM, the color that was removed
+    color: CellColor  # for an UNMARK, the color that was removed
     video_ts_s: float
     game_elapsed_s: int
-    event_type: EventType = EventType.CLAIM
+    event_type: EventType = EventType.MARK
 
 
 @dataclass
@@ -62,7 +62,7 @@ class GameResult:
     end_video_ts_s: float | None
     player_red_name: str | None
     player_blue_name: str | None
-    goal_texts: list[list[str]]
+    square_texts: list[list[str]]
     claims: list[ClaimEvent]
     winner_color: CellColor | None
     win_type: WinType

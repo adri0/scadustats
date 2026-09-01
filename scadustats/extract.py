@@ -179,12 +179,12 @@ def _extract_events(segment: list[Observation]) -> list[ClaimEvent]:
                     if old is CellColor.UNCLAIMED and observed is not CellColor.UNCLAIMED:
                         events.append(
                             ClaimEvent(
-                                r, c, observed, obs.video_ts_s, game_elapsed, EventType.CLAIM
+                                r, c, observed, obs.video_ts_s, game_elapsed, EventType.MARK
                             )
                         )
                     elif old is not CellColor.UNCLAIMED and observed is CellColor.UNCLAIMED:
                         events.append(
-                            ClaimEvent(r, c, old, obs.video_ts_s, game_elapsed, EventType.UNCLAIM)
+                            ClaimEvent(r, c, old, obs.video_ts_s, game_elapsed, EventType.UNMARK)
                         )
                     else:
                         logger.warning(
@@ -211,7 +211,7 @@ def _determine_winner(events: list[ClaimEvent]) -> tuple[CellColor | None, WinTy
     state: list[list[CellColor]] = [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
     for event in events:
         state[event.row][event.col] = (
-            event.color if event.event_type is EventType.CLAIM else CellColor.UNCLAIMED
+            event.color if event.event_type is EventType.MARK else CellColor.UNCLAIMED
         )
     return winner.determine_winner(state)
 
@@ -232,7 +232,7 @@ def extract_video(
     games = []
     for game_index, segment in enumerate(segments, start=1):
         representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
-        goal_texts = board.cell_goal_texts(representative_frame)
+        square_texts = board.cell_square_texts(representative_frame)
         player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
         label = next((obs.label for obs in segment if obs.label), None)
 
@@ -247,7 +247,7 @@ def extract_video(
                 end_video_ts_s=segment[-1].video_ts_s,
                 player_red_name=player_red_name,
                 player_blue_name=player_blue_name,
-                goal_texts=goal_texts,
+                square_texts=square_texts,
                 claims=events,
                 winner_color=winner_color,
                 win_type=win_type,
@@ -265,6 +265,6 @@ def extract_video(
         video_id=video_id,
         num_games=len(games),
         num_claims=sum(
-            1 for game in games for event in game.claims if event.event_type is EventType.CLAIM
+            1 for game in games for event in game.claims if event.event_type is EventType.MARK
         ),
     )

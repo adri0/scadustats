@@ -35,12 +35,12 @@ def test_extract_video_end_to_end(tmp_path):
     json_path = json_dir / f"{summary.video_id}-1.json"
     assert json_path.exists()
     game_data = json.loads(json_path.read_text())
-    assert [(c["row"], c["col"], c["color"]) for c in game_data["claims"]] == [(0, 4, "red")]
+    assert [(c["row"], c["col"], c["color"]) for c in game_data["events"]] == [(0, 4, "red")]
 
     con = duckdb.connect(str(db_path))
     try:
         squares = con.execute(
-            "SELECT goal_text FROM squares WHERE game_id = ?", [f"{summary.video_id}-1"]
+            "SELECT square_text FROM squares WHERE game_id = ?", [f"{summary.video_id}-1"]
         ).fetchall()
         assert len(squares) == 25
         assert all(text for (text,) in squares)

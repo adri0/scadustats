@@ -14,13 +14,19 @@ def game_id(video_id: str, game_index: int) -> str:
     return f"{video_id}-{game_index}"
 
 
+def _format_hms(total_seconds: int) -> str:
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 def _claim_to_dict(claim: ClaimEvent) -> dict:
     return {
         "row": claim.row,
         "col": claim.col,
         "color": claim.color.value,
         "event_type": claim.event_type.value,
-        "game_elapsed_s": claim.game_elapsed_s,
+        "game_timer": _format_hms(claim.game_elapsed_s),
         "video_ts_s": claim.video_ts_s,
     }
 
@@ -37,8 +43,11 @@ def _game_to_dict(video_id: str, game: GameResult) -> dict:
         "player_blue_name": game.player_blue_name,
         "winner_color": game.winner_color.value if game.winner_color else None,
         "win_type": game.win_type.value,
-        "goal_texts": game.goal_texts,
-        "claims": [_claim_to_dict(claim) for claim in game.claims],
+        "square_texts": game.square_texts,
+        "events": [
+            _claim_to_dict(claim)
+            for claim in sorted(game.claims, key=lambda claim: claim.game_elapsed_s)
+        ],
     }
 
 

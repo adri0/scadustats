@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS squares (
     game_id VARCHAR NOT NULL REFERENCES games(game_id),
     row INTEGER NOT NULL CHECK (row BETWEEN 0 AND 4),
     col INTEGER NOT NULL CHECK (col BETWEEN 0 AND 4),
-    goal_text VARCHAR NOT NULL,
+    square_text VARCHAR NOT NULL,
     PRIMARY KEY (game_id, row, col)
 );
 
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS claims (
     row INTEGER NOT NULL,
     col INTEGER NOT NULL,
     color VARCHAR NOT NULL CHECK (color IN ('red', 'blue')),
-    event_type VARCHAR NOT NULL CHECK (event_type IN ('claim', 'unclaim')),
+    event_type VARCHAR NOT NULL CHECK (event_type IN ('mark', 'unmark')),
     game_elapsed_s INTEGER NOT NULL,
     video_ts_s DOUBLE NOT NULL,
     FOREIGN KEY (game_id, row, col) REFERENCES squares(game_id, row, col)
@@ -122,8 +122,8 @@ def write_extraction(
             for row in range(5):
                 for col in range(5):
                     con.execute(
-                        "INSERT INTO squares (game_id, row, col, goal_text) VALUES (?, ?, ?, ?)",
-                        [game_id, row, col, game.goal_texts[row][col]],
+                        "INSERT INTO squares (game_id, row, col, square_text) VALUES (?, ?, ?, ?)",
+                        [game_id, row, col, game.square_texts[row][col]],
                     )
 
             for claim in game.claims:

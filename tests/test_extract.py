@@ -29,8 +29,8 @@ def test_claim_then_mistaken_unclaim_produces_both_events(caplog):
         events = _extract_events(segment)
 
     assert [(e.row, e.col, e.color, e.event_type) for e in events] == [
-        (0, 0, R, EventType.CLAIM),
-        (0, 0, R, EventType.UNCLAIM),
+        (0, 0, R, EventType.MARK),
+        (0, 0, R, EventType.UNMARK),
     ]
     assert not caplog.records
 
@@ -45,7 +45,7 @@ def test_direct_color_swap_is_logged_not_recorded_as_event(caplog):
 
     # The initial unclaimed -> red is a real claim; the direct red -> blue swap that
     # follows is logged as a data-quality warning rather than recorded as a second event.
-    assert [(e.row, e.col, e.color, e.event_type) for e in events] == [(0, 0, R, EventType.CLAIM)]
+    assert [(e.row, e.col, e.color, e.event_type) for e in events] == [(0, 0, R, EventType.MARK)]
     assert any("unexpected direct color swap" in r.message for r in caplog.records)
 
 

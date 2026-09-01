@@ -1,4 +1,4 @@
-"""5x5 bingo grid analysis: per-cell claim color and goal text."""
+"""5x5 bingo grid analysis: per-cell claim color and square text."""
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -24,8 +24,8 @@ _DOMINANCE_THRESHOLD = 50  # required margin of the dominant channel over the ot
 _RED_GREEN_CONTRAST_THRESHOLD = 80  # required R-over-G margin, to reject high-G false reds
 
 # Inset patch anchored at a cell's bottom-left corner, as a fraction of cell width/height.
-# Chosen to avoid the centered goal text and the numeric progress badge observed near
-# cell centers/corners for multi-count goals.
+# Chosen to avoid the centered square text and the numeric progress badge observed near
+# cell centers/corners for multi-count squares.
 _PATCH_LEFT, _PATCH_RIGHT = 0.05, 0.25
 _PATCH_TOP, _PATCH_BOTTOM = 0.75, 0.93
 
@@ -69,8 +69,8 @@ def is_gameplay_frame(frame: np.ndarray) -> bool:
     return classify_patch(red_bar) is CellColor.RED and classify_patch(blue_bar) is CellColor.BLUE
 
 
-def cell_goal_texts(frame: np.ndarray) -> list[list[str]]:
-    """OCR all 25 cells' goal text.
+def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
+    """OCR all 25 cells' square text.
 
     Each cell is an independent tesseract subprocess call (~70ms fixed overhead
     regardless of crop size, per profiling -- see CLAUDE.md), so this is run as one
