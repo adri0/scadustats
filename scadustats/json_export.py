@@ -5,7 +5,7 @@ outside DuckDB. Export only -- there's no importer back from JSON into the DB ye
 import json
 from pathlib import Path
 
-from scadustats.models import ClaimEvent, GameResult
+from scadustats.models import GameEvent, GameResult
 
 
 def game_id(video_id: str, game_index: int) -> str:
@@ -20,14 +20,14 @@ def _format_hms(total_seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def _claim_to_dict(claim: ClaimEvent) -> dict:
+def _event_to_dict(event: GameEvent) -> dict:
     return {
-        "row": claim.row,
-        "col": claim.col,
-        "color": claim.color.value,
-        "event_type": claim.event_type.value,
-        "game_timer": _format_hms(claim.game_elapsed_s),
-        "video_ts_s": claim.video_ts_s,
+        "row": event.row,
+        "col": event.col,
+        "color": event.color.value if event.color else None,
+        "event_type": event.event_type.value,
+        "game_timer": _format_hms(event.game_elapsed_s),
+        "video_ts_s": event.video_ts_s,
     }
 
 
@@ -45,8 +45,8 @@ def _game_to_dict(video_id: str, game: GameResult) -> dict:
         "win_type": game.win_type.value,
         "square_texts": game.square_texts,
         "events": [
-            _claim_to_dict(claim)
-            for claim in sorted(game.claims, key=lambda claim: claim.game_elapsed_s)
+            _event_to_dict(event)
+            for event in sorted(game.events, key=lambda event: event.game_elapsed_s)
         ],
     }
 

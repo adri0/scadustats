@@ -21,10 +21,13 @@ class WinType(Enum):
 class EventType(Enum):
     """A square can be unmarked after being marked -- a player can inadvertently claim
     the wrong square and undo it -- so a claim's lifecycle is an event, not just a
-    one-time transition."""
+    one-time transition. Not every event is about a square, though: GAME_START marks a
+    whole-game moment (the stopwatch turning from the pre-game countdown into the
+    ascending game clock) and so carries no row/col/color."""
 
     MARK = "mark"
     UNMARK = "unmark"
+    GAME_START = "game_start"
 
 
 class FractionalBox(NamedTuple):
@@ -45,10 +48,11 @@ class VideoInfo:
 
 
 @dataclass
-class ClaimEvent:
-    row: int
-    col: int
-    color: CellColor  # for an UNMARK, the color that was removed
+class GameEvent:
+    # None for a game-level event (GAME_START) that isn't about any one square.
+    row: int | None
+    col: int | None
+    color: CellColor | None  # for an UNMARK, the color that was removed; None for GAME_START
     video_ts_s: float
     game_elapsed_s: int
     event_type: EventType = EventType.MARK
@@ -63,6 +67,6 @@ class GameResult:
     player_red_name: str | None
     player_blue_name: str | None
     square_texts: list[list[str]]
-    claims: list[ClaimEvent]
+    events: list[GameEvent]
     winner_color: CellColor | None
     win_type: WinType

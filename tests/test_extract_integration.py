@@ -35,7 +35,8 @@ def test_extract_video_end_to_end(tmp_path):
     json_path = json_dir / f"{summary.video_id}-1.json"
     assert json_path.exists()
     game_data = json.loads(json_path.read_text())
-    assert [(c["row"], c["col"], c["color"]) for c in game_data["events"]] == [(0, 4, "red")]
+    marks = [(e["row"], e["col"], e["color"]) for e in game_data["events"] if e["row"] is not None]
+    assert marks == [(0, 4, "red")]
 
     con = duckdb.connect(str(db_path))
     try:
@@ -46,7 +47,8 @@ def test_extract_video_end_to_end(tmp_path):
         assert all(text for (text,) in squares)
 
         claims = con.execute(
-            "SELECT row, col, color FROM claims WHERE game_id = ?", [f"{summary.video_id}-1"]
+            "SELECT row, col, color FROM events WHERE game_id = ? AND event_type = 'mark'",
+            [f"{summary.video_id}-1"],
         ).fetchall()
         assert claims == [(0, 4, "red")]
     finally:

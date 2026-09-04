@@ -7,7 +7,7 @@ import duckdb
 from scadustats.models import GameResult, VideoInfo
 
 _SCHEMA = """
-CREATE SEQUENCE IF NOT EXISTS claims_seq START 1;
+CREATE SEQUENCE IF NOT EXISTS events_seq START 1;
 
 CREATE TABLE IF NOT EXISTS videos (
     video_id VARCHAR PRIMARY KEY,
@@ -39,13 +39,13 @@ CREATE TABLE IF NOT EXISTS squares (
     PRIMARY KEY (game_id, row, col)
 );
 
-CREATE TABLE IF NOT EXISTS claims (
-    claim_id BIGINT PRIMARY KEY DEFAULT nextval('claims_seq'),
+CREATE TABLE IF NOT EXISTS events (
+    event_id BIGINT PRIMARY KEY DEFAULT nextval('events_seq'),
     game_id VARCHAR NOT NULL REFERENCES games(game_id),
-    row INTEGER NOT NULL,
-    col INTEGER NOT NULL,
-    color VARCHAR NOT NULL CHECK (color IN ('red', 'blue')),
-    event_type VARCHAR NOT NULL CHECK (event_type IN ('mark', 'unmark')),
+    row INTEGER,
+    col INTEGER,
+    color VARCHAR CHECK (color IN ('red', 'blue')),
+    event_type VARCHAR NOT NULL CHECK (event_type IN ('mark', 'unmark', 'game_start')),
     game_elapsed_s INTEGER NOT NULL,
     video_ts_s DOUBLE NOT NULL,
     FOREIGN KEY (game_id, row, col) REFERENCES squares(game_id, row, col)
@@ -59,7 +59,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
 
 def _delete_video(con: duckdb.DuckDBPyConnection, video_id: str) -> None:
     con.execute(
-        "DELETE FROM claims WHERE game_id IN (SELECT game_id FROM games WHERE video_id = ?)",
+        "DELETE FROM events WHERE game_id IN (SELECT game_id FROM games WHERE video_id = ?)",
         [video_id],
     )
     con.execute(
@@ -126,19 +126,19 @@ def write_extraction(
                         [game_id, row, col, game.square_texts[row][col]],
                     )
 
-            for claim in game.claims:
+            for event in game.events:
                 con.execute(
-                    """INSERT INTO claims
+                    """INSERT INTO events
                        (game_id, row, col, color, event_type, game_elapsed_s, video_ts_s)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     [
                         game_id,
-                        claim.row,
-                        claim.col,
-                        claim.color.value,
-                        claim.event_type.value,
-                        claim.game_elapsed_s,
-                        claim.video_ts_s,
+                        event.row,
+                        event.col,
+                        event.color.value if event.color else None,
+                        event.event_type.value,
+                        event.game_elapsed_s,
+                        event.video_ts_s,
                     ],
                 )
     finally:

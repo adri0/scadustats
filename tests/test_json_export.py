@@ -3,7 +3,7 @@ import json
 import pytest
 
 from scadustats.json_export import write_game
-from scadustats.models import CellColor, ClaimEvent, GameResult, WinType
+from scadustats.models import CellColor, EventType, GameEvent, GameResult, WinType
 
 
 def _sample_game() -> GameResult:
@@ -16,7 +16,7 @@ def _sample_game() -> GameResult:
         player_red_name="alice",
         player_blue_name="bob",
         square_texts=square_texts,
-        claims=[ClaimEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
+        events=[GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
         winner_color=CellColor.RED,
         win_type=WinType.LINE,
     )
@@ -52,10 +52,10 @@ def test_write_game_creates_file_with_expected_content(tmp_path):
 
 def test_write_game_sorts_events_by_game_timer(tmp_path):
     game = _sample_game()
-    game.claims = [
-        ClaimEvent(row=1, col=1, color=CellColor.BLUE, video_ts_s=30.0, game_elapsed_s=29),
-        ClaimEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9),
-        ClaimEvent(row=2, col=2, color=CellColor.RED, video_ts_s=20.0, game_elapsed_s=19),
+    game.events = [
+        GameEvent(row=1, col=1, color=CellColor.BLUE, video_ts_s=30.0, game_elapsed_s=29),
+        GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9),
+        GameEvent(row=2, col=2, color=CellColor.RED, video_ts_s=20.0, game_elapsed_s=19),
     ]
 
     path = write_game(tmp_path, "vid1", game)
@@ -66,6 +66,28 @@ def test_write_game_sorts_events_by_game_timer(tmp_path):
         "00:00:19",
         "00:00:29",
     ]
+
+
+def test_write_game_serializes_game_start_event_with_null_fields(tmp_path):
+    game = _sample_game()
+    game.events = [
+        GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_ts_s=1.0,
+            game_elapsed_s=0,
+            event_type=EventType.GAME_START,
+        ),
+        *game.events,
+    ]
+
+    path = write_game(tmp_path, "vid1", game)
+    data = json.loads(path.read_text())
+
+    game_start = next(e for e in data["events"] if e["event_type"] == "game_start")
+    assert (game_start["row"], game_start["col"], game_start["color"]) == (None, None, None)
+    assert game_start["game_timer"] == "00:00:00"
 
 
 def test_write_game_handles_no_winner(tmp_path):

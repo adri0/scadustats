@@ -1,6 +1,6 @@
 import logging
 
-from scadustats.extract import _determine_winner, _extract_events
+from scadustats.extract import _detect_game_start, _determine_winner, _extract_events
 from scadustats.models import CellColor, EventType
 from scadustats.segmentation import Observation
 
@@ -64,3 +64,37 @@ def test_winner_ignores_a_line_undone_by_unclaim():
     from scadustats.models import WinType
 
     assert win_type is WinType.NONE
+
+
+def test_detect_game_start_finds_ascent_from_countdown_minimum():
+    # A pre-game countdown ticking down to zero, then the real game clock ascending --
+    # GAME_START is the sample at the bottom of that dip.
+    board = _board()
+    segment = [
+        Observation(0, 0.0, board, 5),
+        Observation(1, 1.0, board, 3),
+        Observation(2, 2.0, board, 1),
+        Observation(3, 3.0, board, 0),
+        Observation(4, 4.0, board, 1),
+        Observation(5, 5.0, board, 2),
+    ]
+
+    event = _detect_game_start(segment)
+
+    assert event is not None
+    assert event.event_type is EventType.GAME_START
+    assert (event.row, event.col, event.color) == (None, None, None)
+    assert event.game_elapsed_s == 0
+    assert event.video_ts_s == 3.0
+
+
+def test_detect_game_start_returns_none_without_a_local_minimum():
+    # No countdown captured -- the timer only ever ascends, so there's no dip to find.
+    board = _board()
+    segment = [
+        Observation(0, 0.0, board, 0),
+        Observation(1, 1.0, board, 1),
+        Observation(2, 2.0, board, 2),
+    ]
+
+    assert _detect_game_start(segment) is None

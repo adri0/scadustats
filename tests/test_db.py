@@ -2,7 +2,7 @@ import duckdb
 import pytest
 
 from scadustats.db import write_extraction
-from scadustats.models import CellColor, ClaimEvent, GameResult, VideoInfo, WinType
+from scadustats.models import CellColor, EventType, GameEvent, GameResult, VideoInfo, WinType
 
 
 def _sample_game() -> GameResult:
@@ -15,7 +15,7 @@ def _sample_game() -> GameResult:
         player_red_name="alice",
         player_blue_name="bob",
         square_texts=square_texts,
-        claims=[ClaimEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
+        events=[GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
         winner_color=None,
         win_type=WinType.NONE,
     )
@@ -32,7 +32,7 @@ def test_write_and_read_extraction(tmp_path):
         assert con.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM squares").fetchone()[0] == 25
-        assert con.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
     finally:
         con.close()
 
@@ -49,7 +49,35 @@ def test_replace_is_idempotent(tmp_path):
         assert con.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM squares").fetchone()[0] == 25
-        assert con.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
+    finally:
+        con.close()
+
+
+def test_game_start_event_writes_with_null_row_col_color(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    video_info = VideoInfo(width=1280, height=720, fps=60.0, duration_s=100.0)
+    game = _sample_game()
+    game.events = [
+        GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_ts_s=1.0,
+            game_elapsed_s=0,
+            event_type=EventType.GAME_START,
+        ),
+        *game.events,
+    ]
+
+    write_extraction(db_path, "vid1", "downloads/vid1.mp4", video_info, [game])
+
+    con = duckdb.connect(str(db_path))
+    try:
+        row, col, color, event_type = con.execute(
+            "SELECT row, col, color, event_type FROM events WHERE event_type = 'game_start'"
+        ).fetchone()
+        assert (row, col, color, event_type) == (None, None, None, "game_start")
     finally:
         con.close()
 
