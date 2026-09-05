@@ -103,6 +103,7 @@ def expected_squares() -> list[list[str]]:
     ]
 
 
+@pytest.mark.integration
 def test_square_text_majority_vote_reads_all_cells_from_real_clip(
     expected_squares: list[list[str]],
 ):
