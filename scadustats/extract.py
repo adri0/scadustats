@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 # game-boundary signals, and label OCR is comparatively expensive.
 _LABEL_SAMPLE_INTERVAL = 5
 
+# Frames to majority-vote per game when reading square text -- a single frame's OCR
+# occasionally misreads a cell, so square text is read from this many frames spread
+# across the game and, per cell, whichever exact text came back most often wins (see
+# board.cell_square_texts_majority).
+_SQUARE_TEXT_FRAME_COUNT = 10
+
 # Profiling showed OCR (pytesseract shelling out to the tesseract binary) is 80-90% of
 # extraction's wall time, dominated by the per-sample timer read -- each call has a fixed
 # ~70ms process-spawn/IPC cost regardless of crop size. tesseract runs as a subprocess, so
@@ -152,6 +158,37 @@ def _grab_frame(video_path: Path, video_ts_s: float) -> np.ndarray:
         cap.release()
 
 
+def _grab_frames(video_path: Path, video_ts_s_list: list[float]) -> list[np.ndarray]:
+    """Like `_grab_frame`, but shares one `VideoCapture` across several timestamps --
+    used to pull the handful of frames majority-voted for square text, rather than
+    reopening the video file per frame.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        result = []
+        for video_ts_s in video_ts_s_list:
+            cap.set(cv2.CAP_PROP_POS_MSEC, video_ts_s * 1000)
+            ok, frame = cap.read()
+            if not ok:
+                raise RuntimeError(f"could not read a frame at {video_ts_s}s from {video_path}")
+            result.append(frame)
+        return result
+    finally:
+        cap.release()
+
+
+def _select_square_text_observations(segment: list[Observation]) -> list[Observation]:
+    """Up to `_SQUARE_TEXT_FRAME_COUNT` observations spread evenly across the segment, so
+    square text can be majority-voted across multiple frames instead of trusting whichever
+    single frame happened to land on the segment's midpoint.
+    """
+    if len(segment) <= _SQUARE_TEXT_FRAME_COUNT:
+        return segment
+    step = (len(segment) - 1) / (_SQUARE_TEXT_FRAME_COUNT - 1)
+    indices = sorted({round(i * step) for i in range(_SQUARE_TEXT_FRAME_COUNT)})
+    return [segment[i] for i in indices]
+
+
 def _detect_game_start(segment: list[Observation]) -> GameEvent | None:
     """The overlay's stopwatch isn't the game clock until the pre-game countdown (which
     ticks down by ~1/sample, see segmentation.py) bottoms out -- the real GAME_START
@@ -258,7 +295,11 @@ def extract_video(
     games = []
     for game_index, segment in enumerate(segments, start=1):
         representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
-        square_texts = board.cell_square_texts(representative_frame)
+        square_text_observations = _select_square_text_observations(segment)
+        square_text_frames = _grab_frames(
+            video_path, [obs.video_ts_s for obs in square_text_observations]
+        )
+        square_texts = board.cell_square_texts_majority(square_text_frames)
         player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
         label = next((obs.label for obs in segment if obs.label), None)
 

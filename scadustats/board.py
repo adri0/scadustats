@@ -1,6 +1,7 @@
 """5x5 bingo grid analysis: per-cell claim color and square text."""
 
 import re
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -9,10 +10,11 @@ from scadustats import layout, ocr
 from scadustats.models import CellColor
 
 # Tesseract's PSM 6 reads square text as multiple lines wrapped to the cell width; only
-# letters, digits, spaces, and apostrophes (e.g. "Rennala's") are meaningful goal text,
-# so anything else (line breaks, stray punctuation from OCR noise) is stripped rather
-# than kept as literal output.
-_NON_ALPHANUMERIC_SPACE = re.compile(r"[^A-Za-z0-9 ']+")
+# letters, digits, spaces, apostrophes (e.g. "Rennala's"), periods (e.g. "Mt. Gelmir"),
+# parentheses (e.g. "(Volcano Manor)"), and "+" (e.g. "+0 Weapon Only") are meaningful
+# goal text, so anything else (line breaks, stray punctuation from OCR noise) is stripped
+# rather than kept as literal output.
+_NON_ALPHANUMERIC_SPACE = re.compile(r"[^A-Za-z0-9 '.()+]+")
 
 
 def _sanitize_square_text(text: str) -> str:
@@ -82,6 +84,12 @@ def is_gameplay_frame(frame: np.ndarray) -> bool:
     return classify_patch(red_bar) is CellColor.RED and classify_patch(blue_bar) is CellColor.BLUE
 
 
+# Cell crops are tiny (e.g. ~75x69px at 720p) holding up to 4 wrapped lines of goal text,
+# putting real glyph height well below what Tesseract reads reliably -- upscale before OCR
+# to compensate (see ocr.read_text).
+_SQUARE_TEXT_OCR_SCALE = 4.0
+
+
 def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
     """OCR all 25 cells' square text.
 
@@ -97,6 +105,27 @@ def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
         for c in range(5)
     ]
     with ThreadPoolExecutor(max_workers=len(crops)) as executor:
-        flat_texts = list(executor.map(lambda crop: ocr.read_text(crop, psm=6), crops))
+        flat_texts = list(
+            executor.map(
+                lambda crop: ocr.read_text(crop, psm=6, scale=_SQUARE_TEXT_OCR_SCALE), crops
+            )
+        )
     flat_texts = [_sanitize_square_text(text) for text in flat_texts]
     return [flat_texts[r * 5 : r * 5 + 5] for r in range(5)]
+
+
+def cell_square_texts_majority(frames: list[np.ndarray]) -> list[list[str]]:
+    """OCR all 25 cells across several frames of the same game and, per cell, keep
+    whichever exact text was read most often.
+
+    A single frame's OCR occasionally misreads a cell (motion blur, a compression
+    artifact on that frame), and unlike cell color/claims there's no debounce here since
+    square text never changes mid-game -- so voting across multiple frames instead of
+    trusting whichever one frame happened to be sampled is a straightforward way to drop
+    that noise.
+    """
+    per_frame_texts = [cell_square_texts(frame) for frame in frames]
+    return [
+        [Counter(pf[r][c] for pf in per_frame_texts).most_common(1)[0][0] for c in range(5)]
+        for r in range(5)
+    ]
