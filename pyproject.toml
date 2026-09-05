@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration' -rx"
 markers = [
     "integration: tests that hit real external services (e.g. YouTube)",
 ]
