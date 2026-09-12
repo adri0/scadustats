@@ -27,8 +27,9 @@ def _prompt_match_metadata(
     match_date_opt: str | None,
     season_opt: int | None,
     match_type_opt: MatchType | None,
+    video_url_opt: str | None,
 ) -> MatchMetadata:
-    """Prompts for whichever of the three match details weren't already supplied as CLI
+    """Prompts for whichever of the match details weren't already supplied as CLI
     options. Run on a background thread by the `extract` command so it overlaps with the
     (much longer) extraction pipeline instead of blocking it."""
     match_date_val = date.fromisoformat(match_date_opt) if match_date_opt else _prompt_match_date()
@@ -44,7 +45,13 @@ def _prompt_match_metadata(
 
     match_type = match_type_opt or _prompt_match_type()
 
-    return MatchMetadata(match_date=match_date_val, season=season, match_type=match_type)
+    video_url = (
+        (video_url_opt.strip() or None) if video_url_opt is not None else _prompt_video_url()
+    )
+
+    return MatchMetadata(
+        match_date=match_date_val, season=season, match_type=match_type, video_url=video_url
+    )
 
 
 def _prompt_match_date() -> date:
@@ -69,6 +76,13 @@ def _prompt_match_type() -> MatchType:
             return MatchType(raw)
         except ValueError:
             typer.echo(f"Invalid match type {raw!r}, must be one of: {', '.join(choices)}")
+
+
+def _prompt_video_url() -> str | None:
+    # Unlike match date, this one really can be left blank -- e.g. extracting from a
+    # video someone else downloaded, with no link handy.
+    raw = typer.prompt("Video URL (optional)", default="", show_default=False)
+    return raw.strip() or None
 
 
 @app.command()
@@ -109,6 +123,10 @@ def extract(
         MatchType | None,
         typer.Option(help="double_elimination or playoffs (prompted if omitted)"),
     ] = None,
+    video_url: Annotated[
+        str | None,
+        typer.Option(help="Source video URL, for provenance (prompted if omitted; may be empty)"),
+    ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into JSON files in json_dir.
 
@@ -145,7 +163,7 @@ def extract(
         def prompt_for_metadata() -> MatchMetadata:
             with progress_lock:
                 typer.echo()  # fresh line, so this doesn't run into the bar's last redraw
-                return _prompt_match_metadata(match_date, season, match_type)
+                return _prompt_match_metadata(match_date, season, match_type, video_url)
 
         with ThreadPoolExecutor(max_workers=1) as prompt_executor:
             metadata_future: Future[MatchMetadata] = prompt_executor.submit(prompt_for_metadata)

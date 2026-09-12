@@ -50,10 +50,14 @@ def test_extract_video_end_to_end(tmp_path):
     # (an estimate, not exact -- see its docstring) within a sample or two.
     assert progress_calls == pytest.approx(estimate_sample_count(_CLIP_PATH), abs=2)
 
-    json_path = json_dir / f"{summary.video_id}-1.json"
+    json_path = json_dir / f"{summary.video_id}.json"
     assert json_path.exists()
-    game_data = json.loads(json_path.read_text())
-    marks = [(e["row"], e["col"], e["color"]) for e in game_data["events"] if e["row"] is not None]
+    video_data = json.loads(json_path.read_text())
+    assert video_data["player_red_name"] == "blanxz"
+    assert video_data["player_blue_name"] == "SeriousChallenges"
+    assert len(video_data["games"]) == 1
+    events = video_data["games"][0]["events"]
+    marks = [(e["row"], e["col"], e["color"]) for e in events if e["row"] is not None]
     assert marks == [(0, 4, "red")]
 
     # extract_video itself never touches a database -- load_json_dir is the separate,
@@ -75,6 +79,12 @@ def test_extract_video_end_to_end(tmp_path):
             [f"{summary.video_id}-1"],
         ).fetchall()
         assert claims == [(0, 4, "red")]
+
+        player_red_name, player_blue_name = con.execute(
+            "SELECT player_red_name, player_blue_name FROM videos WHERE video_id = ?",
+            [summary.video_id],
+        ).fetchone()
+        assert (player_red_name, player_blue_name) == ("blanxz", "SeriousChallenges")
     finally:
         con.close()
 
@@ -91,11 +101,11 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
 
     summary = extract_video(_CLIP_PATH, json_dir=json_dir, match_metadata=metadata_future)
 
-    json_path = json_dir / f"{summary.video_id}-1.json"
-    game_data = json.loads(json_path.read_text())
-    assert game_data["match_date"] == "2026-03-05"
-    assert game_data["season"] == 6
-    assert game_data["match_type"] == "playoffs"
+    json_path = json_dir / f"{summary.video_id}.json"
+    video_data = json.loads(json_path.read_text())
+    assert video_data["match_date"] == "2026-03-05"
+    assert video_data["season"] == 6
+    assert video_data["match_type"] == "playoffs"
 
 
 @pytest.fixture()

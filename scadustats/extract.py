@@ -10,6 +10,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import cv2
@@ -22,6 +23,7 @@ from scadustats.models import (
     GameEvent,
     GameResult,
     MatchMetadata,
+    VideoExtraction,
     WinType,
 )
 from scadustats.segmentation import Observation, detect_boundaries
@@ -315,14 +317,20 @@ def extract_video(
     segments = _segment_games(observations)
 
     games = []
+    # Player names are read once, from the first game, rather than once per game -- a
+    # video is one match, so the same two players hold for every game in it (see
+    # VideoExtraction), and re-reading per game would just be redundant OCR cost.
+    player_red_name: str | None = None
+    player_blue_name: str | None = None
     for game_index, segment in enumerate(segments, start=1):
-        representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
         square_text_observations = _select_square_text_observations(segment)
         square_text_frames = _grab_frames(
             video_path, [obs.video_ts_s for obs in square_text_observations]
         )
         square_texts = board.cell_square_texts_majority(square_text_frames)
-        player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
+        if game_index == 1:
+            representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
+            player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
         label = next((obs.label for obs in segment if obs.label), None)
 
         events = _extract_events(segment)
@@ -337,8 +345,6 @@ def extract_video(
                 label=label,
                 start_video_ts_s=segment[0].video_ts_s,
                 end_video_ts_s=segment[-1].video_ts_s,
-                player_red_name=player_red_name,
-                player_blue_name=player_blue_name,
                 square_texts=square_texts,
                 events=events,
                 winner_color=winner_color,
@@ -354,14 +360,19 @@ def extract_video(
     if isinstance(match_metadata, Future):
         match_metadata = match_metadata.result()
 
-    first_game = games[0] if games else None
-    video_id = _video_id(
-        match_metadata,
-        first_game.player_red_name if first_game else None,
-        first_game.player_blue_name if first_game else None,
+    video_id = _video_id(match_metadata, player_red_name, player_blue_name)
+    extraction = VideoExtraction(
+        video_id=video_id,
+        video_url=match_metadata.video_url,
+        match_date=match_metadata.match_date,
+        season=match_metadata.season,
+        match_type=match_metadata.match_type,
+        player_red_name=player_red_name,
+        player_blue_name=player_blue_name,
+        extracted_at=date.today(),
+        games=games,
     )
-    for game in games:
-        json_export.write_game(json_dir, video_id, game, match_metadata, if_exists=if_exists)
+    json_export.write_video(json_dir, extraction, if_exists=if_exists)
 
     return ExtractionSummary(
         video_id=video_id,

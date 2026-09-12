@@ -5,7 +5,7 @@ from pathlib import Path
 import duckdb
 
 from scadustats import json_export
-from scadustats.models import GameResult, MatchMetadata, VideoInfo
+from scadustats.models import VideoExtraction, VideoInfo
 
 _SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS events_seq START 1;
@@ -18,21 +18,18 @@ CREATE TABLE IF NOT EXISTS videos (
     resolution_width INTEGER,
     resolution_height INTEGER,
     fps DOUBLE,
-    match_date DATE,
-    season INTEGER,
-    match_type VARCHAR,
-    extracted_at TIMESTAMP NOT NULL
+    video_url VARCHAR,
+    match_date DATE NOT NULL,
+    season INTEGER NOT NULL,
+    match_type VARCHAR NOT NULL,
+    -- Player names live here, not on games -- one video is one match, and the same two
+    -- players hold for every game in it (see models.VideoExtraction).
+    player_red_name VARCHAR,
+    player_blue_name VARCHAR,
+    -- The date the video was (last) extracted/updated, as recorded in its JSON --
+    -- *not* whatever moment load_json_dir happens to run at, which could be much later.
+    extracted_at DATE NOT NULL
 );
-
--- Backfills the three columns above onto a videos table created before match metadata
--- existed. IF NOT EXISTS makes this a no-op on a freshly created table too, so it's
--- safe to always run alongside the CREATE TABLE above. No CHECK constraint on
--- match_type here (unlike win_type/event_type below) -- retrofitting one via ALTER
--- TABLE ADD COLUMN isn't reliably supported, and MatchType already validates on the
--- Python side before insert.
-ALTER TABLE videos ADD COLUMN IF NOT EXISTS match_date DATE;
-ALTER TABLE videos ADD COLUMN IF NOT EXISTS season INTEGER;
-ALTER TABLE videos ADD COLUMN IF NOT EXISTS match_type VARCHAR;
 
 CREATE TABLE IF NOT EXISTS games (
     game_id VARCHAR PRIMARY KEY,
@@ -41,8 +38,6 @@ CREATE TABLE IF NOT EXISTS games (
     label VARCHAR,
     start_video_ts_s DOUBLE NOT NULL,
     end_video_ts_s DOUBLE,
-    player_red_name VARCHAR,
-    player_blue_name VARCHAR,
     winner_color VARCHAR CHECK (winner_color IN ('red', 'blue')),
     win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'tie', 'none'))
 );
@@ -88,11 +83,9 @@ def _delete_video(con: duckdb.DuckDBPyConnection, video_id: str) -> None:
 
 def write_extraction(
     db_path: str | Path,
-    video_id: str,
-    source_path: str | None,
-    video_info: VideoInfo | None,
-    games: list[GameResult],
-    match_metadata: MatchMetadata | None = None,
+    extraction: VideoExtraction,
+    source_path: str | None = None,
+    video_info: VideoInfo | None = None,
     if_exists: str = "replace",
 ) -> None:
     """source_path/video_info are optional since load_json_dir calls this from
@@ -103,47 +96,50 @@ def write_extraction(
         init_schema(con)
 
         exists = con.execute(
-            "SELECT 1 FROM videos WHERE video_id = ?", [video_id]
+            "SELECT 1 FROM videos WHERE video_id = ?", [extraction.video_id]
         ).fetchone()
         if exists:
             if if_exists == "error":
-                raise ValueError(f"video {video_id!r} already extracted into {db_path}")
+                raise ValueError(f"video {extraction.video_id!r} already extracted into {db_path}")
             if if_exists == "replace":
-                _delete_video(con, video_id)
+                _delete_video(con, extraction.video_id)
 
         con.execute(
             """INSERT INTO videos
                (video_id, source_path, resolution_width, resolution_height, fps,
-                match_date, season, match_type, extracted_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())""",
+                video_url, match_date, season, match_type, player_red_name,
+                player_blue_name, extracted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                video_id,
+                extraction.video_id,
                 source_path,
                 video_info.width if video_info else None,
                 video_info.height if video_info else None,
                 video_info.fps if video_info else None,
-                match_metadata.match_date if match_metadata else None,
-                match_metadata.season if match_metadata else None,
-                match_metadata.match_type.value if match_metadata else None,
+                extraction.video_url,
+                extraction.match_date,
+                extraction.season,
+                extraction.match_type.value,
+                extraction.player_red_name,
+                extraction.player_blue_name,
+                extraction.extracted_at,
             ],
         )
 
-        for game in games:
-            game_id = f"{video_id}-{game.game_index}"
+        for game in extraction.games:
+            game_id = f"{extraction.video_id}-{game.game_index}"
             con.execute(
                 """INSERT INTO games
                    (game_id, video_id, game_index, label, start_video_ts_s, end_video_ts_s,
-                    player_red_name, player_blue_name, winner_color, win_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    winner_color, win_type)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     game_id,
-                    video_id,
+                    extraction.video_id,
                     game.game_index,
                     game.label,
                     game.start_video_ts_s,
                     game.end_video_ts_s,
-                    game.player_red_name,
-                    game.player_blue_name,
                     game.winner_color.value if game.winner_color else None,
                     game.win_type.value,
                 ],
@@ -180,34 +176,17 @@ def load_json_dir(
     json_dir: str | Path,
     if_exists: str = "replace",
 ) -> list[str]:
-    """Reflects every `*.json` game file (as written by json_export.write_game) under
+    """Reflects every `*.json` video file (as written by json_export.write_video) under
     json_dir into the DuckDB at db_path -- the separate, optional process that turns
     extracted JSON into database rows. extract_video itself never touches the database;
-    this is the only path that does.
-
-    Games are grouped by video_id (one match's JSON files can span several games) before
-    writing, since write_extraction persists one video at a time. Returns the video_ids
-    written, in the order first encountered.
+    this is the only path that does. Returns the video_ids written, in filename order.
     """
     json_dir = Path(json_dir)
-    games_by_video: dict[str, list[GameResult]] = {}
-    metadata_by_video: dict[str, MatchMetadata | None] = {}
+    video_ids = []
 
     for path in sorted(json_dir.glob("*.json")):
-        video_id, game, match_metadata = json_export.read_game(path)
-        games_by_video.setdefault(video_id, []).append(game)
-        metadata_by_video[video_id] = match_metadata
+        extraction = json_export.read_video(path)
+        write_extraction(db_path, extraction, if_exists=if_exists)
+        video_ids.append(extraction.video_id)
 
-    for video_id, games in games_by_video.items():
-        games.sort(key=lambda game: game.game_index)
-        write_extraction(
-            db_path,
-            video_id,
-            None,
-            None,
-            games,
-            metadata_by_video[video_id],
-            if_exists=if_exists,
-        )
-
-    return list(games_by_video)
+    return video_ids

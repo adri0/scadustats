@@ -76,6 +76,9 @@ class MatchMetadata:
     match_date: date
     season: int
     match_type: MatchType
+    # The video's URL, if extraction started from a local file rather than the URL
+    # itself -- optional since a contributor may not have it handy at prompt time.
+    video_url: str | None = None
 
 
 @dataclass
@@ -84,9 +87,25 @@ class GameResult:
     label: str | None
     start_video_ts_s: float
     end_video_ts_s: float | None
-    player_red_name: str | None
-    player_blue_name: str | None
     square_texts: list[list[str]]
     events: list[GameEvent]
     winner_color: CellColor | None
     win_type: WinType
+
+
+@dataclass
+class VideoExtraction:
+    """Everything extracted from one video, and the unit `json_export`/`db` persist:
+    one video is one match, and a match can contain several games (GameResult), but
+    player names/match metadata are read/collected once per video, not once per game --
+    see extract._video_id and CLAUDE.md."""
+
+    video_id: str
+    video_url: str | None
+    match_date: date
+    season: int
+    match_type: MatchType
+    player_red_name: str | None
+    player_blue_name: str | None
+    extracted_at: date
+    games: list[GameResult]
