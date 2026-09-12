@@ -5,7 +5,7 @@ outside DuckDB. Export only -- there's no importer back from JSON into the DB ye
 import json
 from pathlib import Path
 
-from scadustats.models import GameEvent, GameResult
+from scadustats.models import GameEvent, GameResult, MatchMetadata
 
 
 def game_id(video_id: str, game_index: int) -> str:
@@ -31,7 +31,9 @@ def _event_to_dict(event: GameEvent) -> dict:
     }
 
 
-def _game_to_dict(video_id: str, game: GameResult) -> dict:
+def _game_to_dict(
+    video_id: str, game: GameResult, match_metadata: MatchMetadata | None = None
+) -> dict:
     return {
         "game_id": game_id(video_id, game.game_index),
         "video_id": video_id,
@@ -41,6 +43,9 @@ def _game_to_dict(video_id: str, game: GameResult) -> dict:
         "end_video_ts_s": game.end_video_ts_s,
         "player_red_name": game.player_red_name,
         "player_blue_name": game.player_blue_name,
+        "match_date": match_metadata.match_date.isoformat() if match_metadata else None,
+        "season": match_metadata.season if match_metadata else None,
+        "match_type": match_metadata.match_type.value if match_metadata else None,
         "winner_color": game.winner_color.value if game.winner_color else None,
         "win_type": game.win_type.value,
         "square_texts": game.square_texts,
@@ -55,6 +60,7 @@ def write_game(
     json_dir: str | Path,
     video_id: str,
     game: GameResult,
+    match_metadata: MatchMetadata | None = None,
     if_exists: str = "replace",
 ) -> Path:
     """Write one game to `<json_dir>/<video_id>-<game_index>.json`, creating json_dir if
@@ -71,5 +77,5 @@ def write_game(
     if if_exists == "error" and path.exists():
         raise FileExistsError(f"match file {path} already exists")
 
-    path.write_text(json.dumps(_game_to_dict(video_id, game), indent=2) + "\n")
+    path.write_text(json.dumps(_game_to_dict(video_id, game, match_metadata), indent=2) + "\n")
     return path

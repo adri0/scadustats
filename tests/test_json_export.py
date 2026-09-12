@@ -1,9 +1,18 @@
+import datetime
 import json
 
 import pytest
 
 from scadustats.json_export import write_game
-from scadustats.models import CellColor, EventType, GameEvent, GameResult, WinType
+from scadustats.models import (
+    CellColor,
+    EventType,
+    GameEvent,
+    GameResult,
+    MatchMetadata,
+    MatchType,
+    WinType,
+)
 
 
 def _sample_game() -> GameResult:
@@ -100,6 +109,28 @@ def test_write_game_handles_no_winner(tmp_path):
 
     assert data["winner_color"] is None
     assert data["win_type"] == "none"
+
+
+def test_write_game_includes_match_metadata_when_provided(tmp_path):
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+
+    path = write_game(tmp_path, "vid1", _sample_game(), match_metadata)
+    data = json.loads(path.read_text())
+
+    assert data["match_date"] == "2026-03-05"
+    assert data["season"] == 6
+    assert data["match_type"] == "playoffs"
+
+
+def test_write_game_match_metadata_defaults_to_null(tmp_path):
+    path = write_game(tmp_path, "vid1", _sample_game())
+    data = json.loads(path.read_text())
+
+    assert data["match_date"] is None
+    assert data["season"] is None
+    assert data["match_type"] is None
 
 
 def test_write_game_creates_json_dir_if_missing(tmp_path):

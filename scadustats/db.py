@@ -4,7 +4,7 @@ from pathlib import Path
 
 import duckdb
 
-from scadustats.models import GameResult, VideoInfo
+from scadustats.models import GameResult, MatchMetadata, VideoInfo
 
 _SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS events_seq START 1;
@@ -15,8 +15,21 @@ CREATE TABLE IF NOT EXISTS videos (
     resolution_width INTEGER,
     resolution_height INTEGER,
     fps DOUBLE,
+    match_date DATE,
+    season INTEGER,
+    match_type VARCHAR,
     extracted_at TIMESTAMP NOT NULL
 );
+
+-- Backfills the three columns above onto a videos table created before match metadata
+-- existed. IF NOT EXISTS makes this a no-op on a freshly created table too, so it's
+-- safe to always run alongside the CREATE TABLE above. No CHECK constraint on
+-- match_type here (unlike win_type/event_type below) -- retrofitting one via ALTER
+-- TABLE ADD COLUMN isn't reliably supported, and MatchType already validates on the
+-- Python side before insert.
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS match_date DATE;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS season INTEGER;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS match_type VARCHAR;
 
 CREATE TABLE IF NOT EXISTS games (
     game_id VARCHAR PRIMARY KEY,
@@ -76,6 +89,7 @@ def write_extraction(
     source_path: str,
     video_info: VideoInfo,
     games: list[GameResult],
+    match_metadata: MatchMetadata | None = None,
     if_exists: str = "replace",
 ) -> None:
     con = duckdb.connect(str(db_path))
@@ -93,9 +107,19 @@ def write_extraction(
 
         con.execute(
             """INSERT INTO videos
-               (video_id, source_path, resolution_width, resolution_height, fps, extracted_at)
-               VALUES (?, ?, ?, ?, ?, now())""",
-            [video_id, source_path, video_info.width, video_info.height, video_info.fps],
+               (video_id, source_path, resolution_width, resolution_height, fps,
+                match_date, season, match_type, extracted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())""",
+            [
+                video_id,
+                source_path,
+                video_info.width,
+                video_info.height,
+                video_info.fps,
+                match_metadata.match_date if match_metadata else None,
+                match_metadata.season if match_metadata else None,
+                match_metadata.match_type.value if match_metadata else None,
+            ],
         )
 
         for game in games:

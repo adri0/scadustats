@@ -1,8 +1,19 @@
+import datetime
+
 import duckdb
 import pytest
 
 from scadustats.db import write_extraction
-from scadustats.models import CellColor, EventType, GameEvent, GameResult, VideoInfo, WinType
+from scadustats.models import (
+    CellColor,
+    EventType,
+    GameEvent,
+    GameResult,
+    MatchMetadata,
+    MatchType,
+    VideoInfo,
+    WinType,
+)
 
 
 def _sample_game() -> GameResult:
@@ -78,6 +89,45 @@ def test_game_start_event_writes_with_null_row_col_color(tmp_path):
             "SELECT row, col, color, event_type FROM events WHERE event_type = 'game_start'"
         ).fetchone()
         assert (row, col, color, event_type) == (None, None, None, "game_start")
+    finally:
+        con.close()
+
+
+def test_match_metadata_round_trips(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    video_info = VideoInfo(width=1280, height=720, fps=60.0, duration_s=100.0)
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+
+    write_extraction(
+        db_path, "vid1", "downloads/vid1.mp4", video_info, [_sample_game()], match_metadata
+    )
+
+    con = duckdb.connect(str(db_path))
+    try:
+        match_date, season, match_type = con.execute(
+            "SELECT match_date, season, match_type FROM videos WHERE video_id = 'vid1'"
+        ).fetchone()
+        assert match_date == datetime.date(2026, 3, 5)
+        assert season == 6
+        assert match_type == "playoffs"
+    finally:
+        con.close()
+
+
+def test_match_metadata_defaults_to_null(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    video_info = VideoInfo(width=1280, height=720, fps=60.0, duration_s=100.0)
+
+    write_extraction(db_path, "vid1", "downloads/vid1.mp4", video_info, [_sample_game()])
+
+    con = duckdb.connect(str(db_path))
+    try:
+        match_date, season, match_type = con.execute(
+            "SELECT match_date, season, match_type FROM videos WHERE video_id = 'vid1'"
+        ).fetchone()
+        assert (match_date, season, match_type) == (None, None, None)
     finally:
         con.close()
 

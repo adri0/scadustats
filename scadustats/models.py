@@ -1,7 +1,8 @@
 """Shared types used across the extraction pipeline."""
 
 from dataclasses import dataclass
-from enum import Enum
+from datetime import date
+from enum import Enum, StrEnum
 from typing import NamedTuple
 
 
@@ -9,6 +10,14 @@ class CellColor(Enum):
     UNCLAIMED = "unclaimed"
     RED = "red"
     BLUE = "blue"
+
+
+class MatchType(StrEnum):
+    """User-provided, not derivable from the video. StrEnum (unlike the plain Enums
+    above) so it doubles directly as a Typer/Click CLI choice type -- see cli.py."""
+
+    DOUBLE_ELIMINATION = "double_elimination"
+    PLAYOFFS = "playoffs"
 
 
 class WinType(Enum):
@@ -56,6 +65,17 @@ class GameEvent:
     video_ts_s: float
     game_elapsed_s: int
     event_type: EventType = EventType.MARK
+
+
+@dataclass
+class MatchMetadata:
+    """User-supplied details about a match that can't be read from the video itself --
+    collected interactively by the CLI (see cli.py) and attached once per video, since a
+    match is one video even when it contains multiple game segments."""
+
+    match_date: date
+    season: int
+    match_type: MatchType
 
 
 @dataclass

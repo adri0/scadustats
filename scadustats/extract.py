@@ -15,7 +15,14 @@ import cv2
 import numpy as np
 
 from scadustats import board, db, frames, json_export, layout, ocr, scoreboard, timer, winner
-from scadustats.models import CellColor, EventType, GameEvent, GameResult, WinType
+from scadustats.models import (
+    CellColor,
+    EventType,
+    GameEvent,
+    GameResult,
+    MatchMetadata,
+    WinType,
+)
 from scadustats.segmentation import Observation, detect_boundaries
 
 logger = logging.getLogger(__name__)
@@ -286,6 +293,7 @@ def extract_video(
     json_dir: str | Path | None = None,
     sample_rate_hz: float = 1.0,
     on_progress: Callable[[], None] | None = None,
+    match_metadata: MatchMetadata | Future[MatchMetadata] | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     video_info = frames.probe(video_path)
@@ -324,12 +332,22 @@ def extract_video(
             )
         )
 
+    # Resolved here -- the last step before persistence -- rather than at the top of the
+    # function, so a caller can hand in a Future that's still being filled in (e.g. the
+    # CLI prompting the user interactively) and have it overlap with everything above
+    # instead of blocking extraction from starting. In practice this essentially never
+    # actually blocks: prompting takes seconds, extraction takes minutes.
+    if isinstance(match_metadata, Future):
+        match_metadata = match_metadata.result()
+
     video_id = video_path.stem
-    db.write_extraction(db_path, video_id, str(video_path), video_info, games, if_exists=if_exists)
+    db.write_extraction(
+        db_path, video_id, str(video_path), video_info, games, match_metadata, if_exists=if_exists
+    )
 
     if json_dir is not None:
         for game in games:
-            json_export.write_game(json_dir, video_id, game, if_exists=if_exists)
+            json_export.write_game(json_dir, video_id, game, match_metadata, if_exists=if_exists)
 
     return ExtractionSummary(
         video_id=video_id,

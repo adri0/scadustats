@@ -1,4 +1,6 @@
+import datetime
 import json
+from concurrent.futures import Future
 from pathlib import Path
 
 import duckdb
@@ -12,7 +14,7 @@ from scadustats.extract import (
     extract_video,
 )
 from scadustats.frames import probe
-from scadustats.models import CellColor
+from scadustats.models import CellColor, MatchMetadata, MatchType
 from scadustats.segmentation import Observation
 
 # A short (80s), downscaled, re-encoded clip trimmed from a real match video, covering
@@ -58,6 +60,31 @@ def test_extract_video_end_to_end(tmp_path):
             [f"{summary.video_id}-1"],
         ).fetchall()
         assert claims == [(0, 4, "red")]
+    finally:
+        con.close()
+
+
+def test_extract_video_resolves_match_metadata_future(tmp_path):
+    """A Future is how the CLI hands in match metadata that's still being prompted for
+    interactively -- extract_video should resolve it itself before persisting."""
+    db_path = tmp_path / "extract.duckdb"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+    metadata_future: Future[MatchMetadata] = Future()
+    metadata_future.set_result(match_metadata)
+
+    summary = extract_video(_CLIP_PATH, db_path=db_path, match_metadata=metadata_future)
+
+    con = duckdb.connect(str(db_path))
+    try:
+        match_date, season, match_type = con.execute(
+            "SELECT match_date, season, match_type FROM videos WHERE video_id = ?",
+            [summary.video_id],
+        ).fetchone()
+        assert match_date == datetime.date(2026, 3, 5)
+        assert season == 6
+        assert match_type == "playoffs"
     finally:
         con.close()
 
