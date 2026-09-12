@@ -4,6 +4,7 @@ from pathlib import Path
 
 import duckdb
 
+from scadustats import json_export
 from scadustats.models import GameResult, MatchMetadata, VideoInfo
 
 _SCHEMA = """
@@ -11,7 +12,9 @@ CREATE SEQUENCE IF NOT EXISTS events_seq START 1;
 
 CREATE TABLE IF NOT EXISTS videos (
     video_id VARCHAR PRIMARY KEY,
-    source_path VARCHAR NOT NULL,
+    -- Nullable: load_json_dir writes a video row from previously-extracted JSON alone,
+    -- with no source video file (or its resolution/fps) in hand.
+    source_path VARCHAR,
     resolution_width INTEGER,
     resolution_height INTEGER,
     fps DOUBLE,
@@ -86,12 +89,15 @@ def _delete_video(con: duckdb.DuckDBPyConnection, video_id: str) -> None:
 def write_extraction(
     db_path: str | Path,
     video_id: str,
-    source_path: str,
-    video_info: VideoInfo,
+    source_path: str | None,
+    video_info: VideoInfo | None,
     games: list[GameResult],
     match_metadata: MatchMetadata | None = None,
     if_exists: str = "replace",
 ) -> None:
+    """source_path/video_info are optional since load_json_dir calls this from
+    previously-extracted JSON alone, with no source video file in hand -- resolution/fps/
+    source_path are stored as NULL in that case."""
     con = duckdb.connect(str(db_path))
     try:
         init_schema(con)
@@ -113,9 +119,9 @@ def write_extraction(
             [
                 video_id,
                 source_path,
-                video_info.width,
-                video_info.height,
-                video_info.fps,
+                video_info.width if video_info else None,
+                video_info.height if video_info else None,
+                video_info.fps if video_info else None,
                 match_metadata.match_date if match_metadata else None,
                 match_metadata.season if match_metadata else None,
                 match_metadata.match_type.value if match_metadata else None,
@@ -167,3 +173,41 @@ def write_extraction(
                 )
     finally:
         con.close()
+
+
+def load_json_dir(
+    db_path: str | Path,
+    json_dir: str | Path,
+    if_exists: str = "replace",
+) -> list[str]:
+    """Reflects every `*.json` game file (as written by json_export.write_game) under
+    json_dir into the DuckDB at db_path -- the separate, optional process that turns
+    extracted JSON into database rows. extract_video itself never touches the database;
+    this is the only path that does.
+
+    Games are grouped by video_id (one match's JSON files can span several games) before
+    writing, since write_extraction persists one video at a time. Returns the video_ids
+    written, in the order first encountered.
+    """
+    json_dir = Path(json_dir)
+    games_by_video: dict[str, list[GameResult]] = {}
+    metadata_by_video: dict[str, MatchMetadata | None] = {}
+
+    for path in sorted(json_dir.glob("*.json")):
+        video_id, game, match_metadata = json_export.read_game(path)
+        games_by_video.setdefault(video_id, []).append(game)
+        metadata_by_video[video_id] = match_metadata
+
+    for video_id, games in games_by_video.items():
+        games.sort(key=lambda game: game.game_index)
+        write_extraction(
+            db_path,
+            video_id,
+            None,
+            None,
+            games,
+            metadata_by_video[video_id],
+            if_exists=if_exists,
+        )
+
+    return list(games_by_video)

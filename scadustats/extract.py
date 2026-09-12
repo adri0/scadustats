@@ -1,5 +1,6 @@
 """Orchestrates the full pipeline: frames -> board/timer/scoreboard -> segmentation ->
-claim detection -> winner determination -> DuckDB.
+claim detection -> winner determination -> JSON. Writing that JSON into DuckDB is a
+separate, optional step -- see db.load_json_dir -- not something extract_video does.
 """
 
 import logging
@@ -14,7 +15,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from scadustats import board, db, frames, json_export, layout, ocr, scoreboard, timer, winner
+from scadustats import board, frames, json_export, layout, ocr, scoreboard, timer, winner
 from scadustats.models import (
     CellColor,
     EventType,
@@ -286,17 +287,30 @@ def _determine_winner(events: list[GameEvent]) -> tuple[CellColor | None, WinTyp
     return winner.determine_winner(state)
 
 
+def _video_id(match_metadata: MatchMetadata, red_name: str | None, blue_name: str | None) -> str:
+    """`<match-date>-<red player>-vs-<blue-player>`, e.g. `2026-03-05-blanxz-vs-Serious`
+    -- human-readable, and unique per match (not per game: every game in a multi-game
+    match shares one video_id, matching one video -> one match). red_name/blue_name fall
+    back to "unknown" for an empty/failed OCR read (scoreboard.read_player_names can
+    return "" but never None) or when a segment has no games at all, rather than leaving
+    the id with a blank component. "/" is replaced since it would otherwise split into a
+    spurious path segment when used as a filename.
+    """
+    red = (red_name or "unknown").strip().replace("/", "-")
+    blue = (blue_name or "unknown").strip().replace("/", "-")
+    return f"{match_metadata.match_date.isoformat()}-{red}-vs-{blue}"
+
+
 def extract_video(
     video_path: str | Path,
-    db_path: str | Path = "scadustats.duckdb",
+    *,
+    match_metadata: MatchMetadata | Future[MatchMetadata],
+    json_dir: str | Path = "matches",
     if_exists: str = "replace",
-    json_dir: str | Path | None = None,
     sample_rate_hz: float = 1.0,
     on_progress: Callable[[], None] | None = None,
-    match_metadata: MatchMetadata | Future[MatchMetadata] | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
-    video_info = frames.probe(video_path)
     observations = _collect_observations(video_path, sample_rate_hz, on_progress)
     segments = _segment_games(observations)
 
@@ -340,14 +354,14 @@ def extract_video(
     if isinstance(match_metadata, Future):
         match_metadata = match_metadata.result()
 
-    video_id = video_path.stem
-    db.write_extraction(
-        db_path, video_id, str(video_path), video_info, games, match_metadata, if_exists=if_exists
+    first_game = games[0] if games else None
+    video_id = _video_id(
+        match_metadata,
+        first_game.player_red_name if first_game else None,
+        first_game.player_blue_name if first_game else None,
     )
-
-    if json_dir is not None:
-        for game in games:
-            json_export.write_game(json_dir, video_id, game, match_metadata, if_exists=if_exists)
+    for game in games:
+        json_export.write_game(json_dir, video_id, game, match_metadata, if_exists=if_exists)
 
     return ExtractionSummary(
         video_id=video_id,

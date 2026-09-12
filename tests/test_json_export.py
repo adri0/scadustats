@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from scadustats.json_export import write_game
+from scadustats.json_export import read_game, write_game
 from scadustats.models import (
     CellColor,
     EventType,
@@ -168,3 +168,38 @@ def test_if_exists_append_behaves_like_replace(tmp_path):
 
     data = json.loads(path.read_text())
     assert data["label"] == "GAME 1 UPDATED"
+
+
+def test_read_game_round_trips_write_game(tmp_path):
+    game = _sample_game()
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+    path = write_game(tmp_path, "vid1", game, match_metadata)
+
+    video_id, read_back, read_metadata = read_game(path)
+
+    assert video_id == "vid1"
+    assert read_back == game
+    assert read_metadata == match_metadata
+
+
+def test_read_game_round_trips_game_start_event_and_no_metadata(tmp_path):
+    game = _sample_game()
+    game.events = [
+        GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_ts_s=1.0,
+            game_elapsed_s=0,
+            event_type=EventType.GAME_START,
+        ),
+        *game.events,
+    ]
+    path = write_game(tmp_path, "vid1", game)
+
+    _, read_back, read_metadata = read_game(path)
+
+    assert read_back == game
+    assert read_metadata is None

@@ -7,6 +7,7 @@ import duckdb
 import pytest
 
 from scadustats import board
+from scadustats.db import load_json_dir
 from scadustats.extract import (
     _grab_frames,
     _select_square_text_observations,
@@ -24,8 +25,10 @@ _CLIP_PATH = "tests/fixtures/clip_claim.mp4"
 
 
 def test_extract_video_end_to_end(tmp_path):
-    db_path = tmp_path / "extract.duckdb"
     json_dir = tmp_path / "json"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
 
     progress_calls = 0
 
@@ -33,10 +36,16 @@ def test_extract_video_end_to_end(tmp_path):
         nonlocal progress_calls
         progress_calls += 1
 
-    summary = extract_video(_CLIP_PATH, db_path=db_path, json_dir=json_dir, on_progress=on_progress)
+    summary = extract_video(
+        _CLIP_PATH, match_metadata=match_metadata, json_dir=json_dir, on_progress=on_progress
+    )
 
     assert summary.num_games == 1
     assert summary.num_claims == 1
+    # video_id is "<match-date>-<red player>-vs-<blue-player>", built from
+    # match_metadata plus the scoreboard names OCR'd from this clip -- not the video's
+    # filename.
+    assert summary.video_id == "2026-03-05-blanxz-vs-SeriousChallenges"
     # on_progress fires once per sampled frame, so this should track estimate_sample_count
     # (an estimate, not exact -- see its docstring) within a sample or two.
     assert progress_calls == pytest.approx(estimate_sample_count(_CLIP_PATH), abs=2)
@@ -46,6 +55,12 @@ def test_extract_video_end_to_end(tmp_path):
     game_data = json.loads(json_path.read_text())
     marks = [(e["row"], e["col"], e["color"]) for e in game_data["events"] if e["row"] is not None]
     assert marks == [(0, 4, "red")]
+
+    # extract_video itself never touches a database -- load_json_dir is the separate,
+    # optional step that reflects the JSON it wrote into DuckDB.
+    db_path = tmp_path / "extract.duckdb"
+    video_ids = load_json_dir(db_path, json_dir)
+    assert video_ids == [summary.video_id]
 
     con = duckdb.connect(str(db_path))
     try:
@@ -67,26 +82,20 @@ def test_extract_video_end_to_end(tmp_path):
 def test_extract_video_resolves_match_metadata_future(tmp_path):
     """A Future is how the CLI hands in match metadata that's still being prompted for
     interactively -- extract_video should resolve it itself before persisting."""
-    db_path = tmp_path / "extract.duckdb"
+    json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
     )
     metadata_future: Future[MatchMetadata] = Future()
     metadata_future.set_result(match_metadata)
 
-    summary = extract_video(_CLIP_PATH, db_path=db_path, match_metadata=metadata_future)
+    summary = extract_video(_CLIP_PATH, json_dir=json_dir, match_metadata=metadata_future)
 
-    con = duckdb.connect(str(db_path))
-    try:
-        match_date, season, match_type = con.execute(
-            "SELECT match_date, season, match_type FROM videos WHERE video_id = ?",
-            [summary.video_id],
-        ).fetchone()
-        assert match_date == datetime.date(2026, 3, 5)
-        assert season == 6
-        assert match_type == "playoffs"
-    finally:
-        con.close()
+    json_path = json_dir / f"{summary.video_id}-1.json"
+    game_data = json.loads(json_path.read_text())
+    assert game_data["match_date"] == "2026-03-05"
+    assert game_data["season"] == 6
+    assert game_data["match_type"] == "playoffs"
 
 
 @pytest.fixture()

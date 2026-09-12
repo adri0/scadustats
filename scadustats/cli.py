@@ -9,6 +9,7 @@ from typing import Annotated
 
 import typer
 
+from scadustats.db import load_json_dir
 from scadustats.download import download_video
 from scadustats.extract import estimate_sample_count, extract_video
 from scadustats.models import MatchMetadata, MatchType
@@ -86,20 +87,16 @@ def download(
 @app.command()
 def extract(
     video_path: Annotated[Path, typer.Argument(help="Path to a downloaded match video")],
-    db: Annotated[
-        Path, typer.Option(help="DuckDB database file path")
-    ] = Path("scadustats.duckdb"),
     if_exists: Annotated[
         IfExists,
-        typer.Option(help="Behavior when this video was already extracted into the DB"),
+        typer.Option(help="Behavior when this video was already extracted into json_dir"),
     ] = IfExists.replace,
     json_dir: Annotated[
-        Path | None,
+        Path,
         typer.Option(
-            help="Directory to also write one human-reviewable JSON file per game into "
-            "(optional; omit to skip JSON export)"
+            help="Directory to write one human-reviewable JSON file per game into"
         ),
-    ] = None,
+    ] = Path("matches"),
     match_date: Annotated[
         str | None,
         typer.Option(help="Match date, YYYY-MM-DD (prompted if omitted)"),
@@ -113,7 +110,11 @@ def extract(
         typer.Option(help="double_elimination or playoffs (prompted if omitted)"),
     ] = None,
 ) -> None:
-    """Extract bingo board stats from a match video into DuckDB."""
+    """Extract bingo board stats from a match video into JSON files in json_dir.
+
+    This only writes JSON -- it never touches a database. Run `load-db` separately
+    (and optionally) to reflect that JSON into DuckDB.
+    """
     total = estimate_sample_count(video_path)
     # The prompts run on a background thread concurrently with extraction itself (which
     # runs on the main thread below, as before) rather than before/after it -- prompting
@@ -150,9 +151,8 @@ def extract(
             metadata_future: Future[MatchMetadata] = prompt_executor.submit(prompt_for_metadata)
             summary = extract_video(
                 video_path,
-                db_path=db,
-                if_exists=if_exists.value,
                 json_dir=json_dir,
+                if_exists=if_exists.value,
                 match_metadata=metadata_future,
                 on_progress=on_progress,
             )
@@ -168,6 +168,28 @@ def extract(
             progress.update(pending)
             pending = 0
     print(summary)
+
+
+@app.command("load-db")
+def load_db(
+    json_dir: Annotated[
+        Path, typer.Argument(help="Directory of JSON files written by `extract`")
+    ],
+    db: Annotated[
+        Path, typer.Option(help="DuckDB database file path")
+    ] = Path("scadustats.duckdb"),
+    if_exists: Annotated[
+        IfExists,
+        typer.Option(help="Behavior when a video's JSON was already loaded into the DB"),
+    ] = IfExists.replace,
+) -> None:
+    """Reflect previously extracted JSON files into DuckDB.
+
+    Separate from, and optional after, `extract` -- run this whenever you want the
+    JSON's current contents (including any manual corrections) written into the DB.
+    """
+    video_ids = load_json_dir(db, json_dir, if_exists=if_exists.value)
+    print(f"Loaded {len(video_ids)} video(s) into {db}")
 
 
 def main() -> None:

@@ -3,7 +3,8 @@ import datetime
 import duckdb
 import pytest
 
-from scadustats.db import write_extraction
+from scadustats.db import load_json_dir, write_extraction
+from scadustats.json_export import write_game
 from scadustats.models import (
     CellColor,
     EventType,
@@ -141,3 +142,63 @@ def test_if_exists_error_raises_on_duplicate(tmp_path):
         write_extraction(
             db_path, "vid1", "downloads/vid1.mp4", video_info, [_sample_game()], if_exists="error"
         )
+
+
+def test_write_extraction_allows_missing_source_path_and_video_info(tmp_path):
+    """load_json_dir has no source video file in hand -- both are optional and stored
+    as NULL, not required."""
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, "vid1", None, None, [_sample_game()])
+
+    con = duckdb.connect(str(db_path))
+    try:
+        source_path, width, height, fps = con.execute(
+            "SELECT source_path, resolution_width, resolution_height, fps FROM videos "
+            "WHERE video_id = 'vid1'"
+        ).fetchone()
+        assert (source_path, width, height, fps) == (None, None, None, None)
+    finally:
+        con.close()
+
+
+def test_load_json_dir_groups_games_by_video_and_writes_them(tmp_path):
+    json_dir = tmp_path / "json"
+    db_path = tmp_path / "test.duckdb"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+
+    game1 = _sample_game()
+    game2 = _sample_game()
+    game2.game_index = 2
+    write_game(json_dir, "vid1", game1, match_metadata)
+    write_game(json_dir, "vid1", game2, match_metadata)
+
+    video_ids = load_json_dir(db_path, json_dir)
+
+    assert video_ids == ["vid1"]
+    con = duckdb.connect(str(db_path))
+    try:
+        assert con.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM games WHERE video_id = 'vid1'").fetchone()[
+            0
+        ] == 2
+        match_date, season, match_type = con.execute(
+            "SELECT match_date, season, match_type FROM videos WHERE video_id = 'vid1'"
+        ).fetchone()
+        assert match_date == datetime.date(2026, 3, 5)
+        assert season == 6
+        assert match_type == "playoffs"
+    finally:
+        con.close()
+
+
+def test_load_json_dir_if_exists_error_raises_on_duplicate(tmp_path):
+    json_dir = tmp_path / "json"
+    db_path = tmp_path / "test.duckdb"
+    write_game(json_dir, "vid1", _sample_game())
+
+    load_json_dir(db_path, json_dir)
+    with pytest.raises(ValueError):
+        load_json_dir(db_path, json_dir, if_exists="error")

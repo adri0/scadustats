@@ -1,7 +1,8 @@
+import datetime
 import logging
 
-from scadustats.extract import _detect_game_start, _determine_winner, _extract_events
-from scadustats.models import CellColor, EventType
+from scadustats.extract import _detect_game_start, _determine_winner, _extract_events, _video_id
+from scadustats.models import CellColor, EventType, MatchMetadata, MatchType
 from scadustats.segmentation import Observation
 
 U, R, B = CellColor.UNCLAIMED, CellColor.RED, CellColor.BLUE
@@ -98,3 +99,22 @@ def test_detect_game_start_returns_none_without_a_local_minimum():
     ]
 
     assert _detect_game_start(segment) is None
+
+
+_MATCH_METADATA = MatchMetadata(
+    match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+)
+
+
+def test_video_id_formats_date_and_players():
+    assert _video_id(_MATCH_METADATA, "blanxz", "Serious") == "2026-03-05-blanxz-vs-Serious"
+
+
+def test_video_id_falls_back_to_unknown_for_missing_names():
+    assert _video_id(_MATCH_METADATA, None, "") == "2026-03-05-unknown-vs-unknown"
+
+
+def test_video_id_strips_slashes_from_names():
+    assert (
+        _video_id(_MATCH_METADATA, "blanxz/2", "Serious") == "2026-03-05-blanxz-2-vs-Serious"
+    )
