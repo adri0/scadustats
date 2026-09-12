@@ -139,7 +139,20 @@ def download(
 
 @app.command()
 def extract(
-    video_path: Annotated[Path, typer.Argument(help="Path to a downloaded match video")],
+    video_path_or_url: Annotated[
+        str,
+        typer.Argument(
+            help="Path to a downloaded match video, or a youtube.com/youtu.be URL to "
+            "download and extract in one step"
+        ),
+    ],
+    download_dir: Annotated[
+        Path,
+        typer.Option(
+            help="Where to download video_path_or_url to, if it's a URL (deleted "
+            "afterward -- kept only if extraction fails and you choose to keep it)"
+        ),
+    ] = Path("downloads"),
     if_exists: Annotated[
         IfExists,
         typer.Option(help="Behavior when this video was already extracted into json_dir"),
@@ -176,6 +189,10 @@ def extract(
 ) -> None:
     """Extract bingo board stats from a match video into JSON files in json_dir.
 
+    video_path_or_url may be a local file (as before) or a youtube.com/youtu.be URL --
+    given a URL, the video is downloaded first, then extracted, then deleted (unless
+    extraction fails, in which case you're asked whether to keep it).
+
     This only writes JSON -- it never touches a database. Run `load-db` separately
     (and optionally) to reflect that JSON into DuckDB.
     """
@@ -190,68 +207,98 @@ def extract(
             param_hint="--video-url",
         )
 
-    total = estimate_sample_count(video_path)
-    # The prompts run on a background thread concurrently with extraction itself (which
-    # runs on the main thread below, as before) rather than before/after it -- prompting
-    # takes seconds, extraction takes minutes, so this lets the user answer while it's
-    # running instead of waiting idle. `progress_lock` keeps the bar and the prompts from
-    # writing to the terminal at the same time without making extraction itself wait on
-    # it: the prompt thread holds the lock for its whole Q&A sequence, and on_progress
-    # -- called synchronously from the extraction loop -- only *tries* to acquire it,
-    # accumulating ticks instead of blocking when it can't. Entering the progress bar
-    # before starting the prompt thread means its first render can't race the prompts'
-    # first line either. Net effect: the bar keeps redrawing in place on its own line
-    # before and after the prompts, and the prompts print as their own clean lines
-    # rather than getting interleaved into the bar's line.
-    progress_lock = threading.Lock()
-    with typer.progressbar(length=total, label="Extracting") as progress:
-        pending = 0
+    # video_path_or_url doubles as the source of the --video-url provenance field when
+    # it's itself a YouTube URL and --video-url wasn't separately given -- the two are
+    # the same link, so there's no reason to make a user paste it twice.
+    downloaded_path: Path | None = None
+    if _is_youtube_url(video_path_or_url):
+        if video_url is None:
+            video_url = video_path_or_url
+        typer.echo(f"Downloading {video_path_or_url}...")
+        video_path = download_video(video_path_or_url, output_dir=download_dir)
+        downloaded_path = video_path
+        typer.echo(f"Downloaded to {video_path}")
+    else:
+        video_path = Path(video_path_or_url)
 
-        def on_progress() -> None:
-            nonlocal pending
-            pending += 1
-            if progress_lock.acquire(blocking=False):
-                try:
-                    progress.update(pending)
-                    pending = 0
-                finally:
-                    progress_lock.release()
-
-        def prompt_for_metadata() -> MatchMetadata:
-            with progress_lock:
-                typer.echo()  # fresh line, so this doesn't run into the bar's last redraw
-                return _prompt_match_metadata(match_date, season, match_type, video_url)
-
-        def on_missing_game_type(game: GameResult) -> GameType:
-            # Runs on the main thread, after match_metadata has been awaited (see
-            # extract_video) -- the prompt thread above is guaranteed done by then, so
-            # progress_lock is free and this can't race its prompts on the terminal.
-            with progress_lock:
-                typer.echo()
-                return _prompt_game_type(game, game_type)
-
-        with ThreadPoolExecutor(max_workers=1) as prompt_executor:
-            metadata_future: Future[MatchMetadata] = prompt_executor.submit(prompt_for_metadata)
-            summary = extract_video(
-                video_path,
-                json_dir=json_dir,
-                if_exists=if_exists.value,
-                match_metadata=metadata_future,
-                on_progress=on_progress,
-                on_missing_game_type=on_missing_game_type,
-            )
-
-        # If extraction (typically minutes) finishes faster than the prompts (a handful
-        # of seconds), on_progress can spend its whole run accumulating ticks it never
-        # gets a chance to flush -- there's no sample left to trigger one, since sampling
-        # is what calls on_progress in the first place. extract_video only returns once
-        # the prompts are answered (it awaits match_metadata internally), so the lock is
-        # guaranteed free here -- a plain flush is enough to land the bar on its true
-        # final value instead of leaving it stuck wherever it was when prompting started.
-        if pending:
-            progress.update(pending)
+    # Wraps the whole pipeline (not just extract_video) so a failure anywhere -- a bad
+    # video file, an OCR crash, whatever -- still gets the same downloaded-video cleanup
+    # decision below, rather than only covering part of the run.
+    try:
+        total = estimate_sample_count(video_path)
+        # The prompts run on a background thread concurrently with extraction itself (which
+        # runs on the main thread below, as before) rather than before/after it -- prompting
+        # takes seconds, extraction takes minutes, so this lets the user answer while it's
+        # running instead of waiting idle. `progress_lock` keeps the bar and the prompts from
+        # writing to the terminal at the same time without making extraction itself wait on
+        # it: the prompt thread holds the lock for its whole Q&A sequence, and on_progress
+        # -- called synchronously from the extraction loop -- only *tries* to acquire it,
+        # accumulating ticks instead of blocking when it can't. Entering the progress bar
+        # before starting the prompt thread means its first render can't race the prompts'
+        # first line either. Net effect: the bar keeps redrawing in place on its own line
+        # before and after the prompts, and the prompts print as their own clean lines
+        # rather than getting interleaved into the bar's line.
+        progress_lock = threading.Lock()
+        with typer.progressbar(length=total, label="Extracting") as progress:
             pending = 0
-    print(summary)
+
+            def on_progress() -> None:
+                nonlocal pending
+                pending += 1
+                if progress_lock.acquire(blocking=False):
+                    try:
+                        progress.update(pending)
+                        pending = 0
+                    finally:
+                        progress_lock.release()
+
+            def prompt_for_metadata() -> MatchMetadata:
+                with progress_lock:
+                    typer.echo()  # fresh line, so this doesn't run into the bar's last redraw
+                    return _prompt_match_metadata(match_date, season, match_type, video_url)
+
+            def on_missing_game_type(game: GameResult) -> GameType:
+                # Runs on the main thread, after match_metadata has been awaited (see
+                # extract_video) -- the prompt thread above is guaranteed done by then, so
+                # progress_lock is free and this can't race its prompts on the terminal.
+                with progress_lock:
+                    typer.echo()
+                    return _prompt_game_type(game, game_type)
+
+            with ThreadPoolExecutor(max_workers=1) as prompt_executor:
+                metadata_future: Future[MatchMetadata] = prompt_executor.submit(
+                    prompt_for_metadata
+                )
+                summary = extract_video(
+                    video_path,
+                    json_dir=json_dir,
+                    if_exists=if_exists.value,
+                    match_metadata=metadata_future,
+                    on_progress=on_progress,
+                    on_missing_game_type=on_missing_game_type,
+                )
+
+            # If extraction (typically minutes) finishes faster than the prompts (a handful
+            # of seconds), on_progress can spend its whole run accumulating ticks it never
+            # gets a chance to flush -- there's no sample left to trigger one, since sampling
+            # is what calls on_progress in the first place. extract_video only returns once
+            # the prompts are answered (it awaits match_metadata internally), so the lock is
+            # guaranteed free here -- a plain flush is enough to land the bar on its true
+            # final value instead of leaving it stuck wherever it was when prompting started.
+            if pending:
+                progress.update(pending)
+                pending = 0
+        print(summary)
+    except Exception:
+        if downloaded_path is not None and typer.confirm(
+            f"Extraction failed -- delete the downloaded video at {downloaded_path}?",
+            default=False,
+        ):
+            downloaded_path.unlink(missing_ok=True)
+        raise
+    else:
+        if downloaded_path is not None:
+            downloaded_path.unlink(missing_ok=True)
 
 
 @app.command("load-db")

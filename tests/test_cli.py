@@ -11,7 +11,8 @@ from scadustats.cli import (
     _prompt_video_url,
     app,
 )
-from scadustats.models import GameResult, GameType, MatchType, WinType
+from scadustats.extract import ExtractionSummary
+from scadustats.models import GameResult, GameType, MatchMetadata, MatchType, WinType
 
 
 def test_prompt_match_metadata_uses_supplied_options_without_prompting(monkeypatch):
@@ -205,3 +206,136 @@ def test_extract_rejects_non_youtube_video_url_before_doing_any_work():
 
     assert result.exit_code != 0
     assert "youtube.com" in result.output
+
+
+_EXTRACT_ARGS = [
+    "--match-date",
+    "2026-03-05",
+    "--season",
+    "6",
+    "--match-type",
+    "playoffs",
+    "--game-type",
+    "base",
+]
+
+
+def _fake_extract_video_success(*args, **kwargs):
+    return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+
+
+def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
+    downloaded = tmp_path / "abc123.mp4"
+    downloaded.write_bytes(b"fake video")
+
+    monkeypatch.setattr("scadustats.cli.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.extract_video", _fake_extract_video_success)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            "https://youtu.be/abc123",
+            "--download-dir",
+            str(tmp_path),
+            *_EXTRACT_ARGS,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not downloaded.exists()
+
+
+def test_extract_does_not_download_a_local_video_path(tmp_path, monkeypatch):
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+
+    def _fail_download(*args, **kwargs):
+        raise AssertionError("download_video should not be called for a local path")
+
+    monkeypatch.setattr("scadustats.cli.download_video", _fail_download)
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.extract_video", _fake_extract_video_success)
+
+    result = CliRunner().invoke(app, ["extract", str(local), *_EXTRACT_ARGS])
+
+    assert result.exit_code == 0, result.output
+    # A local video is never deleted, whatever happens -- only ones we downloaded are.
+    assert local.exists()
+
+
+def test_extract_deletes_downloaded_video_when_extraction_fails_and_confirmed(
+    tmp_path, monkeypatch
+):
+    downloaded = tmp_path / "abc123.mp4"
+    downloaded.write_bytes(b"fake video")
+
+    monkeypatch.setattr("scadustats.cli.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("scadustats.cli.extract_video", _boom)
+
+    result = CliRunner().invoke(
+        app,
+        ["extract", "https://youtu.be/abc123", "--download-dir", str(tmp_path), *_EXTRACT_ARGS],
+        input="y\n",
+    )
+
+    assert result.exit_code != 0
+    assert not downloaded.exists()
+
+
+def test_extract_keeps_downloaded_video_when_extraction_fails_and_declined(tmp_path, monkeypatch):
+    downloaded = tmp_path / "abc123.mp4"
+    downloaded.write_bytes(b"fake video")
+
+    monkeypatch.setattr("scadustats.cli.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("scadustats.cli.extract_video", _boom)
+
+    result = CliRunner().invoke(
+        app,
+        ["extract", "https://youtu.be/abc123", "--download-dir", str(tmp_path), *_EXTRACT_ARGS],
+        input="n\n",
+    )
+
+    assert result.exit_code != 0
+    assert downloaded.exists()
+
+
+def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given(
+    tmp_path, monkeypatch
+):
+    downloaded = tmp_path / "abc123.mp4"
+    downloaded.write_bytes(b"fake video")
+    captured: dict[str, MatchMetadata] = {}
+
+    def _fake_extract_video(video_path, *, match_metadata, **kwargs):
+        captured["match_metadata"] = match_metadata.result()
+        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+
+    monkeypatch.setattr("scadustats.cli.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            "https://youtu.be/abc123",
+            "--download-dir",
+            str(tmp_path),
+            *_EXTRACT_ARGS,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["match_metadata"].video_url == "https://youtu.be/abc123"
