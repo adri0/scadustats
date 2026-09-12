@@ -16,12 +16,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from scadustats import board, frames, json_export, layout, ocr, scoreboard, timer, winner
+from scadustats import board, frames, json_export, layout, ocr, scoreboard, squares, timer, winner
 from scadustats.models import (
     CellColor,
     EventType,
     GameEvent,
     GameResult,
+    GameType,
     MatchMetadata,
     VideoExtraction,
     WinType,
@@ -311,8 +312,12 @@ def extract_video(
     if_exists: str = "replace",
     sample_rate_hz: float = 1.0,
     on_progress: Callable[[], None] | None = None,
+    on_missing_game_type: Callable[[GameResult], GameType] | None = None,
+    known_squares: dict[str, GameType] | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
+    if known_squares is None:
+        known_squares = squares.load_known_squares()
     observations = _collect_observations(video_path, sample_rate_hz, on_progress)
     segments = _segment_games(observations)
 
@@ -328,6 +333,7 @@ def extract_video(
             video_path, [obs.video_ts_s for obs in square_text_observations]
         )
         square_texts = board.cell_square_texts_majority(square_text_frames)
+        game_type = squares.infer_game_type(square_texts, known_squares)
         if game_index == 1:
             representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
             player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
@@ -349,6 +355,7 @@ def extract_video(
                 events=events,
                 winner_color=winner_color,
                 win_type=win_type,
+                game_type=game_type,
             )
         )
 
@@ -359,6 +366,20 @@ def extract_video(
     # actually blocks: prompting takes seconds, extraction takes minutes.
     if isinstance(match_metadata, Future):
         match_metadata = match_metadata.result()
+
+    # Deferred to here (rather than resolved inline with the inference above) so it runs
+    # only after match_metadata's own prompting (if any) has fully finished -- both can
+    # ultimately be interactive, and doing this one first would mean two things prompting
+    # over each other on the terminal at once.
+    for game in games:
+        if game.game_type is None:
+            if on_missing_game_type is None:
+                raise ValueError(
+                    f"couldn't infer game type for game {game.game_index} "
+                    f"(label={game.label!r}) from its squares, and no "
+                    "on_missing_game_type callback was given to supply one"
+                )
+            game.game_type = on_missing_game_type(game)
 
     video_id = _video_id(match_metadata, player_red_name, player_blue_name)
     extraction = VideoExtraction(

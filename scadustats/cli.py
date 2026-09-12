@@ -6,13 +6,14 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlparse
 
 import typer
 
 from scadustats.db import load_json_dir
 from scadustats.download import download_video
 from scadustats.extract import estimate_sample_count, extract_video
-from scadustats.models import MatchMetadata, MatchType
+from scadustats.models import GameResult, GameType, MatchMetadata, MatchType
 
 app = typer.Typer()
 
@@ -21,6 +22,16 @@ class IfExists(enum.StrEnum):
     replace = "replace"
     append = "append"
     error = "error"
+
+
+# Both the full domain and its short-link form are genuinely YouTube -- this is a light,
+# host-only check (not a reachability/existence check, which would need a network call
+# and is more than "light"), so a link with a typo'd video id still passes.
+_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
+
+
+def _is_youtube_url(url: str) -> bool:
+    return urlparse(url).hostname in _YOUTUBE_HOSTS
 
 
 def _prompt_match_metadata(
@@ -81,8 +92,36 @@ def _prompt_match_type() -> MatchType:
 def _prompt_video_url() -> str | None:
     # Unlike match date, this one really can be left blank -- e.g. extracting from a
     # video someone else downloaded, with no link handy.
-    raw = typer.prompt("Video URL (optional)", default="", show_default=False)
-    return raw.strip() or None
+    while True:
+        raw = typer.prompt("Video URL (optional)", default="", show_default=False).strip()
+        if not raw:
+            return None
+        if _is_youtube_url(raw):
+            return raw
+        typer.echo(f"{raw!r} doesn't look like a youtube.com/youtu.be URL")
+
+
+def _prompt_game_type(game: GameResult, game_type_opt: GameType | None) -> GameType:
+    """Answers extract_video's on_missing_game_type callback: game_type_opt (--game-type)
+    is used for every game that needs it, if given, so the common case (a whole match is
+    one type) doesn't mean answering the same question once per game. Otherwise prompts,
+    per game, since squares.py couldn't infer it (see extract.py) -- no default, same
+    reasoning as match date: guessing wrong here would silently mislabel real data.
+    """
+    if game_type_opt is not None:
+        return game_type_opt
+
+    choices = [t.value for t in GameType]
+    label = f" ({game.label})" if game.label else ""
+    while True:
+        raw = typer.prompt(
+            f"Game {game.game_index}{label} type -- couldn't infer from its squares "
+            f"({'/'.join(choices)})"
+        )
+        try:
+            return GameType(raw)
+        except ValueError:
+            typer.echo(f"Invalid game type {raw!r}, must be one of: {', '.join(choices)}")
 
 
 @app.command()
@@ -127,12 +166,30 @@ def extract(
         str | None,
         typer.Option(help="Source video URL, for provenance (prompted if omitted; may be empty)"),
     ] = None,
+    game_type: Annotated[
+        GameType | None,
+        typer.Option(
+            help="base or dlc, used for every game whose type can't be inferred from its "
+            "squares (prompted per such game if omitted)"
+        ),
+    ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into JSON files in json_dir.
 
     This only writes JSON -- it never touches a database. Run `load-db` separately
     (and optionally) to reflect that JSON into DuckDB.
     """
+    # Checked here, upfront, rather than left to _prompt_match_metadata -- that runs on
+    # a background thread overlapping the (multi-minute) extraction pipeline, so a bad
+    # --video-url wouldn't surface until everything else had already finished. A blank
+    # value is still fine unvalidated: video_url stays optional either way (see
+    # _prompt_video_url), so only reject a value that was actually supplied.
+    if video_url and not _is_youtube_url(video_url):
+        raise typer.BadParameter(
+            f"{video_url!r} doesn't look like a youtube.com/youtu.be URL",
+            param_hint="--video-url",
+        )
+
     total = estimate_sample_count(video_path)
     # The prompts run on a background thread concurrently with extraction itself (which
     # runs on the main thread below, as before) rather than before/after it -- prompting
@@ -165,6 +222,14 @@ def extract(
                 typer.echo()  # fresh line, so this doesn't run into the bar's last redraw
                 return _prompt_match_metadata(match_date, season, match_type, video_url)
 
+        def on_missing_game_type(game: GameResult) -> GameType:
+            # Runs on the main thread, after match_metadata has been awaited (see
+            # extract_video) -- the prompt thread above is guaranteed done by then, so
+            # progress_lock is free and this can't race its prompts on the terminal.
+            with progress_lock:
+                typer.echo()
+                return _prompt_game_type(game, game_type)
+
         with ThreadPoolExecutor(max_workers=1) as prompt_executor:
             metadata_future: Future[MatchMetadata] = prompt_executor.submit(prompt_for_metadata)
             summary = extract_video(
@@ -173,6 +238,7 @@ def extract(
                 if_exists=if_exists.value,
                 match_metadata=metadata_future,
                 on_progress=on_progress,
+                on_missing_game_type=on_missing_game_type,
             )
 
         # If extraction (typically minutes) finishes faster than the prompts (a handful

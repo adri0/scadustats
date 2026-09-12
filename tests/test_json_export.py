@@ -9,6 +9,7 @@ from scadustats.models import (
     EventType,
     GameEvent,
     GameResult,
+    GameType,
     MatchType,
     VideoExtraction,
     WinType,
@@ -26,6 +27,7 @@ def _sample_game(game_index: int = 1) -> GameResult:
         events=[GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
         winner_color=CellColor.RED,
         win_type=WinType.LINE,
+        game_type=GameType.BASE,
     )
 
 
@@ -65,6 +67,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     game_data = data["games"][0]
     assert game_data["game_index"] == 1
     assert game_data["label"] == "GAME 1"
+    assert game_data["game_type"] == "base"
     assert game_data["winner_color"] == "red"
     assert game_data["win_type"] == "line"
     assert len(game_data["square_texts"]) == 5
@@ -139,6 +142,19 @@ def test_write_video_handles_no_winner(tmp_path):
 
     assert data["games"][0]["winner_color"] is None
     assert data["games"][0]["win_type"] == "none"
+
+
+def test_write_video_handles_unresolved_game_type(tmp_path):
+    game = _sample_game()
+    game.game_type = None
+
+    path = write_video(tmp_path, _sample_extraction(games=[game]))
+    data = json.loads(path.read_text())
+
+    assert data["games"][0]["game_type"] is None
+
+    read_back = read_video(path)
+    assert read_back.games[0].game_type is None
 
 
 def test_write_video_video_url_defaults_to_null(tmp_path):

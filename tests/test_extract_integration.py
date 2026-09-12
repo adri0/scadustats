@@ -15,7 +15,7 @@ from scadustats.extract import (
     extract_video,
 )
 from scadustats.frames import probe
-from scadustats.models import CellColor, MatchMetadata, MatchType
+from scadustats.models import CellColor, GameType, MatchMetadata, MatchType
 from scadustats.segmentation import Observation
 
 # A short (80s), downscaled, re-encoded clip trimmed from a real match video, covering
@@ -37,7 +37,13 @@ def test_extract_video_end_to_end(tmp_path):
         progress_calls += 1
 
     summary = extract_video(
-        _CLIP_PATH, match_metadata=match_metadata, json_dir=json_dir, on_progress=on_progress
+        _CLIP_PATH,
+        match_metadata=match_metadata,
+        json_dir=json_dir,
+        on_progress=on_progress,
+        # squares.json ships empty (see squares.py), so inference always fails here --
+        # supply a fixed answer rather than relying on interactive prompting in a test.
+        on_missing_game_type=lambda game: GameType.BASE,
     )
 
     assert summary.num_games == 1
@@ -56,6 +62,7 @@ def test_extract_video_end_to_end(tmp_path):
     assert video_data["player_red_name"] == "blanxz"
     assert video_data["player_blue_name"] == "SeriousChallenges"
     assert len(video_data["games"]) == 1
+    assert video_data["games"][0]["game_type"] == "base"
     events = video_data["games"][0]["events"]
     marks = [(e["row"], e["col"], e["color"]) for e in events if e["row"] is not None]
     assert marks == [(0, 4, "red")]
@@ -80,6 +87,11 @@ def test_extract_video_end_to_end(tmp_path):
         ).fetchall()
         assert claims == [(0, 4, "red")]
 
+        game_type = con.execute(
+            "SELECT game_type FROM games WHERE game_id = ?", [f"{summary.video_id}-1"]
+        ).fetchone()[0]
+        assert game_type == "base"
+
         player_red_name, player_blue_name = con.execute(
             "SELECT player_red_name, player_blue_name FROM videos WHERE video_id = ?",
             [summary.video_id],
@@ -99,13 +111,52 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
     metadata_future: Future[MatchMetadata] = Future()
     metadata_future.set_result(match_metadata)
 
-    summary = extract_video(_CLIP_PATH, json_dir=json_dir, match_metadata=metadata_future)
+    summary = extract_video(
+        _CLIP_PATH,
+        json_dir=json_dir,
+        match_metadata=metadata_future,
+        on_missing_game_type=lambda game: GameType.BASE,
+    )
 
     json_path = json_dir / f"{summary.video_id}.json"
     video_data = json.loads(json_path.read_text())
     assert video_data["match_date"] == "2026-03-05"
     assert video_data["season"] == 6
     assert video_data["match_type"] == "playoffs"
+
+
+def test_extract_video_infers_game_type_from_known_squares(tmp_path):
+    """No on_missing_game_type is given here -- if inference from known_squares
+    succeeds, the callback should never be needed."""
+    json_dir = tmp_path / "json"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+
+    summary = extract_video(
+        _CLIP_PATH,
+        match_metadata=match_metadata,
+        json_dir=json_dir,
+        known_squares={"Kill Wormface": GameType.BASE},
+    )
+
+    video_data = json.loads((json_dir / f"{summary.video_id}.json").read_text())
+    assert video_data["games"][0]["game_type"] == "base"
+
+
+def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):
+    json_dir = tmp_path / "json"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+
+    with pytest.raises(ValueError, match="game type"):
+        extract_video(
+            _CLIP_PATH,
+            match_metadata=match_metadata,
+            json_dir=json_dir,
+            known_squares={},
+        )
 
 
 @pytest.fixture()

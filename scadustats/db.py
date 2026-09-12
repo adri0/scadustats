@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS games (
     label VARCHAR,
     start_video_ts_s DOUBLE NOT NULL,
     end_video_ts_s DOUBLE,
+    -- Nullable: extract_video always resolves this before writing JSON (inferred, or
+    -- supplied when inference fails), but a hand-edited JSON file could clear it back
+    -- to unknown, and that should load cleanly rather than fail a NOT NULL constraint.
+    game_type VARCHAR CHECK (game_type IN ('base', 'dlc')),
     winner_color VARCHAR CHECK (winner_color IN ('red', 'blue')),
     win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'tie', 'none'))
 );
@@ -131,8 +135,8 @@ def write_extraction(
             con.execute(
                 """INSERT INTO games
                    (game_id, video_id, game_index, label, start_video_ts_s, end_video_ts_s,
-                    winner_color, win_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    game_type, winner_color, win_type)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     game_id,
                     extraction.video_id,
@@ -140,6 +144,7 @@ def write_extraction(
                     game.label,
                     game.start_video_ts_s,
                     game.end_video_ts_s,
+                    game.game_type.value if game.game_type else None,
                     game.winner_color.value if game.winner_color else None,
                     game.win_type.value,
                 ],

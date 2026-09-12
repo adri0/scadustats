@@ -13,6 +13,7 @@ from scadustats.models import (
     EventType,
     GameEvent,
     GameResult,
+    GameType,
     MatchType,
     VideoExtraction,
     WinType,
@@ -42,6 +43,7 @@ def _game_to_dict(game: GameResult) -> dict:
         "label": game.label,
         "start_video_ts_s": game.start_video_ts_s,
         "end_video_ts_s": game.end_video_ts_s,
+        "game_type": game.game_type.value if game.game_type else None,
         "winner_color": game.winner_color.value if game.winner_color else None,
         "win_type": game.win_type.value,
         "square_texts": game.square_texts,
@@ -118,6 +120,7 @@ def _dict_to_game(data: dict) -> GameResult:
         events=[_dict_to_event(event) for event in data["events"]],
         winner_color=CellColor(data["winner_color"]) if data["winner_color"] else None,
         win_type=WinType(data["win_type"]),
+        game_type=GameType(data["game_type"]) if data["game_type"] else None,
     )
 
 

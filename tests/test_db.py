@@ -10,6 +10,7 @@ from scadustats.models import (
     EventType,
     GameEvent,
     GameResult,
+    GameType,
     MatchType,
     VideoExtraction,
     VideoInfo,
@@ -28,6 +29,7 @@ def _sample_game(game_index: int = 1) -> GameResult:
         events=[GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
         winner_color=None,
         win_type=WinType.NONE,
+        game_type=GameType.BASE,
     )
 
 
@@ -127,6 +129,40 @@ def test_video_row_carries_match_metadata_and_players(tmp_path):
             "bob",
             datetime.date(2026, 3, 6),
         )
+    finally:
+        con.close()
+
+
+def test_game_type_round_trips(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        game_type = con.execute(
+            "SELECT game_type FROM games WHERE game_id = '2026-03-05-alice-vs-bob-1'"
+        ).fetchone()[0]
+        assert game_type == "base"
+    finally:
+        con.close()
+
+
+def test_game_type_defaults_to_null(tmp_path):
+    """A hand-edited JSON file could clear game_type back to unknown -- this should
+    load cleanly, not fail a NOT NULL constraint."""
+    db_path = tmp_path / "test.duckdb"
+    game = _sample_game()
+    game.game_type = None
+
+    write_extraction(db_path, _sample_extraction(games=[game]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        game_type = con.execute(
+            "SELECT game_type FROM games WHERE game_id = '2026-03-05-alice-vs-bob-1'"
+        ).fetchone()[0]
+        assert game_type is None
     finally:
         con.close()
 

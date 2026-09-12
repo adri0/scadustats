@@ -15,6 +15,6 @@ scadustats extract <video_path> [--json-dir matches] [--if-exists replace|append
 scadustats load-db <json_dir> [--db scadustats.duckdb] [--if-exists replace|append|error]
 ```
 
-`extract` reads the bingo-board overlay from a downloaded match video and writes one JSON file per video (all its games, players, match date, and video link included) — it never touches a database.
+`extract` reads the bingo-board overlay from a downloaded match video and writes one JSON file per video (all its games, players, match date, and video link included) — it never touches a database. Each game is also classified as `base` or `dlc` by matching its goal squares against `scadustats/squares.json`, a growing reference of previously seen squares; when a game's squares aren't in there yet, `--game-type` (or an interactive prompt) supplies it.
 
 `load-db` is a separate, optional step: it reflects those JSON files into a DuckDB database file. Run it whenever you want the JSON's current contents (including any manual corrections) written into the DB.
