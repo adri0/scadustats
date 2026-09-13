@@ -394,7 +394,7 @@ def match_list(
             typer.echo(f"Skipping {path.name}: {exc}", err=True)
             continue
         shown += 1
-        num_games = len(extraction.games)
+        num_games = extraction.num_games
         typer.echo(
             f"{extraction.video_id}  {extraction.match_date}  season {extraction.season}  "
             f"{extraction.match_type.value}  "
@@ -497,7 +497,7 @@ def match_show(
     red_wins = sum(game.winner_color is CellColor.RED for game in extraction.games)
     blue_wins = sum(game.winner_color is CellColor.BLUE for game in extraction.games)
     typer.echo(
-        f"  games: {len(extraction.games)} "
+        f"  games: {extraction.num_games} "
         f"({extraction.player_red_name or 'red'} {red_wins} - "
         f"{blue_wins} {extraction.player_blue_name or 'blue'})"
     )

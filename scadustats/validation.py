@@ -219,7 +219,7 @@ def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: a playoffs match is exactly 2 games; a double-elimination match (best of 3)
     is 2 or 3. A wrong count is the loudest sign of a segmentation problem -- games merged
     together, or a recap segment read as a game of its own."""
-    count = len(extraction.games)
+    count = extraction.num_games
     if extraction.match_type is MatchType.PLAYOFFS:
         expected = "exactly 2 games"
         ok = count == 2

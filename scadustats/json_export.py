@@ -66,6 +66,11 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
         "player_red_name": extraction.player_red_name,
         "player_blue_name": extraction.player_blue_name,
         "extracted_at": extraction.extracted_at.isoformat(),
+        # Written as a header for the list below, so a reviewer (or a SQL query against
+        # videos.num_games) sees the match's game count without counting entries by hand.
+        # Derived from `games` every time it's written, never read back -- see
+        # VideoExtraction.num_games and read_video.
+        "num_games": extraction.num_games,
         "games": [
             _game_to_dict(game)
             for game in sorted(extraction.games, key=lambda game: game.game_index)
@@ -130,7 +135,12 @@ def _dict_to_game(data: dict) -> GameResult:
 
 def read_video(path: str | Path) -> VideoExtraction:
     """Inverse of write_video: parses a JSON file it wrote back into the
-    VideoExtraction it was serialized from."""
+    VideoExtraction it was serialized from.
+
+    The file's `num_games` key is deliberately ignored (like a pre-existing file's
+    per-game `label`): it's a derived count of `games`, so a hand-edited file that added
+    or removed a game is re-counted from what it actually holds rather than trusted to
+    have had both places updated in step."""
     data = json.loads(Path(path).read_text())
 
     return VideoExtraction(

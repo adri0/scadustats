@@ -258,6 +258,54 @@ def test_video_row_carries_duration(tmp_path):
         con.close()
 
 
+def test_video_row_carries_the_game_count(tmp_path):
+    """Denormalized from the games table so "how many games" is answerable off videos
+    alone -- it must agree with what actually landed there."""
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction(games=[_sample_game(1), _sample_game(2)]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        num_games, counted = con.execute(
+            "SELECT v.num_games, COUNT(g.game_id) FROM videos v JOIN games g "
+            "USING (video_id) WHERE v.video_id = ? GROUP BY v.num_games",
+            ["2026-03-05-alice-vs-bob"],
+        ).fetchone()
+        assert num_games == 2
+        assert counted == 2
+    finally:
+        con.close()
+
+
+def test_init_schema_adds_num_games_to_a_database_predating_it(tmp_path):
+    """Same story as duration_s/win_line: CREATE TABLE IF NOT EXISTS leaves an existing
+    videos table alone, so the column has to be added explicitly."""
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    try:
+        con.execute(
+            "CREATE TABLE videos (video_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
+            "resolution_width INTEGER, resolution_height INTEGER, fps DOUBLE, "
+            "duration_s DOUBLE, video_url VARCHAR, match_date DATE NOT NULL, "
+            "season INTEGER NOT NULL, match_type VARCHAR NOT NULL, "
+            "player_red_name VARCHAR, player_blue_name VARCHAR, extracted_at DATE NOT NULL)"
+        )
+    finally:
+        con.close()
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        num_games = con.execute(
+            "SELECT num_games FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert num_games == 1
+    finally:
+        con.close()
+
+
 def test_video_duration_falls_back_to_the_probed_video(tmp_path):
     """JSON predating duration_s has none to write, but a caller extracting from a real
     file still has the probed VideoInfo in hand."""

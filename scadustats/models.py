@@ -173,3 +173,11 @@ class VideoExtraction:
     # existed (or hand-edited to drop it) still has to read back cleanly, and since
     # a video whose fps can't be read has no duration to record.
     duration_s: float | None = None
+
+    @property
+    def num_games(self) -> int:
+        """How many games the match consists of. Derived from `games` rather than stored
+        alongside it, so the two can't disagree -- it's persisted (JSON `num_games`, DB
+        `videos.num_games`) for a reader's/query's convenience, but a hand-edited file
+        that adds or drops a game is re-counted on read, not believed."""
+        return len(self.games)

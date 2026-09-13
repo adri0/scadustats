@@ -33,7 +33,12 @@ CREATE TABLE IF NOT EXISTS videos (
     player_blue_name VARCHAR,
     -- The date the video was (last) extracted/updated, as recorded in its JSON --
     -- *not* whatever moment load_json_dir happens to run at, which could be much later.
-    extracted_at DATE NOT NULL
+    extracted_at DATE NOT NULL,
+    -- How many games the match consists of. Denormalized from the games table (it's
+    -- always COUNT(*) of this video's rows there, see models.VideoExtraction.num_games)
+    -- so the common "how long was this match" question is answerable off videos alone,
+    -- without a join and a GROUP BY.
+    num_games INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS games (
@@ -88,6 +93,10 @@ ALTER TABLE videos ADD COLUMN IF NOT EXISTS duration_s DOUBLE;
 -- unlike one created with the table above -- the values still come from models.WinLine
 -- either way, so the constraint is a backstop, not the thing keeping them valid.)
 ALTER TABLE games ADD COLUMN IF NOT EXISTS win_line VARCHAR;
+-- And for videos.num_games. (Nullable when added this way, unlike the NOT NULL above --
+-- an ALTER can't retroactively fill a value in for rows already there. Every row written
+-- from here on gets one regardless, since it comes from the extraction.)
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS num_games INTEGER;
 """
 
 
@@ -143,8 +152,8 @@ def write_extraction(
             """INSERT INTO videos
                (video_id, source_path, resolution_width, resolution_height, fps,
                 duration_s, video_url, match_date, season, match_type, player_red_name,
-                player_blue_name, extracted_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                player_blue_name, extracted_at, num_games)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 extraction.video_id,
                 source_path,
@@ -159,6 +168,7 @@ def write_extraction(
                 extraction.player_red_name,
                 extraction.player_blue_name,
                 extraction.extracted_at,
+                extraction.num_games,
             ],
         )
 
