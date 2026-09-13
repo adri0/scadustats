@@ -12,7 +12,18 @@ from scadustats.cli import (
     app,
 )
 from scadustats.extract import ExtractionSummary
-from scadustats.models import GameResult, GameType, MatchMetadata, MatchType, WinType
+from scadustats.json_export import write_video
+from scadustats.models import (
+    CellColor,
+    EventType,
+    GameEvent,
+    GameResult,
+    GameType,
+    MatchMetadata,
+    MatchType,
+    VideoExtraction,
+    WinType,
+)
 
 
 def test_prompt_match_metadata_uses_supplied_options_without_prompting(monkeypatch):
@@ -224,6 +235,78 @@ def _fake_extract_video_success(*args, **kwargs):
     return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
 
 
+def test_extract_asks_on_duplicate_and_replaces_when_confirmed(tmp_path, monkeypatch):
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    dup_path = tmp_path / "matches" / "v1.json"
+    captured: dict = {}
+
+    def _fake_extract_video(video_path, *, if_exists, on_duplicate, **kwargs):
+        captured["if_exists"] = if_exists
+        approved = on_duplicate(dup_path)
+        return ExtractionSummary(
+            video_id="v1", num_games=1, num_claims=0, skipped=not approved
+        )
+
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app, ["extract", str(local), *_EXTRACT_ARGS, "--video-url", ""], input="y\n"
+    )
+
+    assert result.exit_code == 0, result.output
+    # Not explicitly given on the command line -- the CLI leaves this None so
+    # extract_video knows to ask rather than deciding for itself.
+    assert captured["if_exists"] is None
+    assert str(dup_path) in result.output
+    assert "num_games=1" in result.output
+
+
+def test_extract_reports_skip_when_duplicate_declined(tmp_path, monkeypatch):
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    dup_path = tmp_path / "matches" / "v1.json"
+
+    def _fake_extract_video(video_path, *, on_duplicate, **kwargs):
+        approved = on_duplicate(dup_path)
+        return ExtractionSummary(
+            video_id="v1", num_games=0, num_claims=0, skipped=not approved
+        )
+
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app, ["extract", str(local), *_EXTRACT_ARGS, "--video-url", ""], input="n\n"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Skipped" in result.output
+    assert "v1" in result.output
+
+
+def test_extract_if_exists_flag_skips_the_duplicate_prompt(tmp_path, monkeypatch):
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    captured: dict = {}
+
+    def _fake_extract_video(video_path, *, if_exists, on_duplicate, **kwargs):
+        captured["if_exists"] = if_exists
+        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.extract_video", _fake_extract_video)
+
+    # No input given -- if this prompted, there'd be nothing to answer with.
+    result = CliRunner().invoke(
+        app, ["extract", str(local), "--if-exists", "replace", *_EXTRACT_ARGS]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["if_exists"] == "replace"
+
+
 def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
     downloaded = tmp_path / "abc123.mp4"
     downloaded.write_bytes(b"fake video")
@@ -395,3 +478,106 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
 
     assert result.exit_code == 0, result.output
     assert captured["match_metadata"].video_url == "https://youtu.be/abc123"
+
+
+def _match_sample_game(game_index: int = 1, **overrides) -> GameResult:
+    square_texts = [[f"goal {r}-{c}" for c in range(5)] for r in range(5)]
+    defaults = dict(
+        game_index=game_index,
+        label="GAME 1",
+        start_video_ts_s=0.0,
+        end_video_ts_s=100.0,
+        square_texts=square_texts,
+        events=[
+            GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9),
+            GameEvent(
+                row=1,
+                col=1,
+                color=CellColor.BLUE,
+                video_ts_s=20.0,
+                game_elapsed_s=19,
+                event_type=EventType.UNMARK,
+            ),
+        ],
+        winner_color=CellColor.RED,
+        win_type=WinType.LINE,
+        game_type=GameType.BASE,
+    )
+    defaults.update(overrides)
+    return GameResult(**defaults)
+
+
+def _sample_extraction(**overrides) -> VideoExtraction:
+    defaults = dict(
+        video_id="2026-03-05-alice-vs-bob",
+        video_url="https://youtu.be/abc123",
+        match_date=datetime.date(2026, 3, 5),
+        season=6,
+        match_type=MatchType.PLAYOFFS,
+        player_red_name="alice",
+        player_blue_name="bob",
+        extracted_at=datetime.date(2026, 3, 6),
+        games=[_match_sample_game()],
+    )
+    defaults.update(overrides)
+    return VideoExtraction(**defaults)
+
+
+def test_list_matches_prints_one_line_per_video(tmp_path):
+    write_video(tmp_path, _sample_extraction())
+    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
+
+    result = CliRunner().invoke(app, ["match", "list", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert len(lines) == 2
+    # Filenames (== video_id) sort chronologically -- the earlier date comes first.
+    assert lines[0].startswith("2026-01-01-carol-vs-dave")
+    assert lines[1].startswith("2026-03-05-alice-vs-bob")
+    assert "alice vs bob" in lines[1]
+    assert "1 game" in lines[1]
+
+
+def test_list_matches_skips_unparseable_files_with_a_warning(tmp_path):
+    write_video(tmp_path, _sample_extraction())
+    (tmp_path / "old-format.json").write_text('{"game_id": "x"}')
+
+    result = CliRunner().invoke(app, ["match", "list", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "2026-03-05-alice-vs-bob" in result.output
+    assert "Skipping old-format.json" in result.output
+
+
+def test_list_matches_reports_when_directory_has_no_matches(tmp_path):
+    result = CliRunner().invoke(app, ["match", "list", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "No matches found" in result.output
+
+
+def test_show_match_prints_metadata_and_per_game_breakdown(tmp_path):
+    write_video(tmp_path, _sample_extraction())
+
+    result = CliRunner().invoke(
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "2026-03-05-alice-vs-bob" in result.output
+    assert "alice (red) vs bob (blue)" in result.output
+    assert "alice 1 - 0 bob" in result.output
+    assert "Game 1 (GAME 1)" in result.output
+    assert "winner=red (line)" in result.output
+    assert "marks=1" in result.output
+    assert "unmarks=1" in result.output
+
+
+def test_show_match_errors_on_unknown_video_id(tmp_path):
+    result = CliRunner().invoke(
+        app, ["match", "show", "nonexistent", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code != 0
+    assert "nonexistent" in result.output

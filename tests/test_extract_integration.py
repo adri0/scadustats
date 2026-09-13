@@ -101,6 +101,59 @@ def test_extract_video_end_to_end(tmp_path):
         con.close()
 
 
+def _extract_once(json_dir, **kwargs):
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+    return extract_video(
+        _CLIP_PATH,
+        match_metadata=match_metadata,
+        json_dir=json_dir,
+        on_missing_game_type=lambda game: GameType.BASE,
+        **kwargs,
+    )
+
+
+def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
+    json_dir = tmp_path / "json"
+    first = _extract_once(json_dir)
+    json_path = json_dir / f"{first.video_id}.json"
+    # Corrupt the on-disk file so a second, successful write is unambiguously detectable.
+    json_path.write_text("{}")
+
+    asked_paths = []
+
+    def on_duplicate(path: Path) -> bool:
+        asked_paths.append(path)
+        return True
+
+    second = _extract_once(json_dir, on_duplicate=on_duplicate)
+
+    assert asked_paths == [json_path]
+    assert not second.skipped
+    assert json.loads(json_path.read_text())["video_id"] == second.video_id
+
+
+def test_extract_video_skips_write_on_duplicate_when_declined(tmp_path):
+    json_dir = tmp_path / "json"
+    first = _extract_once(json_dir)
+    json_path = json_dir / f"{first.video_id}.json"
+    json_path.write_text("{}")  # would prove a write happened, if one did
+
+    second = _extract_once(json_dir, on_duplicate=lambda path: False)
+
+    assert second.skipped
+    assert json_path.read_text() == "{}"
+
+
+def test_extract_video_raises_on_duplicate_without_a_way_to_ask(tmp_path):
+    json_dir = tmp_path / "json"
+    _extract_once(json_dir)
+
+    with pytest.raises(ValueError, match="already exists"):
+        _extract_once(json_dir)
+
+
 def test_extract_video_resolves_match_metadata_future(tmp_path):
     """A Future is how the CLI hands in match metadata that's still being prompted for
     interactively -- extract_video should resolve it itself before persisting."""

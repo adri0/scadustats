@@ -12,3 +12,4 @@ downloads/
 .vscode
 *.duckdb
 calibration.png
+matches/

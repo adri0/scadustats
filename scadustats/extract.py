@@ -56,6 +56,10 @@ class ExtractionSummary:
     video_id: str
     num_games: int
     num_claims: int
+    # True when a duplicate was found and on_duplicate declined to replace it --
+    # num_games/num_claims are meaningless (left at 0) in that case, since nothing was
+    # written.
+    skipped: bool = False
 
 
 def _read_label(frame: np.ndarray) -> str:
@@ -309,10 +313,11 @@ def extract_video(
     *,
     match_metadata: MatchMetadata | Future[MatchMetadata],
     json_dir: str | Path = "matches",
-    if_exists: str = "replace",
+    if_exists: str | None = None,
     sample_rate_hz: float = 1.0,
     on_progress: Callable[[], None] | None = None,
     on_missing_game_type: Callable[[GameResult], GameType] | None = None,
+    on_duplicate: Callable[[Path], bool] | None = None,
     known_squares: dict[str, GameType] | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
@@ -393,6 +398,26 @@ def extract_video(
         extracted_at=date.today(),
         games=games,
     )
+    # A match is unique by match_date + player names (see _video_id), which video_id
+    # already encodes -- so a same-name file here means this exact match was already
+    # extracted. if_exists=None ("not explicitly forced by the caller") is the only case
+    # that asks about it: "error"/"replace" (an explicit --if-exists) skip straight to
+    # json_export.write_video below, which already knows how to raise or overwrite
+    # unconditionally for those.
+    if if_exists is None:
+        target_path = Path(json_dir) / f"{video_id}.json"
+        if target_path.exists():
+            if on_duplicate is None:
+                raise ValueError(
+                    f"{target_path} already exists, and no on_duplicate callback was "
+                    "given to ask whether to replace it"
+                )
+            if not on_duplicate(target_path):
+                return ExtractionSummary(
+                    video_id=video_id, num_games=0, num_claims=0, skipped=True
+                )
+        if_exists = "replace"
+
     json_export.write_video(json_dir, extraction, if_exists=if_exists)
 
     return ExtractionSummary(

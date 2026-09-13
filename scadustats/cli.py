@@ -13,7 +13,8 @@ import typer
 from scadustats.db import load_json_dir
 from scadustats.download import download_video
 from scadustats.extract import estimate_sample_count, extract_video
-from scadustats.models import GameResult, GameType, MatchMetadata, MatchType
+from scadustats.json_export import read_video
+from scadustats.models import CellColor, EventType, GameResult, GameType, MatchMetadata, MatchType
 
 app = typer.Typer()
 
@@ -154,9 +155,12 @@ def extract(
         ),
     ] = Path("downloads"),
     if_exists: Annotated[
-        IfExists,
-        typer.Option(help="Behavior when this video was already extracted into json_dir"),
-    ] = IfExists.replace,
+        IfExists | None,
+        typer.Option(
+            help="Behavior when this exact match (same players and match date) was "
+            "already extracted into json_dir -- omitted asks interactively"
+        ),
+    ] = None,
     json_dir: Annotated[
         Path,
         typer.Option(
@@ -201,6 +205,10 @@ def extract(
     given a URL, the video is downloaded first, then extracted, then deleted (unless
     --keep-video was given, or extraction fails, in which case you're asked whether to
     keep it).
+
+    A match is identified by its players and match date (see video_id in the JSON) --
+    if this exact match already has a JSON extraction in json_dir, you're asked whether
+    to replace it, unless --if-exists was given to decide that upfront.
 
     This only writes JSON -- it never touches a database. Run `load-db` separately
     (and optionally) to reflect that JSON into DuckDB.
@@ -274,6 +282,16 @@ def extract(
                     typer.echo()
                     return _prompt_game_type(game, game_type)
 
+            def on_duplicate(path: Path) -> bool:
+                # Same timing guarantee as on_missing_game_type above -- this only runs
+                # once video_id (and so path) is known, which is after match_metadata's
+                # prompt thread has long since finished.
+                with progress_lock:
+                    typer.echo()
+                    return typer.confirm(
+                        f"{path} already exists -- replace it?", default=False
+                    )
+
             with ThreadPoolExecutor(max_workers=1) as prompt_executor:
                 metadata_future: Future[MatchMetadata] = prompt_executor.submit(
                     prompt_for_metadata
@@ -281,10 +299,11 @@ def extract(
                 summary = extract_video(
                     video_path,
                     json_dir=json_dir,
-                    if_exists=if_exists.value,
+                    if_exists=if_exists.value if if_exists is not None else None,
                     match_metadata=metadata_future,
                     on_progress=on_progress,
                     on_missing_game_type=on_missing_game_type,
+                    on_duplicate=on_duplicate,
                 )
 
             # If extraction (typically minutes) finishes faster than the prompts (a handful
@@ -297,7 +316,10 @@ def extract(
             if pending:
                 progress.update(pending)
                 pending = 0
-        print(summary)
+        if summary.skipped:
+            typer.echo(f"Skipped -- kept the existing JSON extraction for {summary.video_id}")
+        else:
+            print(summary)
     except Exception:
         if (
             downloaded_path is not None
@@ -334,6 +356,93 @@ def load_db(
     """
     video_ids = load_json_dir(db, json_dir, if_exists=if_exists.value)
     print(f"Loaded {len(video_ids)} video(s) into {db}")
+
+
+match_app = typer.Typer(help="List or inspect previously extracted matches.")
+app.add_typer(match_app, name="match")
+
+
+@match_app.command("list")
+def match_list(
+    json_dir: Annotated[
+        Path, typer.Argument(help="Directory of JSON files written by `extract`")
+    ] = Path("matches"),
+) -> None:
+    """List every match extracted into json_dir, one line per video.
+
+    Reads the JSON files directly rather than a database -- the JSON is this project's
+    source of truth (see CLAUDE.md), so this works whether or not `load-db` has ever
+    been run. A file that doesn't parse as a current-format extraction (e.g. one of the
+    pre-existing one-file-per-game files predating the one-file-per-video format) is
+    skipped with a warning on stderr instead of aborting the whole listing.
+    """
+    # Filenames are "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>"
+    # (see extract._video_id), so a plain filename sort already sorts chronologically.
+    shown = 0
+    for path in sorted(Path(json_dir).glob("*.json")):
+        try:
+            extraction = read_video(path)
+        except (KeyError, ValueError) as exc:
+            typer.echo(f"Skipping {path.name}: {exc}", err=True)
+            continue
+        shown += 1
+        num_games = len(extraction.games)
+        typer.echo(
+            f"{extraction.video_id}  {extraction.match_date}  season {extraction.season}  "
+            f"{extraction.match_type.value}  "
+            f"{extraction.player_red_name or '?'} vs {extraction.player_blue_name or '?'}  "
+            f"({num_games} game{'s' if num_games != 1 else ''})"
+        )
+    if shown == 0:
+        typer.echo(f"No matches found in {json_dir}")
+
+
+@match_app.command("show")
+def match_show(
+    video_id: Annotated[
+        str, typer.Argument(help="video_id to show, as printed by `match list`")
+    ],
+    json_dir: Annotated[
+        Path, typer.Option(help="Directory of JSON files written by `extract`")
+    ] = Path("matches"),
+) -> None:
+    """Print one match's full extracted summary: its metadata plus a per-game breakdown
+    (label, game type, winner, event counts)."""
+    path = Path(json_dir) / f"{video_id}.json"
+    if not path.exists():
+        raise typer.BadParameter(f"no match file at {path}", param_hint="video_id")
+    extraction = read_video(path)
+
+    typer.echo(extraction.video_id)
+    typer.echo(
+        f"  {extraction.player_red_name or '?'} (red) vs "
+        f"{extraction.player_blue_name or '?'} (blue)"
+    )
+    typer.echo(
+        f"  {extraction.match_date}  season {extraction.season}  {extraction.match_type.value}"
+    )
+    if extraction.video_url:
+        typer.echo(f"  video: {extraction.video_url}")
+    typer.echo(f"  extracted: {extraction.extracted_at}")
+
+    red_wins = sum(game.winner_color is CellColor.RED for game in extraction.games)
+    blue_wins = sum(game.winner_color is CellColor.BLUE for game in extraction.games)
+    typer.echo(
+        f"  games: {len(extraction.games)} "
+        f"({extraction.player_red_name or 'red'} {red_wins} - "
+        f"{blue_wins} {extraction.player_blue_name or 'blue'})"
+    )
+
+    for game in sorted(extraction.games, key=lambda g: g.game_index):
+        marks = sum(event.event_type is EventType.MARK for event in game.events)
+        unmarks = sum(event.event_type is EventType.UNMARK for event in game.events)
+        winner = game.winner_color.value if game.winner_color else "none"
+        game_type = game.game_type.value if game.game_type else "unknown"
+        typer.echo(
+            f"\n  Game {game.game_index} ({game.label or 'no label'}): "
+            f"type={game_type}  winner={winner} ({game.win_type.value})  "
+            f"marks={marks}  unmarks={unmarks}"
+        )
 
 
 def main() -> None:
