@@ -20,7 +20,7 @@ scadustats match validate [video_id] [--json-dir matches]
 
 Run `scadustats` (or `scadustats match`) with no command to see this list with full help for each command.
 
-`extract` reads the bingo-board overlay from a match video and writes one JSON file per video (all its games, players, commentators, match date, and video link included) — it never touches a database. `video_path_or_url` can be a local file, or a youtube.com/youtu.be URL to download and extract in one step (deleted afterward on success; kept, on request, if extraction fails). Each game is also classified as `base` or `dlc` by matching its goal squares against `scadustats/squares.json`, a growing reference of previously seen squares; when a game's squares aren't in there yet, `--game-type` (or an interactive prompt) supplies it.
+`extract` reads the bingo-board overlay from a match video and writes one JSON file per video (all its games, players, commentators, match date, and video link included) — it never touches a database. `video_path_or_url` can be a local file, or a youtube.com/youtu.be URL to download and extract in one step (deleted afterward on success; kept, on request, if extraction fails). Each game is also classified as `base` or `dlc` by matching its goal squares against `scadustats/pipeline/squares.json`, a growing reference of previously seen squares; when a game's squares aren't in there yet, `--game-type` (or an interactive prompt) supplies it.
 
 The `match` sub-commands are read-only lookups over what's already been extracted, straight from the JSON files (no database needed).
 

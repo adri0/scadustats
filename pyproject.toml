@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-scadustats = "scadustats.cli:main"
+scadustats = "scadustats.cli.app:main"
 
 [dependency-groups]
 dev = [

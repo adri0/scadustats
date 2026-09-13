@@ -1,4 +1,4 @@
-from scadustats import cli
+from scadustats.cli import app
 
 if __name__ == "__main__":
-    cli.main()
+    app.main()

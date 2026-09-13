@@ -32,7 +32,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from scadustats import layout
+from scadustats.overlay import layout
 
 # Kept on top of the blacked-out region below the score strip -- each sits inside the
 # area the mask would otherwise zero, and each is read by the pipeline.

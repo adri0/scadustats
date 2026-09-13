@@ -14,7 +14,7 @@ class CellColor(Enum):
 
 class MatchType(StrEnum):
     """User-provided, not derivable from the video. StrEnum (unlike the plain Enums
-    above) so it doubles directly as a Typer/Click CLI choice type -- see cli.py."""
+    above) so it doubles directly as a Typer/Click CLI choice type -- see cli/app.py."""
 
     DOUBLE_ELIMINATION = "double_elimination"
     PLAYOFFS = "playoffs"
@@ -129,7 +129,7 @@ class GameEvent:
 @dataclass
 class MatchMetadata:
     """User-supplied details about a match that can't be read from the video itself --
-    collected interactively by the CLI (see cli.py) and attached once per video, since a
+    collected interactively by the CLI (see cli/app.py) and attached once per video, since a
     match is one video even when it contains multiple game segments."""
 
     match_date: date

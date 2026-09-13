@@ -13,7 +13,7 @@ import argparse
 
 import cv2
 
-from scadustats import layout
+from scadustats.overlay import layout
 
 
 def annotate(video_path: str, timestamp_s: float) -> "cv2.typing.MatLike":
