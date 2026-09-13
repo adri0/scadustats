@@ -525,27 +525,40 @@ def _sample_extraction(**overrides) -> VideoExtraction:
     return VideoExtraction(**defaults)
 
 
-def test_list_matches_prints_one_line_per_video(tmp_path):
+def test_list_matches_prints_a_row_per_video_under_a_header(tmp_path):
     write_video(tmp_path, _sample_extraction())
     write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
 
-    result = CliRunner().invoke(app, ["match", "list", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
-    assert len(lines) == 2
+    assert lines[0].startswith("MATCH")
     # Filenames (== video_id) sort chronologically -- the earlier date comes first.
-    assert lines[0].startswith("2026-01-01-carol-vs-dave")
-    assert lines[1].startswith("2026-03-05-alice-vs-bob")
-    assert "alice vs bob" in lines[1]
-    assert "1 game" in lines[1]
+    assert lines[1].startswith("2026-01-01-carol-vs-dave")
+    assert lines[2].startswith("2026-03-05-alice-vs-bob")
+    # The result of the match is the column the old listing didn't have at all.
+    assert lines[2].endswith("alice wins 1-0")
+    assert "2 matches" in result.output
+
+
+def test_list_matches_aligns_its_columns(tmp_path):
+    write_video(tmp_path, _sample_extraction())
+    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-a-vs-b"))
+
+    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    header, *rows = result.output.splitlines()[:3]
+    season_column = header.index("SEASON")
+    assert all(row[season_column:].startswith("6") for row in rows)
 
 
 def test_list_matches_skips_unparseable_files_with_a_warning(tmp_path):
     write_video(tmp_path, _sample_extraction())
     (tmp_path / "old-format.json").write_text('{"game_id": "x"}')
 
-    result = CliRunner().invoke(app, ["match", "list", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "2026-03-05-alice-vs-bob" in result.output
@@ -553,7 +566,7 @@ def test_list_matches_skips_unparseable_files_with_a_warning(tmp_path):
 
 
 def test_list_matches_reports_when_directory_has_no_matches(tmp_path):
-    result = CliRunner().invoke(app, ["match", "list", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "No matches found" in result.output
@@ -568,24 +581,42 @@ def test_show_match_prints_metadata_and_per_game_breakdown(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "2026-03-05-alice-vs-bob" in result.output
-    assert "alice (red) vs bob (blue)" in result.output
-    assert "alice 1 - 0 bob" in result.output
-    assert "Game 1:" in result.output
+    assert "alice (red) vs bob (blue) -- alice wins 1-0" in result.output
+    assert "Game 1  base game" in result.output
     # A line win names the line it was won on; see test_show_match_names_no_line... below
     # for the other case.
-    assert "winner=red (line on row 2)" in result.output
-    assert "marks=1" in result.output
-    assert "unmarks=1" in result.output
-    assert "length: 01:12:01" in result.output
-    # The match result names the winning player, not just their color.
-    assert "result: alice (red) wins" in result.output
+    assert "alice (red) by line on row 2" in result.output
+    assert "1 mark, 1 unmark" in result.output
+    assert "length 01:12:01" in result.output
+
+
+def test_show_match_draws_the_final_board_with_the_winning_line_marked(tmp_path):
+    # A genuine row-0 line win, so the board actually holds the line it's shown on.
+    game = _match_sample_game(
+        events=[
+            GameEvent(
+                row=0, col=col, color=CellColor.RED, video_ts_s=1.0 + col, game_elapsed_s=col
+            )
+            for col in range(5)
+        ],
+        win_line=WinLine.ROW_0,
+    )
+    write_video(tmp_path, _sample_extraction(games=[game]))
+
+    result = CliRunner().invoke(
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "board key: R = alice, B = bob" in result.output
+    # The won row is bracketed; the four rows nobody touched print as unclaimed cells.
+    assert "[R][R][R][R][R]" in result.output
+    assert result.output.count(" .  .  .  .  .") == 4
+    assert "squares  alice 5, bob 0, unclaimed 20" in result.output
 
 
 def test_show_match_reports_a_draw_and_an_undetermined_result(tmp_path):
-    drawn = [
-        _match_sample_game(1),
-        _match_sample_game(2, winner_color=CellColor.BLUE),
-    ]
+    drawn = [_match_sample_game(1), _match_sample_game(2, winner_color=CellColor.BLUE)]
     write_video(tmp_path, _sample_extraction(games=drawn))
 
     result = CliRunner().invoke(
@@ -593,8 +624,7 @@ def test_show_match_reports_a_draw_and_an_undetermined_result(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "alice 1 - 1 bob" in result.output
-    assert "result: draw" in result.output
+    assert "draw 1-1" in result.output
 
     undecided = [_match_sample_game(1), _match_sample_game(2, winner_color=None)]
     write_video(tmp_path, _sample_extraction(games=undecided))
@@ -604,7 +634,8 @@ def test_show_match_reports_a_draw_and_an_undetermined_result(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "result: undetermined" in result.output
+    # "leads", not "wins": one game has no winner, so the score isn't the whole story.
+    assert "alice leads 1-0, 1 undecided" in result.output
 
 
 def test_show_match_names_no_line_for_a_majority_win(tmp_path):
@@ -616,18 +647,27 @@ def test_show_match_names_no_line_for_a_majority_win(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "winner=red (majority)" in result.output
+    assert "alice (red) by majority" in result.output
+    assert "[R]" not in result.output  # no line to mark on the board
 
 
-def test_show_match_omits_length_when_the_duration_is_unknown(tmp_path):
-    write_video(tmp_path, _sample_extraction(duration_s=None))
+def test_show_match_lists_events_only_when_asked(tmp_path):
+    write_video(tmp_path, _sample_extraction())
 
-    result = CliRunner().invoke(
+    without = CliRunner().invoke(
         app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
     )
+    with_events = CliRunner().invoke(
+        app,
+        ["match", "show", "2026-03-05-alice-vs-bob", "--events", "--json-dir", str(tmp_path)],
+    )
 
-    assert result.exit_code == 0, result.output
-    assert "length:" not in result.output
+    assert without.exit_code == 0, without.output
+    assert "goal 0-0" not in without.output
+    assert with_events.exit_code == 0, with_events.output
+    # The mark's own row: its video timestamp, game clock, player, square and goal text.
+    assert "00:00:10  00:09  mark    alice   r0 c0   goal 0-0" in with_events.output
+    assert "unmark  bob     r1 c1   goal 1-1" in with_events.output
 
 
 def _valid_match_extraction(**overrides) -> VideoExtraction:

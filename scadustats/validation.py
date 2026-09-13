@@ -52,10 +52,6 @@ class ValidationIssue:
 Board = list[list[CellColor]]
 
 
-def _empty_board() -> Board:
-    return [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
-
-
 def _ordered_events(game: GameResult) -> list[GameEvent]:
     """Events in the order they actually happened. Sorted by video timestamp rather than
     game_elapsed_s: the latter is the overlay's stopwatch, which runs a pre-game countdown
@@ -70,13 +66,10 @@ def _board_states(events: list[GameEvent]) -> list[Board]:
     extract._determine_winner's replay, but keeps every intermediate state instead of
     only the final one -- the "no marks after the win" rule needs to know *when* the
     board became won, not just that it ended that way."""
-    state = _empty_board()
+    state = winner.empty_board()
     states = []
     for event in events:
-        if event.row is not None and event.col is not None:
-            state[event.row][event.col] = (
-                event.color if event.event_type is EventType.MARK else CellColor.UNCLAIMED
-            )
+        winner.apply_event(state, event)
         states.append([row[:] for row in state])
     return states
 
@@ -107,7 +100,7 @@ def _check_recorded_winner_matches_board(
     hand-edited without the board behind it. The line is part of the check, not a
     separate rule: a win recorded on a line the board doesn't hold is the same defect as
     a win recorded for the wrong color."""
-    final = states[-1] if states else _empty_board()
+    final = states[-1] if states else winner.empty_board()
     expected = winner.determine_winner(final)
     if (game.winner_color, game.win_type, game.win_line) == expected:
         return []

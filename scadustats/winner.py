@@ -1,6 +1,9 @@
-"""Win-condition logic over a 5x5 board of CellColor. Pure functions, no I/O."""
+"""Win-condition logic over a 5x5 board of CellColor, plus the event replay that
+produces such a board. Pure functions, no I/O."""
 
-from scadustats.models import CellColor, WinLine, WinType
+from collections.abc import Iterable
+
+from scadustats.models import CellColor, EventType, GameEvent, WinLine, WinType
 
 Board = list[list[CellColor]]
 Coord = tuple[int, int]
@@ -16,6 +19,30 @@ LINES: dict[WinLine, list[Coord]] = {
     # set, so the order within one has no effect either way.
     WinLine.DIAGONAL_BL_TR: [(4 - i, i) for i in range(5)],
 }
+
+
+def empty_board() -> Board:
+    return [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
+
+
+def apply_event(board: Board, event: GameEvent) -> None:
+    """Apply one event to `board`, in place. A non-square event (GAME_START carries no
+    row/col -- see models.GameEvent) leaves the board alone rather than being an error:
+    replaying a game means walking its whole event list, not a filtered copy of it."""
+    if event.row is None or event.col is None:
+        return
+    board[event.row][event.col] = (
+        event.color if event.event_type is EventType.MARK else CellColor.UNCLAIMED
+    )
+
+
+def replay(events: Iterable[GameEvent]) -> Board:
+    """The board state a game's events add up to -- unclaims included, so this is what
+    the board genuinely looked like at the end, not every square ever touched."""
+    board = empty_board()
+    for event in events:
+        apply_event(board, event)
+    return board
 
 
 def winning_line(board: Board) -> tuple[CellColor, WinLine] | None:
