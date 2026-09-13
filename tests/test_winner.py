@@ -1,6 +1,7 @@
 import pytest
 
-from scadustats.models import CellColor, WinLine, WinType
+from scadustats import winner
+from scadustats.models import CellColor, EventType, GameEvent, WinLine, WinType
 from scadustats.winner import LINES, determine_winner, majority_winner, winning_line
 
 U, R, B = CellColor.UNCLAIMED, CellColor.RED, CellColor.BLUE
@@ -143,3 +144,38 @@ def test_tie_when_blocked_and_equal():
 )
 def test_win_line_labels_read_as_prose(win_line, expected):
     assert win_line.label == expected
+
+
+def test_replay_applies_marks_and_unmarks_to_an_empty_board():
+    events = [
+        GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=1.0, game_elapsed_s=1),
+        GameEvent(row=1, col=1, color=CellColor.BLUE, video_ts_s=2.0, game_elapsed_s=2),
+        GameEvent(
+            row=0,
+            col=0,
+            color=CellColor.RED,
+            video_ts_s=3.0,
+            game_elapsed_s=3,
+            event_type=EventType.UNMARK,
+        ),
+    ]
+
+    board = winner.replay(events)
+
+    assert board[0][0] is CellColor.UNCLAIMED
+    assert board[1][1] is CellColor.BLUE
+
+
+def test_replay_ignores_an_event_that_is_not_about_a_square():
+    """GAME_START carries no row/col (see models.GameEvent) -- replaying a game means
+    walking its whole event list, so this has to be a no-op rather than an error."""
+    game_start = GameEvent(
+        row=None,
+        col=None,
+        color=None,
+        video_ts_s=1.0,
+        game_elapsed_s=180,
+        event_type=EventType.GAME_START,
+    )
+
+    assert winner.replay([game_start]) == winner.empty_board()

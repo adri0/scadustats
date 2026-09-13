@@ -317,16 +317,9 @@ def _determine_winner(
     either: a genuine win ends the game, so no further events should follow it anyway.
 
     Non-square events (e.g. GAME_START) carry no row/col and don't affect board state,
-    so they're skipped here.
+    so winner.replay skips them.
     """
-    state: list[list[CellColor]] = [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
-    for event in events:
-        if event.row is None or event.col is None:
-            continue
-        state[event.row][event.col] = (
-            event.color if event.event_type is EventType.MARK else CellColor.UNCLAIMED
-        )
-    return winner.determine_winner(state)
+    return winner.determine_winner(winner.replay(events))
 
 
 def _video_id(match_metadata: MatchMetadata, red_name: str | None, blue_name: str | None) -> str:

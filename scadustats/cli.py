@@ -11,18 +11,11 @@ from urllib.parse import urlparse
 import typer
 
 from scadustats.db import load_json_dir
+from scadustats.display import render_match, render_match_table
 from scadustats.download import download_video
 from scadustats.extract import estimate_sample_count, extract_video
 from scadustats.json_export import read_video
-from scadustats.models import (
-    EventType,
-    GameResult,
-    GameType,
-    MatchMetadata,
-    MatchType,
-    MatchWinner,
-    VideoExtraction,
-)
+from scadustats.models import GameResult, GameType, MatchMetadata, MatchType, VideoExtraction
 from scadustats.validation import validate_extraction
 
 # no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
@@ -46,27 +39,6 @@ _YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 
 def _is_youtube_url(url: str) -> bool:
     return urlparse(url).hostname in _YOUTUBE_HOSTS
-
-
-def _format_duration(seconds: float) -> str:
-    """A video length as HH:MM:SS, for display only -- the JSON keeps raw seconds."""
-    total = int(seconds)
-    hours, remainder = divmod(total, 3600)
-    minutes, secs = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
-def _match_result(extraction: VideoExtraction) -> str:
-    """The match's outcome as prose for `match show`, naming the winning player rather
-    than just their color. An undetermined outcome (a game with no winner recorded --
-    see VideoExtraction.winner) says so instead of naming anyone."""
-    if extraction.winner is None:
-        return "undetermined (a game has no winner recorded)"
-    if extraction.winner is MatchWinner.DRAW:
-        return "draw"
-    if extraction.winner is MatchWinner.RED:
-        return f"{extraction.player_red_name or 'red'} (red) wins"
-    return f"{extraction.player_blue_name or 'blue'} (blue) wins"
 
 
 def _prompt_match_metadata(
@@ -391,45 +363,62 @@ def load_db(
     print(f"Loaded {len(video_ids)} video(s) into {db}")
 
 
+def _match_path(json_dir: Path, video_id: str) -> Path:
+    """The JSON file one video_id names, as a CLI error rather than a traceback when
+    it isn't there -- a mistyped id is a user mistake, not a bug."""
+    path = Path(json_dir) / f"{video_id}.json"
+    if not path.exists():
+        raise typer.BadParameter(f"no match file at {path}", param_hint="video_id")
+    return path
+
+
 match_app = typer.Typer(
     help="List or inspect previously extracted matches.", no_args_is_help=True
 )
 app.add_typer(match_app, name="match")
 
 
+def _read_matches(json_dir: Path) -> list[VideoExtraction]:
+    """Every match in json_dir, oldest first. A file that doesn't parse as a
+    current-format extraction (e.g. one of the pre-existing one-file-per-game files
+    predating the one-file-per-video format) is skipped with a warning on stderr rather
+    than aborting the whole run -- shared by `match list` and `match validate`, which
+    both walk the directory and both want that tolerance.
+
+    Filenames are "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>" (see
+    extract._video_id), so a plain filename sort already sorts chronologically.
+    """
+    extractions = []
+    for path in sorted(Path(json_dir).glob("*.json")):
+        try:
+            extractions.append(read_video(path))
+        except (KeyError, ValueError) as exc:
+            typer.echo(f"Skipping {path.name}: {exc}", err=True)
+    return extractions
+
+
 @match_app.command("list")
 def match_list(
     json_dir: Annotated[
-        Path, typer.Argument(help="Directory of JSON files written by `extract`")
+        Path, typer.Option(help="Directory of JSON files written by `extract`")
     ] = Path("matches"),
 ) -> None:
-    """List every match extracted into json_dir, one line per video.
+    """List every match extracted into json_dir as a table: who played, the format, how
+    many games, and how the match ended.
 
     Reads the JSON files directly rather than a database -- the JSON is this project's
     source of truth (see CLAUDE.md), so this works whether or not `load-db` has ever
-    been run. A file that doesn't parse as a current-format extraction (e.g. one of the
-    pre-existing one-file-per-game files predating the one-file-per-video format) is
-    skipped with a warning on stderr instead of aborting the whole listing.
+    been run.
     """
-    # Filenames are "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>"
-    # (see extract._video_id), so a plain filename sort already sorts chronologically.
-    shown = 0
-    for path in sorted(Path(json_dir).glob("*.json")):
-        try:
-            extraction = read_video(path)
-        except (KeyError, ValueError) as exc:
-            typer.echo(f"Skipping {path.name}: {exc}", err=True)
-            continue
-        shown += 1
-        num_games = extraction.num_games
-        typer.echo(
-            f"{extraction.video_id}  {extraction.match_date}  season {extraction.season}  "
-            f"{extraction.match_type.value}  "
-            f"{extraction.player_red_name or '?'} vs {extraction.player_blue_name or '?'}  "
-            f"({num_games} game{'s' if num_games != 1 else ''})"
-        )
-    if shown == 0:
+    extractions = _read_matches(json_dir)
+    if not extractions:
         typer.echo(f"No matches found in {json_dir}")
+        return
+
+    for line in render_match_table(extractions):
+        typer.echo(line)
+    count = len(extractions)
+    typer.echo(f"\n{count} match{'es' if count != 1 else ''}")
 
 
 @match_app.command("validate")
@@ -455,26 +444,16 @@ def match_validate(
     extractions.
     """
     if video_id is not None:
-        path = Path(json_dir) / f"{video_id}.json"
-        if not path.exists():
-            raise typer.BadParameter(f"no match file at {path}", param_hint="video_id")
-        paths = [path]
+        extractions = [read_video(_match_path(json_dir, video_id))]
     else:
-        paths = sorted(Path(json_dir).glob("*.json"))
-        if not paths:
+        extractions = _read_matches(json_dir)
+        if not extractions:
             typer.echo(f"No matches found in {json_dir}")
             return
 
     checked = 0
     with_issues = 0
-    for path in paths:
-        try:
-            extraction = read_video(path)
-        except (KeyError, ValueError) as exc:
-            # Same tolerance as `match list`: an unreadable file is skipped with a
-            # warning rather than aborting the run over the files after it.
-            typer.echo(f"Skipping {path.name}: {exc}", err=True)
-            continue
+    for extraction in extractions:
         checked += 1
         issues = validate_extraction(extraction)
         if not issues:
@@ -496,52 +475,28 @@ def match_show(
     video_id: Annotated[
         str, typer.Argument(help="video_id to show, as printed by `match list`")
     ],
+    events: Annotated[
+        bool,
+        typer.Option(
+            "--events/--no-events",
+            help="Also print every game's events (marks, unmarks, game start) with the "
+            "goal text of each square they touched",
+        ),
+    ] = False,
     json_dir: Annotated[
         Path, typer.Option(help="Directory of JSON files written by `extract`")
     ] = Path("matches"),
 ) -> None:
-    """Print one match's full extracted summary: its metadata plus a per-game breakdown
-    (game type, winner, event counts)."""
-    path = Path(json_dir) / f"{video_id}.json"
-    if not path.exists():
-        raise typer.BadParameter(f"no match file at {path}", param_hint="video_id")
-    extraction = read_video(path)
+    """Print one match in full: its details, then per game the recorded result, how the
+    squares ended up split, and the final board (with the winning line marked).
 
-    typer.echo(extraction.video_id)
-    typer.echo(
-        f"  {extraction.player_red_name or '?'} (red) vs "
-        f"{extraction.player_blue_name or '?'} (blue)"
-    )
-    typer.echo(
-        f"  {extraction.match_date}  season {extraction.season}  {extraction.match_type.value}"
-    )
-    if extraction.duration_s is not None:
-        typer.echo(f"  length: {_format_duration(extraction.duration_s)}")
-    if extraction.video_url:
-        typer.echo(f"  video: {extraction.video_url}")
-    typer.echo(f"  extracted: {extraction.extracted_at}")
-
-    typer.echo(
-        f"  games: {extraction.num_games} "
-        f"({extraction.player_red_name or 'red'} {extraction.red_score} - "
-        f"{extraction.blue_score} {extraction.player_blue_name or 'blue'})"
-    )
-    typer.echo(f"  result: {_match_result(extraction)}")
-
-    for game in sorted(extraction.games, key=lambda g: g.game_index):
-        marks = sum(event.event_type is EventType.MARK for event in game.events)
-        unmarks = sum(event.event_type is EventType.UNMARK for event in game.events)
-        winner = game.winner_color.value if game.winner_color else "none"
-        game_type = game.game_type.value if game.game_type else "unknown"
-        # Only a line win has a line to name, and only then is it worth the extra words.
-        win = game.win_type.value
-        if game.win_line is not None:
-            win += f" on {game.win_line.label}"
-        typer.echo(
-            f"\n  Game {game.game_index}: "
-            f"type={game_type}  winner={winner} ({win})  "
-            f"marks={marks}  unmarks={unmarks}"
-        )
+    The board is replayed from the game's own events, so a result the board doesn't
+    support is visible right next to it -- `match validate` is what states that in so
+    many words.
+    """
+    extraction = read_video(_match_path(json_dir, video_id))
+    for line in render_match(extraction, events=events):
+        typer.echo(line)
 
 
 def main() -> None:
