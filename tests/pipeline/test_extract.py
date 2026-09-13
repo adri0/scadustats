@@ -44,8 +44,11 @@ def _stub_sampling(monkeypatch, timer_readings: list[int | None]) -> None:
     monkeypatch.setattr(extract.timer, "read_timer", lambda frame: timer_readings[frame[0, 0, 0]])
 
 
-def _debounced(board: list[list[CellColor]], count: int = 2) -> list[Observation]:
-    """Repeat the same board state enough times to satisfy the 2-consecutive-sample debounce."""
+def _debounced(
+    board: list[list[CellColor]], count: int = extract._MARK_DEBOUNCE_SAMPLES
+) -> list[Observation]:
+    """Repeat the same board state enough times to satisfy the mark debounce (by default --
+    pass extract._UNMARK_DEBOUNCE_SAMPLES for a block meant to confirm an unclaim)."""
     return [Observation(i, float(i), board, 10 + i) for i in range(count)]
 
 
@@ -53,7 +56,8 @@ def test_claim_then_mistaken_unclaim_produces_both_events(caplog):
     segment = [
         *_debounced(_board()),
         *_debounced(_board((0, 0, R))),
-        *_debounced(_board()),  # player undoes the mistaken mark
+        # player undoes the mistaken mark -- unclaiming needs the longer debounce run
+        *_debounced(_board(), count=extract._UNMARK_DEBOUNCE_SAMPLES),
     ]
     with caplog.at_level(logging.WARNING):
         events = _extract_events(segment)
@@ -62,6 +66,22 @@ def test_claim_then_mistaken_unclaim_produces_both_events(caplog):
         (0, 0, R, EventType.MARK),
         (0, 0, R, EventType.UNMARK),
     ]
+    assert not caplog.records
+
+
+def test_brief_reversion_to_unclaimed_is_not_recorded_as_an_unmark(caplog):
+    # A couple of misread frames reverting a claimed cell to UNCLAIMED -- exactly the
+    # kind of flicker the splash-transition regression (see CLAUDE.md) produced -- should
+    # not be enough to confirm an unclaim on its own, unlike a genuine, sustained undo.
+    segment = [
+        *_debounced(_board((0, 0, R))),
+        *_debounced(_board(), count=extract._UNMARK_DEBOUNCE_SAMPLES - 1),
+        *_debounced(_board((0, 0, R))),  # the true state reasserts itself
+    ]
+    with caplog.at_level(logging.WARNING):
+        events = _extract_events(segment)
+
+    assert [(e.row, e.col, e.color, e.event_type) for e in events] == [(0, 0, R, EventType.MARK)]
     assert not caplog.records
 
 
@@ -86,7 +106,7 @@ def test_winner_ignores_a_line_undone_by_unclaim():
     segment = [
         *_debounced(_board(*base)),
         *_debounced(_board(*base, (0, 4, R))),
-        *_debounced(_board(*base)),
+        *_debounced(_board(*base), count=extract._UNMARK_DEBOUNCE_SAMPLES),
     ]
     events = _extract_events(segment)
     winner_color, win_type, win_line = _determine_winner(events)
