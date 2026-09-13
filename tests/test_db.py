@@ -43,6 +43,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
         games=[_sample_game()],
+        duration_s=4321.0,
     )
     defaults.update(overrides)
     return VideoExtraction(**defaults)
@@ -172,6 +173,69 @@ def test_if_exists_error_raises_on_duplicate(tmp_path):
     write_extraction(db_path, _sample_extraction())
     with pytest.raises(ValueError):
         write_extraction(db_path, _sample_extraction(), if_exists="error")
+
+
+def test_video_row_carries_duration(tmp_path):
+    """Written from the extraction itself, so it survives load_json_dir's no-video-file
+    path -- unlike resolution/fps, which only a source video can supply."""
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        duration_s = con.execute(
+            "SELECT duration_s FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert duration_s == 4321.0
+    finally:
+        con.close()
+
+
+def test_video_duration_falls_back_to_the_probed_video(tmp_path):
+    """JSON predating duration_s has none to write, but a caller extracting from a real
+    file still has the probed VideoInfo in hand."""
+    db_path = tmp_path / "test.duckdb"
+    video_info = VideoInfo(width=1280, height=720, fps=60.0, duration_s=100.0)
+
+    write_extraction(db_path, _sample_extraction(duration_s=None), "vid.mp4", video_info)
+
+    con = duckdb.connect(str(db_path))
+    try:
+        duration_s = con.execute(
+            "SELECT duration_s FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert duration_s == 100.0
+    finally:
+        con.close()
+
+
+def test_init_schema_adds_duration_to_a_database_predating_it(tmp_path):
+    """CREATE TABLE IF NOT EXISTS leaves an existing videos table alone, so the column
+    has to be added explicitly or every insert into an older database file fails."""
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    try:
+        con.execute(
+            "CREATE TABLE videos (video_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
+            "resolution_width INTEGER, resolution_height INTEGER, fps DOUBLE, "
+            "video_url VARCHAR, match_date DATE NOT NULL, season INTEGER NOT NULL, "
+            "match_type VARCHAR NOT NULL, player_red_name VARCHAR, "
+            "player_blue_name VARCHAR, extracted_at DATE NOT NULL)"
+        )
+    finally:
+        con.close()
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        duration_s = con.execute(
+            "SELECT duration_s FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert duration_s == 4321.0
+    finally:
+        con.close()
 
 
 def test_write_extraction_allows_missing_source_path_and_video_info(tmp_path):

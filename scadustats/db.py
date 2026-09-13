@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS videos (
     resolution_width INTEGER,
     resolution_height INTEGER,
     fps DOUBLE,
+    -- The source video's full length. Nullable like the columns above, but for a
+    -- different reason: it comes from the extraction itself (VideoExtraction.duration_s),
+    -- not from a source video file, so it's present even via load_json_dir -- unless the
+    -- JSON predates the field or had it cleared by hand.
+    duration_s DOUBLE,
     video_url VARCHAR,
     match_date DATE NOT NULL,
     season INTEGER NOT NULL,
@@ -64,6 +69,13 @@ CREATE TABLE IF NOT EXISTS events (
     video_ts_s DOUBLE NOT NULL,
     FOREIGN KEY (game_id, row, col) REFERENCES squares(game_id, row, col)
 );
+
+-- CREATE TABLE IF NOT EXISTS above leaves an already-created videos table alone, so a
+-- database file made before duration_s existed would fail every insert below on an
+-- unknown column. The database is disposable (it regenerates from JSON via load_json_dir
+-- at any time), but failing rather than picking the new column up costs a contributor a
+-- confusing error for no reason.
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS duration_s DOUBLE;
 """
 
 
@@ -107,18 +119,27 @@ def write_extraction(
             if if_exists == "replace":
                 _delete_video(con, extraction.video_id)
 
+        # The extraction's own duration wins over the source video's when both are in
+        # hand: it's what the JSON -- this project's source of truth -- records, including
+        # any hand correction. video_info only fills in for JSON written before the field
+        # existed, where it's the one thing still able to answer.
+        duration_s = extraction.duration_s
+        if duration_s is None and video_info is not None:
+            duration_s = video_info.duration_s
+
         con.execute(
             """INSERT INTO videos
                (video_id, source_path, resolution_width, resolution_height, fps,
-                video_url, match_date, season, match_type, player_red_name,
+                duration_s, video_url, match_date, season, match_type, player_red_name,
                 player_blue_name, extracted_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 extraction.video_id,
                 source_path,
                 video_info.width if video_info else None,
                 video_info.height if video_info else None,
                 video_info.fps if video_info else None,
+                duration_s,
                 extraction.video_url,
                 extraction.match_date,
                 extraction.season,

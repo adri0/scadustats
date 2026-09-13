@@ -41,6 +41,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
         games=[_sample_game()],
+        duration_s=4321.0,
     )
     defaults.update(overrides)
     return VideoExtraction(**defaults)
@@ -61,6 +62,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     assert data["player_red_name"] == "alice"
     assert data["player_blue_name"] == "bob"
     assert data["extracted_at"] == "2026-03-06"
+    assert data["duration_s"] == 4321.0
     assert len(data["games"]) == 1
 
     game_data = data["games"][0]
@@ -160,6 +162,26 @@ def test_write_video_video_url_defaults_to_null(tmp_path):
     data = json.loads(path.read_text())
 
     assert data["video_url"] is None
+
+
+def test_write_video_handles_unknown_duration(tmp_path):
+    path = write_video(tmp_path, _sample_extraction(duration_s=None))
+    data = json.loads(path.read_text())
+
+    assert data["duration_s"] is None
+    assert read_video(path).duration_s is None
+
+
+def test_read_video_treats_a_file_without_duration_as_unknown_length(tmp_path):
+    """A file written before duration_s existed is still a valid current-format
+    extraction -- it must read back, not raise the KeyError `match list` reports as an
+    unparseable file."""
+    path = write_video(tmp_path, _sample_extraction())
+    data = json.loads(path.read_text())
+    del data["duration_s"]
+    path.write_text(json.dumps(data))
+
+    assert read_video(path).duration_s is None
 
 
 def test_write_video_creates_json_dir_if_missing(tmp_path):

@@ -130,3 +130,9 @@ class VideoExtraction:
     player_blue_name: str | None
     extracted_at: date
     games: list[GameResult]
+    # The source video's full length in seconds (frames.probe), covering the whole
+    # broadcast -- intros, between-game recaps and all -- not just the segments that
+    # became games. Optional/defaulted since a JSON file written before this field
+    # existed (or hand-edited to drop it) still has to read back cleanly, and since
+    # a video whose fps can't be read has no duration to record.
+    duration_s: float | None = None

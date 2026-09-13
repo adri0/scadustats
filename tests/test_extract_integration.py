@@ -67,6 +67,9 @@ def test_extract_video_end_to_end(tmp_path):
     video_data = json.loads(json_path.read_text())
     assert video_data["player_red_name"] == "blanxz"
     assert video_data["player_blue_name"] == "SeriousChallenges"
+    # The whole video's length, not the extracted game's -- the clip's single game
+    # covers only part of it.
+    assert video_data["duration_s"] == pytest.approx(probe(_CLIP_PATH).duration_s)
     assert len(video_data["games"]) == 1
     assert video_data["games"][0]["game_type"] == "base"
     events = video_data["games"][0]["events"]
@@ -98,11 +101,13 @@ def test_extract_video_end_to_end(tmp_path):
         ).fetchone()[0]
         assert game_type == "base"
 
-        player_red_name, player_blue_name = con.execute(
-            "SELECT player_red_name, player_blue_name FROM videos WHERE video_id = ?",
+        player_red_name, player_blue_name, duration_s = con.execute(
+            "SELECT player_red_name, player_blue_name, duration_s FROM videos "
+            "WHERE video_id = ?",
             [summary.video_id],
         ).fetchone()
         assert (player_red_name, player_blue_name) == ("blanxz", "SeriousChallenges")
+        assert duration_s == pytest.approx(probe(_CLIP_PATH).duration_s)
     finally:
         con.close()
 

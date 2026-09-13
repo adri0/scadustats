@@ -517,6 +517,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
         games=[_match_sample_game()],
+        duration_s=4321.0,
     )
     defaults.update(overrides)
     return VideoExtraction(**defaults)
@@ -571,6 +572,18 @@ def test_show_match_prints_metadata_and_per_game_breakdown(tmp_path):
     assert "winner=red (line)" in result.output
     assert "marks=1" in result.output
     assert "unmarks=1" in result.output
+    assert "length: 01:12:01" in result.output
+
+
+def test_show_match_omits_length_when_the_duration_is_unknown(tmp_path):
+    write_video(tmp_path, _sample_extraction(duration_s=None))
+
+    result = CliRunner().invoke(
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "length:" not in result.output
 
 
 def test_show_match_errors_on_unknown_video_id(tmp_path):

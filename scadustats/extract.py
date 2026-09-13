@@ -355,6 +355,12 @@ def extract_video(
     video_path = Path(video_path)
     if known_squares is None:
         known_squares = squares.load_known_squares()
+    # The whole broadcast's length, recorded alongside the games -- a match's games only
+    # cover part of it (intros, between-game recaps and post-game are all in there too),
+    # so this can't be derived from the game segments after the fact. Non-positive means
+    # frames.probe couldn't read an fps to divide the frame count by; None ("unknown")
+    # rather than a fabricated 0.0 in that case.
+    duration_s = frames.probe(video_path).duration_s
     observations = _collect_observations(video_path, sample_rate_hz, on_progress)
     segments = _segment_games(observations)
 
@@ -434,6 +440,7 @@ def extract_video(
         player_blue_name=player_blue_name,
         extracted_at=date.today(),
         games=games,
+        duration_s=duration_s if duration_s > 0 else None,
     )
     # A match is unique by match_date + player names (see _video_id), which video_id
     # already encodes -- so a same-name file here means this exact match was already

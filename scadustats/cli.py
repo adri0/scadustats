@@ -35,6 +35,14 @@ def _is_youtube_url(url: str) -> bool:
     return urlparse(url).hostname in _YOUTUBE_HOSTS
 
 
+def _format_duration(seconds: float) -> str:
+    """A video length as HH:MM:SS, for display only -- the JSON keeps raw seconds."""
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
 def _prompt_match_metadata(
     match_date_opt: str | None,
     season_opt: int | None,
@@ -420,6 +428,8 @@ def match_show(
     typer.echo(
         f"  {extraction.match_date}  season {extraction.season}  {extraction.match_type.value}"
     )
+    if extraction.duration_s is not None:
+        typer.echo(f"  length: {_format_duration(extraction.duration_s)}")
     if extraction.video_url:
         typer.echo(f"  video: {extraction.video_url}")
     typer.echo(f"  extracted: {extraction.extracted_at}")
