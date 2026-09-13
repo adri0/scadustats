@@ -710,3 +710,24 @@ def test_show_match_errors_on_unknown_video_id(tmp_path):
 
     assert result.exit_code != 0
     assert "nonexistent" in result.output
+
+
+def test_no_command_prints_the_command_list():
+    """A bare `scadustats` should show what the commands are, not just Typer's default
+    "Missing command" error, which names none of them."""
+    result = CliRunner().invoke(app, [])
+
+    assert "Commands" in result.output
+    for command in ("download", "extract", "load-db", "match"):
+        assert command in result.output
+    assert "Missing command" not in result.output
+
+
+def test_no_subcommand_prints_the_group_command_list():
+    """Same for a bare sub-command group -- `scadustats match` lists its own commands."""
+    result = CliRunner().invoke(app, ["match"])
+
+    assert "Commands" in result.output
+    for command in ("list", "show", "validate"):
+        assert command in result.output
+    assert "Missing command" not in result.output

@@ -17,7 +17,11 @@ from scadustats.json_export import read_video
 from scadustats.models import CellColor, EventType, GameResult, GameType, MatchMetadata, MatchType
 from scadustats.validation import validate_extraction
 
-app = typer.Typer()
+# no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
+# default "Missing command" error, which tells a first-time user nothing about what the
+# commands actually are. Set on every Typer group here (see match_app below), so a bare
+# sub-command group behaves the same way its parent does.
+app = typer.Typer(no_args_is_help=True)
 
 
 class IfExists(enum.StrEnum):
@@ -366,7 +370,9 @@ def load_db(
     print(f"Loaded {len(video_ids)} video(s) into {db}")
 
 
-match_app = typer.Typer(help="List or inspect previously extracted matches.")
+match_app = typer.Typer(
+    help="List or inspect previously extracted matches.", no_args_is_help=True
+)
 app.add_typer(match_app, name="match")
 
 
