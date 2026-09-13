@@ -61,6 +61,19 @@ _CLOCK_STEP_TOLERANCE_S = 30
 # like the timer simply isn't being read -- see _collect_observations.
 _UNREADABLE_TIMER_WARN_FRACTION = 0.05
 
+# Consecutive matching samples required to confirm a color change -- see _extract_events.
+# A claim (UNCLAIMED -> RED/BLUE) uses the baseline debounce, same as a direct color swap.
+# An unclaim (RED/BLUE -> UNCLAIMED) requires more: it's the rarer, more consequential
+# direction (a real one is a deliberate undo that persists for the rest of the game, not
+# a couple of samples), and it's the direction a stray couple of misread frames falls
+# into by default, since a dulled/compressed color patch reads as UNCLAIMED far more
+# readily than it invents a false RED/BLUE out of nothing (the splash-transition
+# regression documented in CLAUDE.md is exactly this failure mode). Doubling the baseline
+# meaningfully cuts that flicker through without materially delaying detection of a
+# genuine, sustained unclaim.
+_MARK_DEBOUNCE_SAMPLES = 2
+_UNMARK_DEBOUNCE_SAMPLES = 2 * _MARK_DEBOUNCE_SAMPLES
+
 
 @dataclass
 class ExtractionSummary:
@@ -256,48 +269,72 @@ def _detect_game_start(segment: list[Observation]) -> GameEvent | None:
 def _extract_events(segment: list[Observation]) -> list[GameEvent]:
     """Diff consecutive board states into claim/unclaim events.
 
-    A color change is only accepted once the same new color has been observed on two
-    consecutive samples -- this debounce rejects single-frame classification flicker
-    (e.g. a transitional stream wipe/flash whose color transiently matches a reference
-    hue) without meaningfully hurting timestamp precision at the ~1 sample/second rate
-    this pipeline samples at.
+    A color change is only accepted once the same new color has been observed on enough
+    consecutive samples in a row to reach its required debounce (see
+    _MARK_DEBOUNCE_SAMPLES/_UNMARK_DEBOUNCE_SAMPLES) -- this rejects short runs of
+    classification flicker (e.g. a transitional stream wipe/flash whose color transiently
+    matches a reference hue, or a dulled/compressed color patch briefly misreading as
+    UNCLAIMED) without meaningfully hurting timestamp precision at the ~1 sample/second
+    rate this pipeline samples at. Unclaiming requires a longer run than claiming -- see
+    _UNMARK_DEBOUNCE_SAMPLES.
 
     UNCLAIMED -> RED/BLUE is a claim. RED/BLUE -> UNCLAIMED is a legitimate unclaim, not
     an anomaly: a player can inadvertently mark the wrong square and undo it. A direct
     RED <-> BLUE swap without an intervening unclaim isn't a real game mechanic though,
-    so that's still logged as a data-quality warning rather than recorded as an event.
+    so that's still logged as a data-quality warning rather than recorded as an event
+    (debounced the same as a claim).
     """
     events = []
     confirmed: list[list[CellColor]] = [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
-    previous_observed: list[list[CellColor]] = [[CellColor.UNCLAIMED] * 5 for _ in range(5)]
+    # Per-cell (candidate color, consecutive-run-length) for whatever color currently
+    # differs from confirmed -- reset whenever the observed color changes again before
+    # reaching its required run length.
+    candidate: list[list[CellColor | None]] = [[None] * 5 for _ in range(5)]
+    run_length: list[list[int]] = [[0] * 5 for _ in range(5)]
     for obs in segment:
         for r in range(5):
             for c in range(5):
                 observed = obs.board[r][c]
-                if observed == previous_observed[r][c] and observed != confirmed[r][c]:
-                    old = confirmed[r][c]
-                    game_elapsed = obs.timer_s if obs.timer_s is not None else 0
-                    if old is CellColor.UNCLAIMED and observed is not CellColor.UNCLAIMED:
-                        events.append(
-                            GameEvent(
-                                r, c, observed, obs.video_ts_s, game_elapsed, EventType.MARK
-                            )
-                        )
-                    elif old is not CellColor.UNCLAIMED and observed is CellColor.UNCLAIMED:
-                        events.append(
-                            GameEvent(r, c, old, obs.video_ts_s, game_elapsed, EventType.UNMARK)
-                        )
-                    else:
-                        logger.warning(
-                            "unexpected direct color swap %s -> %s at (%d,%d), ts=%.1fs",
-                            old,
-                            observed,
-                            r,
-                            c,
-                            obs.video_ts_s,
-                        )
-                    confirmed[r][c] = observed
-                previous_observed[r][c] = observed
+                if observed == confirmed[r][c]:
+                    candidate[r][c] = None
+                    run_length[r][c] = 0
+                    continue
+                if observed == candidate[r][c]:
+                    run_length[r][c] += 1
+                else:
+                    candidate[r][c] = observed
+                    run_length[r][c] = 1
+
+                required = (
+                    _UNMARK_DEBOUNCE_SAMPLES
+                    if observed is CellColor.UNCLAIMED
+                    else _MARK_DEBOUNCE_SAMPLES
+                )
+                if run_length[r][c] < required:
+                    continue
+
+                old = confirmed[r][c]
+                game_elapsed = obs.timer_s if obs.timer_s is not None else 0
+                if old is CellColor.UNCLAIMED and observed is not CellColor.UNCLAIMED:
+                    events.append(
+                        GameEvent(r, c, observed, obs.video_ts_s, game_elapsed, EventType.MARK)
+                    )
+                elif old is not CellColor.UNCLAIMED and observed is CellColor.UNCLAIMED:
+                    events.append(
+                        GameEvent(r, c, old, obs.video_ts_s, game_elapsed, EventType.UNMARK)
+                    )
+                else:
+                    logger.warning(
+                        "unexpected direct color swap %s -> %s at (%d,%d), ts=%.1fs",
+                        old,
+                        observed,
+                        r,
+                        c,
+                        obs.video_ts_s,
+                    )
+                confirmed[r][c] = observed
+                candidate[r][c] = None
+                run_length[r][c] = 0
     return events
 
 
