@@ -89,11 +89,22 @@ def test_winner_ignores_a_line_undone_by_unclaim():
         *_debounced(_board(*base)),
     ]
     events = _extract_events(segment)
-    winner_color, win_type = _determine_winner(events)
+    winner_color, win_type, win_line = _determine_winner(events)
     assert winner_color is None
     from scadustats.models import WinType
 
     assert win_type is WinType.NONE
+    assert win_line is None
+
+
+def test_winner_names_the_line_it_was_completed_on():
+    segment = _debounced(_board(*[(2, c, R) for c in range(5)]))
+
+    winner_color, win_type, win_line = _determine_winner(_extract_events(segment))
+
+    from scadustats.models import WinLine, WinType
+
+    assert (winner_color, win_type, win_line) == (R, WinType.LINE, WinLine.ROW_2)
 
 
 def test_detect_game_start_finds_ascent_from_countdown_minimum():

@@ -47,7 +47,15 @@ CREATE TABLE IF NOT EXISTS games (
     -- to unknown, and that should load cleanly rather than fail a NOT NULL constraint.
     game_type VARCHAR CHECK (game_type IN ('base', 'dlc')),
     winner_color VARCHAR CHECK (winner_color IN ('red', 'blue')),
-    win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'tie', 'none'))
+    win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'tie', 'none')),
+    -- Which line a win_type='line' win was completed on; NULL for every other win type,
+    -- since there's no line to name. Row/column indices are 0-based, like the row/col
+    -- columns on squares/events (see models.WinLine).
+    win_line VARCHAR CHECK (win_line IN (
+        'row_0', 'row_1', 'row_2', 'row_3', 'row_4',
+        'col_0', 'col_1', 'col_2', 'col_3', 'col_4',
+        'diagonal_tl_br', 'diagonal_bl_tr'
+    ))
 );
 
 CREATE TABLE IF NOT EXISTS squares (
@@ -76,6 +84,10 @@ CREATE TABLE IF NOT EXISTS events (
 -- at any time), but failing rather than picking the new column up costs a contributor a
 -- confusing error for no reason.
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS duration_s DOUBLE;
+-- Same story for games.win_line. (A column added this way carries no CHECK constraint,
+-- unlike one created with the table above -- the values still come from models.WinLine
+-- either way, so the constraint is a backstop, not the thing keeping them valid.)
+ALTER TABLE games ADD COLUMN IF NOT EXISTS win_line VARCHAR;
 """
 
 
@@ -155,8 +167,8 @@ def write_extraction(
             con.execute(
                 """INSERT INTO games
                    (game_id, video_id, game_index, start_video_ts_s, end_video_ts_s,
-                    game_type, winner_color, win_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    game_type, winner_color, win_type, win_line)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     game_id,
                     extraction.video_id,
@@ -166,6 +178,7 @@ def write_extraction(
                     game.game_type.value if game.game_type else None,
                     game.winner_color.value if game.winner_color else None,
                     game.win_type.value,
+                    game.win_line.value if game.win_line else None,
                 ],
             )
 

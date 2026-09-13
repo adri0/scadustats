@@ -507,9 +507,13 @@ def match_show(
         unmarks = sum(event.event_type is EventType.UNMARK for event in game.events)
         winner = game.winner_color.value if game.winner_color else "none"
         game_type = game.game_type.value if game.game_type else "unknown"
+        # Only a line win has a line to name, and only then is it worth the extra words.
+        win = game.win_type.value
+        if game.win_line is not None:
+            win += f" on {game.win_line.label}"
         typer.echo(
             f"\n  Game {game.game_index}: "
-            f"type={game_type}  winner={winner} ({game.win_type.value})  "
+            f"type={game_type}  winner={winner} ({win})  "
             f"marks={marks}  unmarks={unmarks}"
         )
 

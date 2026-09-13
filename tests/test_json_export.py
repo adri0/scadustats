@@ -12,6 +12,7 @@ from scadustats.models import (
     GameType,
     MatchType,
     VideoExtraction,
+    WinLine,
     WinType,
 )
 
@@ -26,6 +27,7 @@ def _sample_game(game_index: int = 1) -> GameResult:
         events=[GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
         winner_color=CellColor.RED,
         win_type=WinType.LINE,
+        win_line=WinLine.DIAGONAL_BL_TR,
         game_type=GameType.BASE,
     )
 
@@ -70,6 +72,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     assert game_data["game_type"] == "base"
     assert game_data["winner_color"] == "red"
     assert game_data["win_type"] == "line"
+    assert game_data["win_line"] == "diagonal_bl_tr"
     assert len(game_data["square_texts"]) == 5
     assert all(len(row) == 5 for row in game_data["square_texts"])
     assert game_data["events"] == [
@@ -136,12 +139,28 @@ def test_write_video_handles_no_winner(tmp_path):
     game = _sample_game()
     game.winner_color = None
     game.win_type = WinType.NONE
+    game.win_line = None
 
     path = write_video(tmp_path, _sample_extraction(games=[game]))
     data = json.loads(path.read_text())
 
     assert data["games"][0]["winner_color"] is None
     assert data["games"][0]["win_type"] == "none"
+    assert data["games"][0]["win_line"] is None
+
+    read_back = read_video(path)
+    assert read_back.games[0].win_line is None
+
+
+def test_read_video_treats_a_file_without_a_win_line_as_unknown(tmp_path):
+    """A file written before win_line was recorded still has to read back, like
+    duration_s -- see test_read_video_treats_a_file_without_duration_as_unknown_length."""
+    path = write_video(tmp_path, _sample_extraction())
+    data = json.loads(path.read_text())
+    del data["games"][0]["win_line"]
+    path.write_text(json.dumps(data))
+
+    assert read_video(path).games[0].win_line is None
 
 
 def test_write_video_handles_unresolved_game_type(tmp_path):

@@ -14,6 +14,7 @@ from scadustats.models import (
     MatchType,
     VideoExtraction,
     VideoInfo,
+    WinLine,
     WinType,
 )
 
@@ -163,6 +164,71 @@ def test_game_type_defaults_to_null(tmp_path):
             "SELECT game_type FROM games WHERE game_id = '2026-03-05-alice-vs-bob-1'"
         ).fetchone()[0]
         assert game_type is None
+    finally:
+        con.close()
+
+
+def test_win_line_round_trips_and_is_null_without_a_line_win(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    line_win = _sample_game(1)
+    line_win.winner_color = CellColor.RED
+    line_win.win_type = WinType.LINE
+    line_win.win_line = WinLine.DIAGONAL_TL_BR
+
+    write_extraction(db_path, _sample_extraction(games=[line_win, _sample_game(2)]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        rows = con.execute("SELECT game_index, win_line FROM games ORDER BY game_index").fetchall()
+        # Game 2 is the fixture's default: no winner, so no line to name.
+        assert rows == [(1, "diagonal_tl_br"), (2, None)]
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("win_line", list(WinLine))
+def test_schema_accepts_every_win_line_value(win_line, tmp_path):
+    """The games.win_line CHECK constraint spells its 12 values out in SQL, so it can
+    drift from models.WinLine -- this is what catches that."""
+    db_path = tmp_path / "test.duckdb"
+    game = _sample_game()
+    game.winner_color = CellColor.RED
+    game.win_type = WinType.LINE
+    game.win_line = win_line
+
+    write_extraction(db_path, _sample_extraction(games=[game]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        assert con.execute("SELECT win_line FROM games").fetchone()[0] == win_line.value
+    finally:
+        con.close()
+
+
+def test_init_schema_adds_win_line_to_a_database_predating_it(tmp_path):
+    """Like duration_s on videos: CREATE TABLE IF NOT EXISTS leaves an existing games
+    table alone, so the column has to be added explicitly."""
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    try:
+        con.execute(
+            "CREATE TABLE games (game_id VARCHAR PRIMARY KEY, video_id VARCHAR NOT NULL, "
+            "game_index INTEGER NOT NULL, start_video_ts_s DOUBLE NOT NULL, "
+            "end_video_ts_s DOUBLE, game_type VARCHAR, winner_color VARCHAR, "
+            "win_type VARCHAR)"
+        )
+    finally:
+        con.close()
+
+    game = _sample_game()
+    game.winner_color = CellColor.RED
+    game.win_type = WinType.LINE
+    game.win_line = WinLine.COL_3
+    write_extraction(db_path, _sample_extraction(games=[game]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        assert con.execute("SELECT win_line FROM games").fetchone()[0] == "col_3"
     finally:
         con.close()
 

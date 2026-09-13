@@ -1,5 +1,7 @@
-from scadustats.models import CellColor, WinType
-from scadustats.winner import check_line_winner, determine_winner, majority_winner
+import pytest
+
+from scadustats.models import CellColor, WinLine, WinType
+from scadustats.winner import LINES, determine_winner, majority_winner, winning_line
 
 U, R, B = CellColor.UNCLAIMED, CellColor.RED, CellColor.BLUE
 
@@ -17,8 +19,8 @@ def test_row_win():
         [U] * 5,
         [U] * 5,
     )
-    assert check_line_winner(board) is CellColor.RED
-    assert determine_winner(board) == (CellColor.RED, WinType.LINE)
+    assert winning_line(board) == (CellColor.RED, WinLine.ROW_0)
+    assert determine_winner(board) == (CellColor.RED, WinType.LINE, WinLine.ROW_0)
 
 
 def test_column_win():
@@ -29,8 +31,8 @@ def test_column_win():
         [B, U, U, U, U],
         [B, U, U, U, U],
     )
-    assert check_line_winner(board) is CellColor.BLUE
-    assert determine_winner(board) == (CellColor.BLUE, WinType.LINE)
+    assert winning_line(board) == (CellColor.BLUE, WinLine.COL_0)
+    assert determine_winner(board) == (CellColor.BLUE, WinType.LINE, WinLine.COL_0)
 
 
 def test_diagonal_win():
@@ -41,7 +43,7 @@ def test_diagonal_win():
         [U, U, U, R, U],
         [U, U, U, U, R],
     )
-    assert check_line_winner(board) is CellColor.RED
+    assert winning_line(board) == (CellColor.RED, WinLine.DIAGONAL_TL_BR)
 
 
 def test_anti_diagonal_win():
@@ -52,7 +54,38 @@ def test_anti_diagonal_win():
         [U, B, U, U, U],
         [B, U, U, U, U],
     )
-    assert check_line_winner(board) is CellColor.BLUE
+    assert winning_line(board) == (CellColor.BLUE, WinLine.DIAGONAL_BL_TR)
+
+
+def test_inner_row_and_column_wins_name_their_own_index():
+    row_3 = _board(
+        [U] * 5,
+        [U] * 5,
+        [U] * 5,
+        [R, R, R, R, R],
+        [U] * 5,
+    )
+    assert winning_line(row_3) == (CellColor.RED, WinLine.ROW_3)
+
+    col_2 = _board(
+        [U, U, B, U, U],
+        [U, U, B, U, U],
+        [U, U, B, U, U],
+        [U, U, B, U, U],
+        [U, U, B, U, U],
+    )
+    assert winning_line(col_2) == (CellColor.BLUE, WinLine.COL_2)
+
+
+@pytest.mark.parametrize("win_line", list(WinLine))
+def test_every_win_line_is_detected_on_its_own_coordinates(win_line):
+    """Guards the LINES table against a key whose coordinates don't match its name --
+    the whole point of building it from the indices rather than writing it out."""
+    board = _board(*([U] * 5 for _ in range(5)))
+    for row, col in LINES[win_line]:
+        board[row][col] = R
+
+    assert winning_line(board) == (CellColor.RED, win_line)
 
 
 def test_no_winner_mid_game():
@@ -63,8 +96,8 @@ def test_no_winner_mid_game():
         [U] * 5,
         [U] * 5,
     )
-    assert check_line_winner(board) is None
-    assert determine_winner(board) == (None, WinType.NONE)
+    assert winning_line(board) is None
+    assert determine_winner(board) == (None, WinType.NONE, None)
 
 
 def test_majority_winner_when_all_lines_blocked():
@@ -78,9 +111,10 @@ def test_majority_winner_when_all_lines_blocked():
         [R, R, R, R, B],
         [R, R, R, B, R],
     )
-    assert check_line_winner(board) is None
+    assert winning_line(board) is None
     assert majority_winner(board) is CellColor.RED
-    assert determine_winner(board) == (CellColor.RED, WinType.MAJORITY)
+    # A majority win has no line to name.
+    assert determine_winner(board) == (CellColor.RED, WinType.MAJORITY, None)
 
 
 def test_tie_when_blocked_and_equal():
@@ -93,6 +127,19 @@ def test_tie_when_blocked_and_equal():
         [R, R, B, R, B],
         [B, B, B, B, R],
     )
-    assert check_line_winner(board) is None
+    assert winning_line(board) is None
     assert majority_winner(board) is None
-    assert determine_winner(board) == (None, WinType.TIE)
+    assert determine_winner(board) == (None, WinType.TIE, None)
+
+
+@pytest.mark.parametrize(
+    ("win_line", "expected"),
+    [
+        (WinLine.ROW_0, "row 0"),
+        (WinLine.COL_4, "column 4"),
+        (WinLine.DIAGONAL_TL_BR, "diagonal (top-left to bottom-right)"),
+        (WinLine.DIAGONAL_BL_TR, "diagonal (bottom-left to top-right)"),
+    ],
+)
+def test_win_line_labels_read_as_prose(win_line, expected):
+    assert win_line.label == expected

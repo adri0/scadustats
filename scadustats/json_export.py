@@ -16,6 +16,7 @@ from scadustats.models import (
     GameType,
     MatchType,
     VideoExtraction,
+    WinLine,
     WinType,
 )
 
@@ -45,6 +46,7 @@ def _game_to_dict(game: GameResult) -> dict:
         "game_type": game.game_type.value if game.game_type else None,
         "winner_color": game.winner_color.value if game.winner_color else None,
         "win_type": game.win_type.value,
+        "win_line": game.win_line.value if game.win_line else None,
         "square_texts": game.square_texts,
         "events": [
             _event_to_dict(event)
@@ -119,6 +121,9 @@ def _dict_to_game(data: dict) -> GameResult:
         events=[_dict_to_event(event) for event in data["events"]],
         winner_color=CellColor(data["winner_color"]) if data["winner_color"] else None,
         win_type=WinType(data["win_type"]),
+        # .get for the same reason as the extraction's duration_s: a file written before
+        # win_line was recorded is still a valid current-format extraction.
+        win_line=WinLine(data["win_line"]) if data.get("win_line") else None,
         game_type=GameType(data["game_type"]) if data["game_type"] else None,
     )
 

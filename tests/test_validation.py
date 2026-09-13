@@ -8,6 +8,7 @@ from scadustats.models import (
     GameType,
     MatchType,
     VideoExtraction,
+    WinLine,
     WinType,
 )
 from scadustats.validation import validate_extraction, validate_game
@@ -61,6 +62,8 @@ def _game(game_index: int = 1, **overrides) -> GameResult:
         events=_line_win_events(),
         winner_color=CellColor.RED,
         win_type=WinType.LINE,
+        # _line_win_events claims the top row, whichever color it's asked for.
+        win_line=WinLine.ROW_0,
         game_type=GameType.BASE if game_index == 1 else GameType.DLC,
     )
     defaults.update(overrides)
@@ -242,8 +245,27 @@ def test_recorded_winner_must_match_the_replayed_board():
     issues = validate_game(_game(events=events))
 
     assert _codes(issues) == ["winner_board_mismatch"]
-    assert "red (line)" in issues[0].message
+    assert "red (line on row 0)" in issues[0].message
     assert "no winner (none)" in issues[0].message
+
+
+def test_a_missing_win_line_is_reported_under_its_own_code():
+    """A file written before win_line existed agrees with its board in every other
+    respect -- that's a recoverable gap, not the board contradicting the result."""
+    issues = validate_game(_game(win_line=None))
+
+    assert _codes(issues) == ["win_line_not_recorded"]
+    assert "row 0" in issues[0].message
+
+
+def test_a_win_recorded_on_the_wrong_line_is_reported():
+    """The board holds the top row, not the left column -- the same defect as a win
+    recorded for the wrong color, so it's the same rule."""
+    issues = validate_game(_game(win_line=WinLine.COL_0))
+
+    assert _codes(issues) == ["winner_board_mismatch"]
+    assert "red (line on column 0)" in issues[0].message
+    assert "red (line on row 0)" in issues[0].message
 
 
 def test_a_line_completed_and_then_undone_is_not_a_win():
@@ -313,10 +335,22 @@ def test_marks_after_a_majority_win_are_allowed():
         ),
     ]
 
-    assert (
-        validate_game(_game(events=events, winner_color=CellColor.RED, win_type=WinType.MAJORITY))
-        == []
+    majority_game = _game(
+        events=events,
+        winner_color=CellColor.RED,
+        win_type=WinType.MAJORITY,
+        # A majority win has no line to name; leaving the fixture's default in place is
+        # itself a winner_board_mismatch, which the next test pins down.
+        win_line=None,
     )
+
+    assert validate_game(majority_game) == []
+
+
+def test_a_non_line_win_may_not_name_a_line():
+    majority_win = _game(win_type=WinType.MAJORITY, win_line=WinLine.ROW_0)
+
+    assert _codes(validate_game(majority_win)) == ["winner_board_mismatch"]
 
 
 def test_games_are_validated_in_index_order_after_the_match_rules():

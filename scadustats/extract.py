@@ -34,6 +34,7 @@ from scadustats.models import (
     GameType,
     MatchMetadata,
     VideoExtraction,
+    WinLine,
     WinType,
 )
 from scadustats.segmentation import Observation, detect_boundaries
@@ -305,7 +306,9 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
     return events
 
 
-def _determine_winner(events: list[GameEvent]) -> tuple[CellColor | None, WinType]:
+def _determine_winner(
+    events: list[GameEvent],
+) -> tuple[CellColor | None, WinType, WinLine | None]:
     """Replay every event (including unclaims) to the final board state and evaluate the
     win condition once there -- rather than stopping at the first claim that completes a
     line, since a mistaken claim can complete a line and then be immediately unclaimed
@@ -393,7 +396,7 @@ def extract_video(
         game_start = _detect_game_start(segment)
         if game_start is not None:
             events = [game_start, *events]
-        winner_color, win_type = _determine_winner(events)
+        winner_color, win_type, win_line = _determine_winner(events)
 
         games.append(
             GameResult(
@@ -404,6 +407,7 @@ def extract_video(
                 events=events,
                 winner_color=winner_color,
                 win_type=win_type,
+                win_line=win_line,
                 game_type=game_type,
             )
         )

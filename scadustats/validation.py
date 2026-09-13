@@ -23,6 +23,7 @@ from scadustats.models import (
     GameType,
     MatchType,
     VideoExtraction,
+    WinLine,
     WinType,
 )
 
@@ -89,7 +90,8 @@ def _settled_win_index(states: list[Board], winner_color: CellColor) -> int | No
     """
     settled = None
     for index in reversed(range(len(states))):
-        if winner.check_line_winner(states[index]) is winner_color:
+        line_win = winner.winning_line(states[index])
+        if line_win is not None and line_win[0] is winner_color:
             settled = index
         else:
             break
@@ -99,22 +101,45 @@ def _settled_win_index(states: list[Board], winner_color: CellColor) -> int | No
 def _check_recorded_winner_matches_board(
     game: GameResult, states: list[Board]
 ) -> list[ValidationIssue]:
-    """Rule: the recorded winner/win type must be what the game's own events replay to.
-    A mismatch means the two disagree about the same game -- either the events are
-    incomplete (a claim missed at extraction time) or the result was hand-edited without
-    the board behind it."""
+    """Rule: the recorded winner, win type and winning line must be what the game's own
+    events replay to. A mismatch means the two disagree about the same game -- either the
+    events are incomplete (a claim missed at extraction time) or the result was
+    hand-edited without the board behind it. The line is part of the check, not a
+    separate rule: a win recorded on a line the board doesn't hold is the same defect as
+    a win recorded for the wrong color."""
     final = states[-1] if states else _empty_board()
-    expected_color, expected_type = winner.determine_winner(final)
-    if (game.winner_color, game.win_type) == (expected_color, expected_type):
+    expected = winner.determine_winner(final)
+    if (game.winner_color, game.win_type, game.win_line) == expected:
         return []
+
+    # A win the board agrees with, minus the line it was won on, isn't a disagreement --
+    # it's a JSON file written before win_line was recorded (or hand-edited to drop it).
+    # Worth reporting, since the field is recoverable and missing, but under its own code
+    # so it doesn't read as the board contradicting the result.
+    expected_color, expected_type, expected_line = expected
+    if (
+        game.win_line is None
+        and expected_line is not None
+        and (game.winner_color, game.win_type) == (expected_color, expected_type)
+    ):
+        return [
+            ValidationIssue(
+                code="win_line_not_recorded",
+                message=(
+                    f"no win_line recorded for this line win -- the board gives "
+                    f"{expected_line.label}; re-extract the video to fill it in"
+                ),
+                game_index=game.game_index,
+            )
+        ]
 
     return [
         ValidationIssue(
             code="winner_board_mismatch",
             message=(
-                f"recorded result is {_describe_result(game.winner_color, game.win_type)}, "
-                f"but replaying this game's events gives "
-                f"{_describe_result(expected_color, expected_type)}"
+                f"recorded result is "
+                f"{_describe_result(game.winner_color, game.win_type, game.win_line)}, "
+                f"but replaying this game's events gives {_describe_result(*expected)}"
             ),
             game_index=game.game_index,
         )
@@ -159,12 +184,15 @@ def _check_no_marks_after_win(
     after = [event for event in events[settled + 1 :] if event.event_type is EventType.MARK]
     if not after:
         return []
+    # Falls back to "a line" only when win_line is missing from an otherwise line-won
+    # game -- _check_recorded_winner_matches_board reports that separately.
+    line = game.win_line.label if game.win_line else "a line"
     return [
         ValidationIssue(
             code="mark_after_win",
             message=(
                 f"{len(after)} square(s) marked after {game.winner_color.value} completed "
-                f"a line at {events[settled].video_ts_s:.1f}s "
+                f"{line} at {events[settled].video_ts_s:.1f}s "
                 f"(first at {after[0].video_ts_s:.1f}s)"
             ),
             game_index=game.game_index,
@@ -172,8 +200,9 @@ def _check_no_marks_after_win(
     ]
 
 
-def _describe_result(color: CellColor | None, win_type: WinType) -> str:
-    return f"{color.value if color else 'no winner'} ({win_type.value})"
+def _describe_result(color: CellColor | None, win_type: WinType, win_line: WinLine | None) -> str:
+    line = f" on {win_line.label}" if win_line else ""
+    return f"{color.value if color else 'no winner'} ({win_type.value}{line})"
 
 
 def validate_game(game: GameResult) -> list[ValidationIssue]:

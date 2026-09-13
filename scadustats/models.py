@@ -39,6 +39,40 @@ class WinType(Enum):
     NONE = "none"
 
 
+class WinLine(StrEnum):
+    """Which of the board's 12 lines a LINE win was completed on (see winner.LINES).
+
+    Row/column indices are 0-based, matching GameEvent.row/col and the `squares` DB
+    table: a JSON file shows `"win_line": "row_0"` a few lines from a claim's `"row": 0`,
+    and a prettier 1-based label would line up with nothing else in the file. StrEnum
+    like the other persisted enums, so it serializes as its own value.
+    """
+
+    ROW_0 = "row_0"
+    ROW_1 = "row_1"
+    ROW_2 = "row_2"
+    ROW_3 = "row_3"
+    ROW_4 = "row_4"
+    COL_0 = "col_0"
+    COL_1 = "col_1"
+    COL_2 = "col_2"
+    COL_3 = "col_3"
+    COL_4 = "col_4"
+    DIAGONAL_TL_BR = "diagonal_tl_br"
+    DIAGONAL_BL_TR = "diagonal_bl_tr"
+
+    @property
+    def label(self) -> str:
+        """Human-facing description, for CLI output and validation messages -- the stored
+        value stays the machine-readable one."""
+        if self is WinLine.DIAGONAL_TL_BR:
+            return "diagonal (top-left to bottom-right)"
+        if self is WinLine.DIAGONAL_BL_TR:
+            return "diagonal (bottom-left to top-right)"
+        kind, index = self.value.split("_")
+        return f"{'row' if kind == 'row' else 'column'} {index}"
+
+
 class EventType(Enum):
     """A square can be unmarked after being marked -- a player can inadvertently claim
     the wrong square and undo it -- so a claim's lifecycle is an event, not just a
@@ -106,6 +140,9 @@ class GameResult:
     events: list[GameEvent]
     winner_color: CellColor | None
     win_type: WinType
+    # Which line the win was completed on -- None for any non-LINE win (there's no line
+    # to name), and for a JSON file written before this was recorded.
+    win_line: WinLine | None = None
     # None until it's resolved from the overlay's "BASE GAME"/"DLC" subtitle
     # (game_type_label.py) or, failing that, inferred from square_texts (squares.py).
     # Both can fail (a transient/low-quality frame for the former, no matching squares
