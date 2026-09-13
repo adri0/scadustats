@@ -18,6 +18,9 @@ from scadustats.models import FractionalBox
 GRID_BOX = FractionalBox(left=0.354, top=0.504, right=0.646, bottom=0.988)
 TIMER_BOX = FractionalBox(left=0.008, top=0.878, right=0.172, bottom=0.972)
 GAME_LABEL_BOX = FractionalBox(left=0.868, top=0.862, right=1.0, bottom=0.925)
+# The small "BASE GAME"/"DLC" subtitle printed directly under the "GAME N" label -- see
+# game_type_label.py.
+GAME_TYPE_BOX = FractionalBox(left=0.86, top=0.905, right=1.0, bottom=0.945)
 SCORE_BOX_RED = FractionalBox(left=0.0, top=0.5, right=0.06, bottom=0.556)
 SCORE_BOX_BLUE = FractionalBox(left=0.94, top=0.5, right=1.0, bottom=0.556)
 NAME_BOX_RED = FractionalBox(left=0.08, top=0.5, right=0.3, bottom=0.556)

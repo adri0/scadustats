@@ -16,7 +16,18 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from scadustats import board, frames, json_export, layout, ocr, scoreboard, squares, timer, winner
+from scadustats import (
+    board,
+    frames,
+    game_type_label,
+    json_export,
+    layout,
+    ocr,
+    scoreboard,
+    squares,
+    timer,
+    winner,
+)
 from scadustats.models import (
     CellColor,
     EventType,
@@ -338,7 +349,15 @@ def extract_video(
             video_path, [obs.video_ts_s for obs in square_text_observations]
         )
         square_texts = board.cell_square_texts_majority(square_text_frames)
-        game_type = squares.infer_game_type(square_texts, known_squares)
+        # The overlay's own "BASE GAME"/"DLC" subtitle (see game_type_label.py) is tried
+        # first -- it's read directly off the same frames already grabbed for square-text
+        # majority voting, no extra decode cost. Only falls back to inferring from square
+        # texts (squares.py) if none of those frames produced a clean reading, e.g. a
+        # transition moment or -- see CLAUDE.md -- source footage too compressed for this
+        # small a subtitle to OCR reliably.
+        game_type = game_type_label.majority_game_type_label(square_text_frames)
+        if game_type is None:
+            game_type = squares.infer_game_type(square_texts, known_squares)
         if game_index == 1:
             representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
             player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)

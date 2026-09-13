@@ -197,7 +197,39 @@ def test_extract_video_infers_game_type_from_known_squares(tmp_path):
     assert video_data["games"][0]["game_type"] == "base"
 
 
+@pytest.mark.parametrize(
+    ("clip", "expected"),
+    [
+        ("tests/fixtures/clip_base_game.mp4", "base"),
+        ("tests/fixtures/clip_dlc_game.mp4", "dlc"),
+    ],
+)
+def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip, expected):
+    """Neither known_squares nor on_missing_game_type is given here -- on footage whose
+    quality preserves the "BASE GAME"/"DLC" subtitle, reading it off the overlay should
+    resolve game_type on its own, with no reference file and nobody to prompt."""
+    json_dir = tmp_path / "json"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    )
+
+    summary = extract_video(
+        clip,
+        match_metadata=match_metadata,
+        json_dir=json_dir,
+        known_squares={},
+    )
+
+    video_data = json.loads((json_dir / f"{summary.video_id}.json").read_text())
+    assert [game["game_type"] for game in video_data["games"]] == [expected]
+
+
 def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):
+    # Relies on _CLIP_PATH being recompressed hard enough that its "BASE GAME" subtitle
+    # does *not* OCR (see CLAUDE.md) -- so with an empty known_squares there's genuinely
+    # nothing left to resolve game type from. The clip_base_game/clip_dlc_game fixtures
+    # are deliberately higher-quality and would resolve instead, which is what
+    # test_extract_video_reads_game_type_from_the_overlay_subtitle covers.
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS

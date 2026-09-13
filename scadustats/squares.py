@@ -4,7 +4,10 @@
 each square text ever seen to the game type ("base" or "dlc") it belongs to -- there's
 no programmatic way to know this, so the reference only knows what's been added to it.
 It ships empty: until a match's squares have been added, every game in it fails to
-infer and needs its type supplied some other way (see extract.py/cli.py).
+infer here. This is only extract_video's fallback, though -- game_type_label.py reads
+the overlay's own "BASE GAME"/"DLC" subtitle directly and normally succeeds first, so in
+practice this reference (and, failing both, prompting the user) only covers whatever the
+direct read misses (see extract.py/cli.py).
 """
 
 import json

@@ -22,9 +22,11 @@ class MatchType(StrEnum):
 
 class GameType(StrEnum):
     """Whether a game's goal squares are drawn from the base game's pool or the Shadow
-    of the Erdtree DLC's -- inferred per game from its square texts (see squares.py)
-    where possible, and user-provided as a fallback otherwise. StrEnum for the same
-    reason as MatchType: it doubles as a Typer/Click CLI choice type."""
+    of the Erdtree DLC's -- read per game directly off the overlay's own "BASE GAME"/
+    "DLC" subtitle where that OCRs cleanly (see game_type_label.py), falling back to
+    inferring it from square texts (see squares.py) and finally to a user-provided
+    answer. StrEnum for the same reason as MatchType: it doubles as a Typer/Click CLI
+    choice type."""
 
     BASE = "base"
     DLC = "dlc"
@@ -101,9 +103,11 @@ class GameResult:
     events: list[GameEvent]
     winner_color: CellColor | None
     win_type: WinType
-    # None until squares.resolve_game_type fills it in -- inference from square_texts
-    # can fail (no matching squares yet in the reference, or an empty reference), in
-    # which case the caller must supply one (see extract_video's on_missing_game_type).
+    # None until it's resolved from the overlay's "BASE GAME"/"DLC" subtitle
+    # (game_type_label.py) or, failing that, inferred from square_texts (squares.py).
+    # Both can fail (a transient/low-quality frame for the former, no matching squares
+    # yet in the reference for the latter), in which case the caller must supply one (see
+    # extract_video's on_missing_game_type).
     game_type: GameType | None = None
 
 

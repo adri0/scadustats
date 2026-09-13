@@ -36,6 +36,7 @@ def annotate(video_path: str, timestamp_s: float) -> "cv2.typing.MatLike":
             draw(layout.grid_cell_box(row, col), (0, 200, 0), 1)
     draw(layout.TIMER_BOX, (0, 255, 255))
     draw(layout.GAME_LABEL_BOX, (255, 0, 255))
+    draw(layout.GAME_TYPE_BOX, (255, 0, 128))
     draw(layout.SCORE_BOX_RED, (0, 0, 255))
     draw(layout.SCORE_BOX_BLUE, (255, 0, 0))
     draw(layout.NAME_BOX_RED, (0, 128, 255))
