@@ -186,12 +186,21 @@ def extract(
             "squares (prompted per such game if omitted)"
         ),
     ] = None,
+    keep_video: Annotated[
+        bool,
+        typer.Option(
+            help="Don't delete the video downloaded from video_path_or_url after "
+            "extraction (ignored for a locally-supplied video, which is never deleted "
+            "either way)"
+        ),
+    ] = False,
 ) -> None:
     """Extract bingo board stats from a match video into JSON files in json_dir.
 
     video_path_or_url may be a local file (as before) or a youtube.com/youtu.be URL --
     given a URL, the video is downloaded first, then extracted, then deleted (unless
-    extraction fails, in which case you're asked whether to keep it).
+    --keep-video was given, or extraction fails, in which case you're asked whether to
+    keep it).
 
     This only writes JSON -- it never touches a database. Run `load-db` separately
     (and optionally) to reflect that JSON into DuckDB.
@@ -290,14 +299,18 @@ def extract(
                 pending = 0
         print(summary)
     except Exception:
-        if downloaded_path is not None and typer.confirm(
-            f"Extraction failed -- delete the downloaded video at {downloaded_path}?",
-            default=False,
+        if (
+            downloaded_path is not None
+            and not keep_video
+            and typer.confirm(
+                f"Extraction failed -- delete the downloaded video at {downloaded_path}?",
+                default=False,
+            )
         ):
             downloaded_path.unlink(missing_ok=True)
         raise
     else:
-        if downloaded_path is not None:
+        if downloaded_path is not None and not keep_video:
             downloaded_path.unlink(missing_ok=True)
 
 

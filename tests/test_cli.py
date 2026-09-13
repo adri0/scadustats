@@ -247,6 +247,62 @@ def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
     assert not downloaded.exists()
 
 
+def test_extract_keeps_downloaded_video_on_success_with_keep_video_flag(tmp_path, monkeypatch):
+    downloaded = tmp_path / "abc123.mp4"
+    downloaded.write_bytes(b"fake video")
+
+    monkeypatch.setattr("scadustats.cli.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.extract_video", _fake_extract_video_success)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            "https://youtu.be/abc123",
+            "--download-dir",
+            str(tmp_path),
+            "--keep-video",
+            *_EXTRACT_ARGS,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert downloaded.exists()
+
+
+def test_extract_keeps_downloaded_video_on_failure_with_keep_video_flag_without_prompting(
+    tmp_path, monkeypatch
+):
+    downloaded = tmp_path / "abc123.mp4"
+    downloaded.write_bytes(b"fake video")
+
+    monkeypatch.setattr("scadustats.cli.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr("scadustats.cli.estimate_sample_count", lambda path: 1)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("scadustats.cli.extract_video", _boom)
+
+    # No input given -- if this were prompted, CliRunner would raise on EOF, so a clean
+    # failure here proves --keep-video skips the confirm entirely.
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            "https://youtu.be/abc123",
+            "--download-dir",
+            str(tmp_path),
+            "--keep-video",
+            *_EXTRACT_ARGS,
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert downloaded.exists()
+
+
 def test_extract_does_not_download_a_local_video_path(tmp_path, monkeypatch):
     local = tmp_path / "local.mp4"
     local.write_bytes(b"fake video")
