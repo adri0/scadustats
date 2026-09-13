@@ -27,10 +27,29 @@ def _format_hms(total_seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def _event_to_dict(event: GameEvent) -> dict:
+def _event_square_text(
+    square_texts: list[list[str]], row: int | None, col: int | None
+) -> str | None:
+    """The goal text at an event's square, looked up from the game's own square_texts
+    grid -- so a reviewer reading the events list doesn't have to cross-reference row/col
+    against that grid by hand. None for a game-level event (GAME_START, which carries no
+    row/col) or when the grid doesn't reach that far -- square_texts is OCR output and
+    can be hand-edited into a ragged grid, and that shouldn't take down export over one
+    missing cell.
+    """
+    if row is None or col is None:
+        return None
+    try:
+        return square_texts[row][col]
+    except IndexError:
+        return None
+
+
+def _event_to_dict(event: GameEvent, square_texts: list[list[str]]) -> dict:
     return {
         "row": event.row,
         "col": event.col,
+        "square_text": _event_square_text(square_texts, event.row, event.col),
         "color": event.color.value if event.color else None,
         "event_type": event.event_type.value,
         "game_timer": _format_hms(event.game_elapsed_s),
@@ -49,7 +68,7 @@ def _game_to_dict(game: GameResult) -> dict:
         "win_line": game.win_line.value if game.win_line else None,
         "square_texts": game.square_texts,
         "events": [
-            _event_to_dict(event)
+            _event_to_dict(event, game.square_texts)
             for event in sorted(game.events, key=lambda event: event.game_elapsed_s)
         ],
     }
