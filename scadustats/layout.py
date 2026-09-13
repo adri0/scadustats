@@ -25,6 +25,13 @@ SCORE_BOX_RED = FractionalBox(left=0.0, top=0.5, right=0.06, bottom=0.556)
 SCORE_BOX_BLUE = FractionalBox(left=0.94, top=0.5, right=1.0, bottom=0.556)
 NAME_BOX_RED = FractionalBox(left=0.08, top=0.5, right=0.3, bottom=0.556)
 NAME_BOX_BLUE = FractionalBox(left=0.7, top=0.5, right=0.96, bottom=0.556)
+# The dark nameplates printed across the bottom of the two *inner* webcams -- the
+# commentators', flanking the grid. The players' own webcams are the outer pair and carry
+# no nameplate (their names are in the score strip, see NAME_BOX_* above). Measured on a
+# 720p broadcast frame as x 220-450/830-1060, y 671-706, which is exactly symmetric about
+# the frame's center line -- see commentators.py.
+COMMENTATOR_BOX_LEFT = FractionalBox(left=0.172, top=0.932, right=0.352, bottom=0.980)
+COMMENTATOR_BOX_RIGHT = FractionalBox(left=0.648, top=0.932, right=0.828, bottom=0.980)
 
 
 def to_pixel_box(box: FractionalBox, width: int, height: int) -> tuple[int, int, int, int]:

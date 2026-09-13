@@ -488,6 +488,8 @@ def match_show(
     typer.echo(
         f"  {extraction.match_date}  season {extraction.season}  {extraction.match_type.value}"
     )
+    if extraction.commentators:
+        typer.echo(f"  commentary: {', '.join(extraction.commentators)}")
     if extraction.duration_s is not None:
         typer.echo(f"  length: {_format_duration(extraction.duration_s)}")
     if extraction.video_url:

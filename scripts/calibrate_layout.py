@@ -40,6 +40,8 @@ def annotate(video_path: str, timestamp_s: float) -> "cv2.typing.MatLike":
     draw(layout.SCORE_BOX_BLUE, (255, 0, 0))
     draw(layout.NAME_BOX_RED, (0, 128, 255))
     draw(layout.NAME_BOX_BLUE, (255, 128, 0))
+    draw(layout.COMMENTATOR_BOX_LEFT, (128, 255, 128))
+    draw(layout.COMMENTATOR_BOX_RIGHT, (128, 255, 128))
 
     return frame
 

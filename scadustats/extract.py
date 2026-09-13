@@ -18,6 +18,7 @@ import numpy as np
 
 from scadustats import (
     board,
+    commentators,
     frames,
     game_type_label,
     json_export,
@@ -373,6 +374,9 @@ def extract_video(
     # VideoExtraction), and re-reading per game would just be redundant OCR cost.
     player_red_name: str | None = None
     player_blue_name: str | None = None
+    # Read once too, and for the same reason -- one video is one broadcast, cast by the
+    # same people throughout.
+    casters: list[str] = []
     for game_index, segment in enumerate(segments, start=1):
         square_text_observations = _select_square_text_observations(segment)
         square_text_frames = _grab_frames(
@@ -391,6 +395,13 @@ def extract_video(
         if game_index == 1:
             representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
             player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
+            # Majority-voted over the frames already grabbed above for square text, so
+            # this costs no extra decoding -- only the OCR of two small crops per frame,
+            # once for the whole video. Unlike the player names, which come off one
+            # frame, there are no two independent readings to cross-check a commentator
+            # nameplate against (see the scoreboard count check in _collect_observations),
+            # so voting is the only guard against a single bad frame here.
+            casters = commentators.majority_commentator_names(square_text_frames)
 
         events = _extract_events(segment)
         game_start = _detect_game_start(segment)
@@ -444,6 +455,7 @@ def extract_video(
         player_blue_name=player_blue_name,
         extracted_at=date.today(),
         games=games,
+        commentators=casters,
         duration_s=duration_s if duration_s > 0 else None,
     )
     # A match is unique by match_date + player names (see _video_id), which video_id

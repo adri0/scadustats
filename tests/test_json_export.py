@@ -43,6 +43,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
         games=[_sample_game()],
+        commentators=["star0chris", "Captain_Domo"],
         duration_s=4321.0,
     )
     defaults.update(overrides)
@@ -64,6 +65,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     assert data["player_red_name"] == "alice"
     assert data["player_blue_name"] == "bob"
     assert data["extracted_at"] == "2026-03-06"
+    assert data["commentators"] == ["star0chris", "Captain_Domo"]
     assert data["duration_s"] == 4321.0
     assert len(data["games"]) == 1
 
@@ -189,6 +191,33 @@ def test_write_video_handles_unknown_duration(tmp_path):
 
     assert data["duration_s"] is None
     assert read_video(path).duration_s is None
+
+
+def test_commentators_round_trip_in_order(tmp_path):
+    """Order is part of the data (it's the nameplates' left-to-right order), so it has to
+    survive the round trip rather than being treated as an unordered set."""
+    path = write_video(tmp_path, _sample_extraction())
+
+    assert read_video(path).commentators == ["star0chris", "Captain_Domo"]
+
+
+def test_write_video_handles_a_match_with_no_commentators_read(tmp_path):
+    path = write_video(tmp_path, _sample_extraction(commentators=[]))
+    data = json.loads(path.read_text())
+
+    assert data["commentators"] == []
+    assert read_video(path).commentators == []
+
+
+def test_read_video_treats_a_file_without_commentators_as_none_recorded(tmp_path):
+    """Same story as duration_s below: a file written before commentators were recorded
+    is still a valid current-format extraction and has to read back."""
+    path = write_video(tmp_path, _sample_extraction())
+    data = json.loads(path.read_text())
+    del data["commentators"]
+    path.write_text(json.dumps(data))
+
+    assert read_video(path).commentators == []
 
 
 def test_read_video_treats_a_file_without_duration_as_unknown_length(tmp_path):
