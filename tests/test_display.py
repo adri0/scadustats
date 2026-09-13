@@ -212,6 +212,18 @@ def test_render_match_omits_length_and_url_when_they_are_unknown():
     assert "extracted 2026-03-06" in text
 
 
+def test_render_match_names_the_commentators_in_order():
+    text = "\n".join(render_match(_extraction(commentators=["star0chris", "Captain_Domo"])))
+
+    assert "commentary star0chris, Captain_Domo" in text
+
+
+def test_render_match_omits_commentary_when_no_nameplate_read():
+    text = "\n".join(render_match(_extraction(commentators=[])))
+
+    assert "commentary" not in text
+
+
 def test_render_match_leaves_an_open_ended_game_span_open():
     text = "\n".join(render_match(_extraction(games=[_game(end_video_ts_s=None)])))
 

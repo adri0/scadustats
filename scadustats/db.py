@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS videos (
     winner VARCHAR CHECK (winner IN ('red', 'blue', 'draw'))
 );
 
+CREATE TABLE IF NOT EXISTS commentators (
+    video_id VARCHAR NOT NULL REFERENCES videos(video_id),
+    -- Order within VideoExtraction.commentators (left nameplate first), not a seat id:
+    -- a commentator whose plate didn't read is dropped from the list rather than left as
+    -- a gap, so position 1 isn't necessarily the right-hand webcam. Its only job is to
+    -- keep the list's order and the primary key unique -- which webcam someone sat in
+    -- isn't a property of the match (see models.VideoExtraction).
+    position INTEGER NOT NULL,
+    name VARCHAR NOT NULL,
+    PRIMARY KEY (video_id, position)
+);
+
 CREATE TABLE IF NOT EXISTS games (
     game_id VARCHAR PRIMARY KEY,
     video_id VARCHAR NOT NULL REFERENCES videos(video_id),
@@ -110,6 +122,9 @@ ALTER TABLE videos ADD COLUMN IF NOT EXISTS num_games INTEGER;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS red_score INTEGER;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS blue_score INTEGER;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS winner VARCHAR;
+-- The commentators table needs no such fixup: CREATE TABLE IF NOT EXISTS does create a
+-- table that an older database file simply doesn't have yet. Only *columns* added to a
+-- table that already exists need the ALTERs above.
 """
 
 
@@ -127,6 +142,7 @@ def _delete_video(con: duckdb.DuckDBPyConnection, video_id: str) -> None:
         [video_id],
     )
     con.execute("DELETE FROM games WHERE video_id = ?", [video_id])
+    con.execute("DELETE FROM commentators WHERE video_id = ?", [video_id])
     con.execute("DELETE FROM videos WHERE video_id = ?", [video_id])
 
 
@@ -187,6 +203,15 @@ def write_extraction(
                 extraction.winner.value if extraction.winner else None,
             ],
         )
+
+        # One row per commentator rather than a column on videos: the broadcast has
+        # shown two, but nothing about the overlay guarantees that number, and a list
+        # column would make "which matches did X cast?" a string search.
+        for position, name in enumerate(extraction.commentators):
+            con.execute(
+                "INSERT INTO commentators (video_id, position, name) VALUES (?, ?, ?)",
+                [extraction.video_id, position, name],
+            )
 
         for game in extraction.games:
             game_id = f"{extraction.video_id}-{game.game_index}"

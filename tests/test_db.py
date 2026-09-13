@@ -45,6 +45,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
         games=[_sample_game()],
+        commentators=["star0chris", "Captain_Domo"],
         duration_s=4321.0,
     )
     defaults.update(overrides)
@@ -63,6 +64,7 @@ def test_write_and_read_extraction(tmp_path):
         assert con.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM squares").fetchone()[0] == 25
         assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM commentators").fetchone()[0] == 2
     finally:
         con.close()
 
@@ -79,6 +81,38 @@ def test_replace_is_idempotent(tmp_path):
         assert con.execute("SELECT COUNT(*) FROM games").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM squares").fetchone()[0] == 25
         assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
+        # Re-writing a video has to clear its commentator rows too, or they'd accumulate
+        # (and collide on the (video_id, position) primary key).
+        assert con.execute("SELECT COUNT(*) FROM commentators").fetchone()[0] == 2
+    finally:
+        con.close()
+
+
+def test_commentator_rows_keep_the_extractions_order(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        rows = con.execute(
+            "SELECT position, name FROM commentators WHERE video_id = ? ORDER BY position",
+            ["2026-03-05-alice-vs-bob"],
+        ).fetchall()
+        assert rows == [(0, "star0chris"), (1, "Captain_Domo")]
+    finally:
+        con.close()
+
+
+def test_a_match_with_no_commentators_read_writes_no_rows(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction(commentators=[]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        assert con.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM commentators").fetchone()[0] == 0
     finally:
         con.close()
 

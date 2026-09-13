@@ -14,8 +14,10 @@ generation correct for free:
   * the grid column (GRID_BOX's x-range, full height),
   * the score-bar strip (SCORE_BOX_RED's y-range, full width -- this is what carries the
     scores, player names and flags),
-  * the timer and game-type boxes, which sit inside the blacked-out area below the strip
-    and so have to be restored on top of it.
+  * the timer, game-type and commentator-nameplate boxes, which sit inside the
+    blacked-out area below the strip and so have to be restored on top of it. A nameplate
+    is printed text rather than a likeness -- it carries the commentator's broadcast
+    handle, which commentators.py reads and the extraction records.
 
 Video output is re-encoded through ffmpeg at a high quality (low CRF) on purpose: the
 "BASE GAME"/"DLC" subtitle the game-type read depends on is small enough that aggressive
@@ -34,7 +36,12 @@ from scadustats import layout
 
 # Kept on top of the blacked-out region below the score strip -- each sits inside the
 # area the mask would otherwise zero, and each is read by the pipeline.
-_RESTORED_BOXES = (layout.TIMER_BOX, layout.GAME_TYPE_BOX)
+_RESTORED_BOXES = (
+    layout.TIMER_BOX,
+    layout.GAME_TYPE_BOX,
+    layout.COMMENTATOR_BOX_LEFT,
+    layout.COMMENTATOR_BOX_RIGHT,
+)
 
 _CRF = "16"
 

@@ -65,6 +65,7 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
         "duration_s": extraction.duration_s,
         "player_red_name": extraction.player_red_name,
         "player_blue_name": extraction.player_blue_name,
+        "commentators": extraction.commentators,
         "extracted_at": extraction.extracted_at.isoformat(),
         # Written as a header for the list below, so a reviewer (or a SQL query against
         # the matching videos columns) sees the match's game count and result without
@@ -157,6 +158,9 @@ def read_video(path: str | Path) -> VideoExtraction:
         player_blue_name=data["player_blue_name"],
         extracted_at=date.fromisoformat(data["extracted_at"]),
         games=[_dict_to_game(game) for game in data["games"]],
+        # .get, for the same reason as duration_s below: a file written before
+        # commentators were recorded reads back with none rather than a KeyError.
+        commentators=data.get("commentators", []),
         # .get, unlike every other field here: a file written before duration_s existed
         # is still a valid current-format extraction and reads back as "unknown length",
         # rather than a KeyError that `match list` would report as an unparseable file.

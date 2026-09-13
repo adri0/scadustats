@@ -267,6 +267,12 @@ def render_match(extraction: VideoExtraction, *, events: bool = False) -> list[s
         f"{extraction.num_games} game{'s' if extraction.num_games != 1 else ''}",
     ]
 
+    # Only when there are names to print: a nameplate that never read (or a video with no
+    # commentator cams) leaves the list empty, and an empty "commentary" line would read
+    # as a match nobody cast rather than as one whose plates weren't legible.
+    if extraction.commentators:
+        lines.append(f"  commentary {', '.join(extraction.commentators)}")
+
     details = []
     if extraction.duration_s is not None:
         details.append(f"length {format_duration(extraction.duration_s)}")

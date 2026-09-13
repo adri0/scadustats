@@ -1,6 +1,6 @@
 """Shared types used across the extraction pipeline."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum, StrEnum
 from typing import NamedTuple
@@ -180,6 +180,12 @@ class VideoExtraction:
     player_blue_name: str | None
     extracted_at: date
     games: list[GameResult]
+    # The commentators casting this match, read off the broadcast's own nameplates
+    # (commentators.py), left seat to right. A flat list rather than named seats: which
+    # webcam a commentator sat in isn't a property of the match. Empty when neither plate
+    # read as a name -- including for a JSON file written before this was recorded, and
+    # for footage whose nameplate regions are blacked out (see the test fixtures).
+    commentators: list[str] = field(default_factory=list)
     # The source video's full length in seconds (frames.probe), covering the whole
     # broadcast -- intros, between-game recaps and all -- not just the segments that
     # became games. Optional/defaulted since a JSON file written before this field
