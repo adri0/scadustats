@@ -27,3 +27,6 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Run integration tests (excluding the YouTube download test)
+        run: uv run pytest -m integration --deselect tests/test_download.py::test_download_video
