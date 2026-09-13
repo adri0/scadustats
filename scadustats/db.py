@@ -38,7 +38,14 @@ CREATE TABLE IF NOT EXISTS videos (
     -- always COUNT(*) of this video's rows there, see models.VideoExtraction.num_games)
     -- so the common "how long was this match" question is answerable off videos alone,
     -- without a join and a GROUP BY.
-    num_games INTEGER NOT NULL
+    num_games INTEGER NOT NULL,
+    -- The match score and who took it, denormalized from games.winner_color for the same
+    -- reason (see models.VideoExtraction.red_score/blue_score/winner). winner is nullable
+    -- and the scores are not: the games always tally to *some* score, but no winner can
+    -- be named when one of them has no winner recorded.
+    red_score INTEGER NOT NULL,
+    blue_score INTEGER NOT NULL,
+    winner VARCHAR CHECK (winner IN ('red', 'blue', 'draw'))
 );
 
 CREATE TABLE IF NOT EXISTS games (
@@ -97,6 +104,12 @@ ALTER TABLE games ADD COLUMN IF NOT EXISTS win_line VARCHAR;
 -- an ALTER can't retroactively fill a value in for rows already there. Every row written
 -- from here on gets one regardless, since it comes from the extraction.)
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS num_games INTEGER;
+-- Likewise for the match result. (Same two caveats as every ALTER above: nullable, since
+-- a value can't be invented for rows already written, and no CHECK on winner -- the
+-- values come from models.MatchWinner regardless.)
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS red_score INTEGER;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS blue_score INTEGER;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS winner VARCHAR;
 """
 
 
@@ -152,8 +165,8 @@ def write_extraction(
             """INSERT INTO videos
                (video_id, source_path, resolution_width, resolution_height, fps,
                 duration_s, video_url, match_date, season, match_type, player_red_name,
-                player_blue_name, extracted_at, num_games)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                player_blue_name, extracted_at, num_games, red_score, blue_score, winner)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 extraction.video_id,
                 source_path,
@@ -169,6 +182,9 @@ def write_extraction(
                 extraction.player_blue_name,
                 extraction.extracted_at,
                 extraction.num_games,
+                extraction.red_score,
+                extraction.blue_score,
+                extraction.winner.value if extraction.winner else None,
             ],
         )
 

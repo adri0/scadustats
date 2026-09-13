@@ -12,6 +12,7 @@ from scadustats.models import (
     GameResult,
     GameType,
     MatchType,
+    MatchWinner,
     VideoExtraction,
     VideoInfo,
     WinLine,
@@ -278,6 +279,72 @@ def test_video_row_carries_the_game_count(tmp_path):
         con.close()
 
 
+def test_video_row_carries_the_match_score_and_winner(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    red_win = _sample_game(1)
+    red_win.winner_color = CellColor.RED
+    red_win.win_type = WinType.MAJORITY
+    blue_win = _sample_game(2)
+    blue_win.winner_color = CellColor.BLUE
+    blue_win.win_type = WinType.MAJORITY
+    decider = _sample_game(3)
+    decider.winner_color = CellColor.RED
+    decider.win_type = WinType.MAJORITY
+
+    write_extraction(db_path, _sample_extraction(games=[red_win, blue_win, decider]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        row = con.execute(
+            "SELECT red_score, blue_score, winner FROM videos WHERE video_id = ?",
+            ["2026-03-05-alice-vs-bob"],
+        ).fetchone()
+        assert row == (2, 1, "red")
+    finally:
+        con.close()
+
+
+def test_video_winner_is_null_when_a_game_has_no_winner(tmp_path):
+    """The sample game has no winner recorded, so the match outcome can't be named --
+    the column takes NULL rather than a guessed result."""
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        row = con.execute(
+            "SELECT red_score, blue_score, winner FROM videos WHERE video_id = ?",
+            ["2026-03-05-alice-vs-bob"],
+        ).fetchone()
+        assert row == (0, 0, None)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("match_winner", list(MatchWinner))
+def test_schema_accepts_every_match_winner_value(match_winner, tmp_path):
+    """The videos.winner CHECK constraint spells its values out in SQL, so it can drift
+    from models.MatchWinner -- this is what catches that."""
+    db_path = tmp_path / "test.duckdb"
+    games = [_sample_game(1)]
+    games[0].winner_color = CellColor.RED
+    if match_winner is MatchWinner.BLUE:
+        games[0].winner_color = CellColor.BLUE
+    elif match_winner is MatchWinner.DRAW:
+        blue_win = _sample_game(2)
+        blue_win.winner_color = CellColor.BLUE
+        games.append(blue_win)
+
+    write_extraction(db_path, _sample_extraction(games=games))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        assert con.execute("SELECT winner FROM videos").fetchone()[0] == match_winner.value
+    finally:
+        con.close()
+
+
 def test_init_schema_adds_num_games_to_a_database_predating_it(tmp_path):
     """Same story as duration_s/win_line: CREATE TABLE IF NOT EXISTS leaves an existing
     videos table alone, so the column has to be added explicitly."""
@@ -298,10 +365,12 @@ def test_init_schema_adds_num_games_to_a_database_predating_it(tmp_path):
 
     con = duckdb.connect(str(db_path))
     try:
-        num_games = con.execute(
-            "SELECT num_games FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
-        ).fetchone()[0]
-        assert num_games == 1
+        # The match-result columns are added by the same ALTER block, so they come along.
+        row = con.execute(
+            "SELECT num_games, red_score, blue_score, winner FROM videos WHERE video_id = ?",
+            ["2026-03-05-alice-vs-bob"],
+        ).fetchone()
+        assert row == (1, 0, 0, None)
     finally:
         con.close()
 

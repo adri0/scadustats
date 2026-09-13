@@ -11,6 +11,7 @@ from scadustats.models import (
     GameResult,
     GameType,
     MatchType,
+    MatchWinner,
     VideoExtraction,
     WinLine,
     WinType,
@@ -66,6 +67,9 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     assert data["extracted_at"] == "2026-03-06"
     assert data["duration_s"] == 4321.0
     assert data["num_games"] == 1
+    assert data["red_score"] == 1
+    assert data["blue_score"] == 0
+    assert data["winner"] == "red"
     assert len(data["games"]) == 1
 
     game_data = data["games"][0]
@@ -107,6 +111,37 @@ def test_read_video_recounts_games_rather_than_trusting_num_games(tmp_path):
     path.write_text(json.dumps(data))
 
     assert read_video(path).num_games == 2
+
+
+def test_read_video_retallies_the_score_rather_than_trusting_the_file(tmp_path):
+    """Same for red_score/blue_score/winner: correcting a game's winner by hand is enough,
+    the match-level tally follows from the games rather than needing its own edit."""
+    blue_win = _sample_game(2)
+    blue_win.winner_color = CellColor.BLUE
+    path = write_video(tmp_path, _sample_extraction(games=[_sample_game(1), blue_win]))
+    data = json.loads(path.read_text())
+    data["red_score"], data["blue_score"], data["winner"] = 7, 0, "red"
+    path.write_text(json.dumps(data))
+
+    read_back = read_video(path)
+    assert (read_back.red_score, read_back.blue_score) == (1, 1)
+    assert read_back.winner is MatchWinner.DRAW
+
+
+def test_write_video_records_an_undetermined_match_result_as_null(tmp_path):
+    """A game with no winner leaves the match result unknowable -- the score is still
+    whatever the decided games say, but no winner is named."""
+    undecided = _sample_game(2)
+    undecided.winner_color = None
+    undecided.win_type = WinType.NONE
+    undecided.win_line = None
+
+    path = write_video(tmp_path, _sample_extraction(games=[_sample_game(1), undecided]))
+    data = json.loads(path.read_text())
+
+    assert (data["red_score"], data["blue_score"]) == (1, 0)
+    assert data["winner"] is None
+    assert read_video(path).winner is None
 
 
 def test_read_video_handles_a_file_without_num_games(tmp_path):
