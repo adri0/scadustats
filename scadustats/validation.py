@@ -11,7 +11,6 @@ match-level rules are about the games as a set (how many, in what order, who too
 match), game-level rules are about one game's own events and board.
 """
 
-from collections import Counter
 from dataclasses import dataclass, replace
 
 from scadustats import winner
@@ -22,6 +21,7 @@ from scadustats.models import (
     GameResult,
     GameType,
     MatchType,
+    MatchWinner,
     VideoExtraction,
     WinLine,
     WinType,
@@ -219,7 +219,7 @@ def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: a playoffs match is exactly 2 games; a double-elimination match (best of 3)
     is 2 or 3. A wrong count is the loudest sign of a segmentation problem -- games merged
     together, or a recap segment read as a game of its own."""
-    count = len(extraction.games)
+    count = extraction.num_games
     if extraction.match_type is MatchType.PLAYOFFS:
         expected = "exactly 2 games"
         ok = count == 2
@@ -274,18 +274,18 @@ def _check_match_outcome(extraction: VideoExtraction) -> list[ValidationIssue]:
         ]
 
     # A playoffs match is allowed to end 1-1 (the issue's rule 2 calls that a draw), so
-    # only double elimination has anything left to check here.
-    wins = Counter(game.winner_color for game in extraction.games)
+    # only double elimination has anything left to check here. Every game has a winner by
+    # this point, so extraction.winner is guaranteed non-None.
     if (
         extraction.match_type is MatchType.DOUBLE_ELIMINATION
-        and wins[CellColor.RED] == wins[CellColor.BLUE]
+        and extraction.winner is MatchWinner.DRAW
     ):
         return [
             ValidationIssue(
                 code="double_elimination_draw",
                 message=(
                     "a double_elimination match can't end in a draw, but the games "
-                    f"split {wins[CellColor.RED]}-{wins[CellColor.BLUE]}"
+                    f"split {extraction.red_score}-{extraction.blue_score}"
                 ),
             )
         ]

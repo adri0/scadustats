@@ -39,6 +39,19 @@ class WinType(Enum):
     NONE = "none"
 
 
+class MatchWinner(StrEnum):
+    """Who took the *match* (as opposed to WinType/CellColor, which are about one game).
+
+    DRAW is a real outcome here, unlike in a single game: a playoffs match is two games
+    and is allowed to end 1-1. Its own enum rather than reusing CellColor for that reason
+    -- and StrEnum like the other persisted enums, so it serializes as its own value.
+    """
+
+    RED = "red"
+    BLUE = "blue"
+    DRAW = "draw"
+
+
 class WinLine(StrEnum):
     """Which of the board's 12 lines a LINE win was completed on (see winner.LINES).
 
@@ -179,3 +192,42 @@ class VideoExtraction:
     # existed (or hand-edited to drop it) still has to read back cleanly, and since
     # a video whose fps can't be read has no duration to record.
     duration_s: float | None = None
+
+    @property
+    def red_score(self) -> int:
+        """Games the red player won in this match. Derived from `games`, like num_games."""
+        return sum(game.winner_color is CellColor.RED for game in self.games)
+
+    @property
+    def blue_score(self) -> int:
+        """Games the blue player won in this match."""
+        return sum(game.winner_color is CellColor.BLUE for game in self.games)
+
+    @property
+    def winner(self) -> MatchWinner | None:
+        """Who took the match, by game score -- or None when that can't be said.
+
+        None ("undetermined") rather than a guess in two cases: a match with no games at
+        all, and one where any game has no winner recorded. In the latter, the scores
+        below don't account for every game, so calling the current leader the winner --
+        or an even split a draw -- would be inventing an outcome from incomplete data.
+        That's exactly what validation's `match_outcome_undetermined` rule reports, and a
+        reviewer should fix the extraction rather than read a number here.
+        """
+        if not self.games or any(game.winner_color is None for game in self.games):
+            return None
+        if self.red_score > self.blue_score:
+            return MatchWinner.RED
+        if self.blue_score > self.red_score:
+            return MatchWinner.BLUE
+        # Only legal in playoffs (validation's double_elimination_draw rule catches the
+        # other format) -- but what the games *say* happened is reported either way.
+        return MatchWinner.DRAW
+
+    @property
+    def num_games(self) -> int:
+        """How many games the match consists of. Derived from `games` rather than stored
+        alongside it, so the two can't disagree -- it's persisted (JSON `num_games`, DB
+        `videos.num_games`) for a reader's/query's convenience, but a hand-edited file
+        that adds or drops a game is re-counted on read, not believed."""
+        return len(self.games)

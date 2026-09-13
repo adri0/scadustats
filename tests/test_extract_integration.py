@@ -70,6 +70,7 @@ def test_extract_video_end_to_end(tmp_path):
     # The whole video's length, not the extracted game's -- the clip's single game
     # covers only part of it.
     assert video_data["duration_s"] == pytest.approx(probe(_CLIP_PATH).duration_s)
+    assert video_data["num_games"] == 1
     assert len(video_data["games"]) == 1
     assert video_data["games"][0]["game_type"] == "base"
     events = video_data["games"][0]["events"]
@@ -108,6 +109,11 @@ def test_extract_video_end_to_end(tmp_path):
         ).fetchone()
         assert (player_red_name, player_blue_name) == ("blanxz", "SeriousChallenges")
         assert duration_s == pytest.approx(probe(_CLIP_PATH).duration_s)
+
+        num_games = con.execute(
+            "SELECT num_games FROM videos WHERE video_id = ?", [summary.video_id]
+        ).fetchone()[0]
+        assert num_games == 1
     finally:
         con.close()
 

@@ -577,6 +577,34 @@ def test_show_match_prints_metadata_and_per_game_breakdown(tmp_path):
     assert "marks=1" in result.output
     assert "unmarks=1" in result.output
     assert "length: 01:12:01" in result.output
+    # The match result names the winning player, not just their color.
+    assert "result: alice (red) wins" in result.output
+
+
+def test_show_match_reports_a_draw_and_an_undetermined_result(tmp_path):
+    drawn = [
+        _match_sample_game(1),
+        _match_sample_game(2, winner_color=CellColor.BLUE),
+    ]
+    write_video(tmp_path, _sample_extraction(games=drawn))
+
+    result = CliRunner().invoke(
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "alice 1 - 1 bob" in result.output
+    assert "result: draw" in result.output
+
+    undecided = [_match_sample_game(1), _match_sample_game(2, winner_color=None)]
+    write_video(tmp_path, _sample_extraction(games=undecided))
+
+    result = CliRunner().invoke(
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "result: undetermined" in result.output
 
 
 def test_show_match_names_no_line_for_a_majority_win(tmp_path):
@@ -710,3 +738,24 @@ def test_show_match_errors_on_unknown_video_id(tmp_path):
 
     assert result.exit_code != 0
     assert "nonexistent" in result.output
+
+
+def test_no_command_prints_the_command_list():
+    """A bare `scadustats` should show what the commands are, not just Typer's default
+    "Missing command" error, which names none of them."""
+    result = CliRunner().invoke(app, [])
+
+    assert "Commands" in result.output
+    for command in ("download", "extract", "load-db", "match"):
+        assert command in result.output
+    assert "Missing command" not in result.output
+
+
+def test_no_subcommand_prints_the_group_command_list():
+    """Same for a bare sub-command group -- `scadustats match` lists its own commands."""
+    result = CliRunner().invoke(app, ["match"])
+
+    assert "Commands" in result.output
+    for command in ("list", "show", "validate"):
+        assert command in result.output
+    assert "Missing command" not in result.output

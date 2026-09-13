@@ -14,10 +14,22 @@ from scadustats.db import load_json_dir
 from scadustats.download import download_video
 from scadustats.extract import estimate_sample_count, extract_video
 from scadustats.json_export import read_video
-from scadustats.models import CellColor, EventType, GameResult, GameType, MatchMetadata, MatchType
+from scadustats.models import (
+    EventType,
+    GameResult,
+    GameType,
+    MatchMetadata,
+    MatchType,
+    MatchWinner,
+    VideoExtraction,
+)
 from scadustats.validation import validate_extraction
 
-app = typer.Typer()
+# no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
+# default "Missing command" error, which tells a first-time user nothing about what the
+# commands actually are. Set on every Typer group here (see match_app below), so a bare
+# sub-command group behaves the same way its parent does.
+app = typer.Typer(no_args_is_help=True)
 
 
 class IfExists(enum.StrEnum):
@@ -42,6 +54,19 @@ def _format_duration(seconds: float) -> str:
     hours, remainder = divmod(total, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _match_result(extraction: VideoExtraction) -> str:
+    """The match's outcome as prose for `match show`, naming the winning player rather
+    than just their color. An undetermined outcome (a game with no winner recorded --
+    see VideoExtraction.winner) says so instead of naming anyone."""
+    if extraction.winner is None:
+        return "undetermined (a game has no winner recorded)"
+    if extraction.winner is MatchWinner.DRAW:
+        return "draw"
+    if extraction.winner is MatchWinner.RED:
+        return f"{extraction.player_red_name or 'red'} (red) wins"
+    return f"{extraction.player_blue_name or 'blue'} (blue) wins"
 
 
 def _prompt_match_metadata(
@@ -366,7 +391,9 @@ def load_db(
     print(f"Loaded {len(video_ids)} video(s) into {db}")
 
 
-match_app = typer.Typer(help="List or inspect previously extracted matches.")
+match_app = typer.Typer(
+    help="List or inspect previously extracted matches.", no_args_is_help=True
+)
 app.add_typer(match_app, name="match")
 
 
@@ -394,7 +421,7 @@ def match_list(
             typer.echo(f"Skipping {path.name}: {exc}", err=True)
             continue
         shown += 1
-        num_games = len(extraction.games)
+        num_games = extraction.num_games
         typer.echo(
             f"{extraction.video_id}  {extraction.match_date}  season {extraction.season}  "
             f"{extraction.match_type.value}  "
@@ -496,13 +523,12 @@ def match_show(
         typer.echo(f"  video: {extraction.video_url}")
     typer.echo(f"  extracted: {extraction.extracted_at}")
 
-    red_wins = sum(game.winner_color is CellColor.RED for game in extraction.games)
-    blue_wins = sum(game.winner_color is CellColor.BLUE for game in extraction.games)
     typer.echo(
-        f"  games: {len(extraction.games)} "
-        f"({extraction.player_red_name or 'red'} {red_wins} - "
-        f"{blue_wins} {extraction.player_blue_name or 'blue'})"
+        f"  games: {extraction.num_games} "
+        f"({extraction.player_red_name or 'red'} {extraction.red_score} - "
+        f"{extraction.blue_score} {extraction.player_blue_name or 'blue'})"
     )
+    typer.echo(f"  result: {_match_result(extraction)}")
 
     for game in sorted(extraction.games, key=lambda g: g.game_index):
         marks = sum(event.event_type is EventType.MARK for event in game.events)
