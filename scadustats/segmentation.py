@@ -1,10 +1,15 @@
 """Detect game boundaries within a video from a stream of per-sample observations.
 
-A single video can contain multiple back-to-back games. Three independent signals hint
-at a new game starting: the board resetting to fully unclaimed, the timer jumping
-backward by a large amount, and the "GAME N" label text changing. Each is individually
-noisy (a classification flicker, a bad OCR read), so a boundary is only trusted when at
-least two of the three signals agree within a small window of samples.
+A single video can contain multiple back-to-back games. Two independent signals hint at
+a new game starting: the board resetting to fully unclaimed, and the timer jumping
+backward by a large amount. Either alone is noisy (a classification flicker, a bad OCR
+read), so a boundary is only trusted where both agree within a small window of samples.
+
+The overlay's "GAME N" label used to be a third signal, dropped because it earned
+nothing: on a real two-game video it produced 18 "confirmed" changes, 17 of them OCR
+noise ("GARE Zz", "GANIC Zz", ... for a board reading "GAME 2"), while the one genuine
+change was only confirmed 15 samples after the fact -- well outside the agreement window
+-- so it never once contributed to detecting the real boundary it was watching for.
 """
 
 from collections.abc import Iterable
@@ -24,7 +29,6 @@ class Observation:
     video_ts_s: float
     board: Board
     timer_s: int | None
-    label: str | None = None  # None if the label wasn't OCR'd on this sample
 
 
 def _is_all_unclaimed(board: Board) -> bool:
@@ -32,11 +36,28 @@ def _is_all_unclaimed(board: Board) -> bool:
 
 
 def detect_boundaries(observations: Iterable[Observation]) -> list[int]:
+    """Positions *within `observations`* at which a new game starts.
+
+    These are list positions, not `sample_index` values: the two only coincide when every
+    sampled frame was a gameplay frame, and in a real video they diverge badly, since
+    every non-gameplay frame (a "POST GAME" recap between games -- exactly where the
+    boundaries are) is dropped before it ever gets here. Callers slice the observation
+    list with these, so positions are what they need; `sample_index` is still what the
+    agreement/collapse windows below are measured in, since a window of "5 samples"
+    should mean 5 sampled frames of real footage, not 5 surviving observations with an
+    arbitrary stretch of skipped recap between them.
+    """
     observations = list(observations)
 
+    def _close(position_a: int, position_b: int) -> bool:
+        gap = observations[position_a].sample_index - observations[position_b].sample_index
+        return abs(gap) <= _AGREEMENT_WINDOW
+
     board_reset_at = [
-        obs.sample_index
-        for prev, obs in zip(observations, observations[1:], strict=False)
+        position
+        for position, (prev, obs) in enumerate(
+            zip(observations, observations[1:], strict=False), start=1
+        )
         if _is_all_unclaimed(obs.board) and not _is_all_unclaimed(prev.board)
     ]
     # A continuously-running stopwatch should never decrease during live play -- but a
@@ -45,54 +66,37 @@ def detect_boundaries(observations: Iterable[Observation]) -> list[int]:
     # a genuine reset. A real reset is a large, one-off discontinuity (e.g. a ~63-minute
     # elapsed reading dropping straight to a fresh countdown value), so only count a
     # decrease past a threshold no ordinary per-second tick could produce.
-    timer_reset_at = [
-        obs.sample_index
-        for prev, obs in zip(observations, observations[1:], strict=False)
-        if obs.timer_s is not None
-        and prev.timer_s is not None
-        and prev.timer_s - obs.timer_s > _TIMER_JUMP_THRESHOLD
+    #
+    # Observation.timer_s is optional, and an unreadable run of it clusters exactly where
+    # resets happen (the overlay transition between two games). Comparing each reading
+    # against the most recently *seen* one keeps such a run from swallowing the drop
+    # across it, which an adjacent-pair comparison would, seeing a None on one side of
+    # the discontinuity and skipping the pair entirely.
+    timer_reset_at = []
+    last_timer_s = None
+    for position, obs in enumerate(observations):
+        if obs.timer_s is None:
+            continue
+        if last_timer_s is not None and last_timer_s - obs.timer_s > _TIMER_JUMP_THRESHOLD:
+            timer_reset_at.append(position)
+        last_timer_s = obs.timer_s
+
+    # Every signal has to agree, since there are only two of them left -- a lone board
+    # reset (a classification flicker) or a lone timer jump (a bad OCR read) isn't
+    # evidence of anything on its own.
+    signal_lists = [board_reset_at, timer_reset_at]
+    candidates = sorted(set(board_reset_at) | set(timer_reset_at))
+
+    boundaries = [
+        candidate
+        for candidate in candidates
+        if all(any(_close(candidate, position) for position in signal) for signal in signal_lists)
     ]
 
-    # The label is only OCR'd on a fraction of samples (it's comparatively expensive),
-    # so most samples have label=None. Comparing strictly-adjacent observations would
-    # almost never see two non-None labels next to each other -- compare each non-None
-    # label against the most recently *seen* non-None label instead. OCR noise on this
-    # field is severe in practice (a stable "GAME 2" was read as a different garbled
-    # string on nearly every sample), so a new label is only trusted once it has been
-    # read identically twice in a row -- cheap noise floor, since a real label is stable
-    # for many consecutive reads while noise essentially never repeats itself exactly.
-    label_change_at = []
-    last_confirmed_label = None
-    pending_label = None
-    pending_count = 0
-    for obs in observations:
-        if obs.label is None:
-            continue
-        if obs.label == pending_label:
-            pending_count += 1
-        else:
-            pending_label = obs.label
-            pending_count = 1
-        if pending_count >= 2 and pending_label != last_confirmed_label:
-            label_change_at.append(obs.sample_index)
-            last_confirmed_label = pending_label
-
-    signal_lists = [board_reset_at, timer_reset_at, label_change_at]
-    candidates = sorted(set(board_reset_at) | set(timer_reset_at) | set(label_change_at))
-
-    boundaries = []
-    for candidate in candidates:
-        agreeing = sum(
-            any(abs(candidate - idx) <= _AGREEMENT_WINDOW for idx in signal)
-            for signal in signal_lists
-        )
-        if agreeing >= 2:
-            boundaries.append(candidate)
-
     # Collapse boundaries that landed within the agreement window of each other (the same
-    # real event triggering multiple nearby candidate indices).
+    # real event triggering multiple nearby candidate positions).
     collapsed: list[int] = []
     for boundary in boundaries:
-        if not collapsed or boundary - collapsed[-1] > _AGREEMENT_WINDOW:
+        if not collapsed or not _close(boundary, collapsed[-1]):
             collapsed.append(boundary)
     return collapsed

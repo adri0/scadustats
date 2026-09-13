@@ -149,7 +149,6 @@ def test_is_youtube_url_rejects_non_youtube_urls(url):
 def _sample_game() -> GameResult:
     return GameResult(
         game_index=1,
-        label="GAME 1",
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=[[""] * 5 for _ in range(5)],
@@ -181,7 +180,8 @@ def test_prompt_game_type_prompts_when_not_supplied(monkeypatch):
 
     assert result is GameType.DLC
     assert len(prompts) == 1
-    assert "GAME 1" in prompts[0]
+    # The prompt names the game by its index -- that's the only identity a game has.
+    assert "Game 1" in prompts[0]
 
 
 def test_prompt_game_type_reprompts_on_invalid_input(monkeypatch):
@@ -484,7 +484,6 @@ def _match_sample_game(game_index: int = 1, **overrides) -> GameResult:
     square_texts = [[f"goal {r}-{c}" for c in range(5)] for r in range(5)]
     defaults = dict(
         game_index=game_index,
-        label="GAME 1",
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=square_texts,
@@ -568,7 +567,7 @@ def test_show_match_prints_metadata_and_per_game_breakdown(tmp_path):
     assert "2026-03-05-alice-vs-bob" in result.output
     assert "alice (red) vs bob (blue)" in result.output
     assert "alice 1 - 0 bob" in result.output
-    assert "Game 1 (GAME 1)" in result.output
+    assert "Game 1:" in result.output
     assert "winner=red (line)" in result.output
     assert "marks=1" in result.output
     assert "unmarks=1" in result.output

@@ -95,8 +95,11 @@ class MatchMetadata:
 
 @dataclass
 class GameResult:
+    # A game is identified by its position within the video. The overlay prints a
+    # "GAME N" label too, but it isn't read: N is game_index, and OCR of that box was
+    # noise in practice (a stable "GAME 2" came back as a different garbled string on
+    # nearly every sample).
     game_index: int
-    label: str | None
     start_video_ts_s: float
     end_video_ts_s: float | None
     square_texts: list[list[str]]

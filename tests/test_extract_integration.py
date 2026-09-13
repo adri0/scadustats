@@ -23,6 +23,12 @@ from scadustats.segmentation import Observation
 # enough to commit directly, unlike the multi-GB originals in downloads/.
 _CLIP_PATH = "tests/fixtures/clip_claim.mp4"
 
+# A 28s clip trimmed around a real game boundary: the tail of game 1 (claimed board,
+# stopped clock), the splash between the two games, then game 2's empty board and
+# pre-game countdown. Short enough to commit, long enough for all of segmentation's
+# signals to fire.
+_GAME_BOUNDARY_CLIP_PATH = "tests/fixtures/clip_game_boundary.mp4"
+
 
 def test_extract_video_end_to_end(tmp_path):
     json_dir = tmp_path / "json"
@@ -99,6 +105,29 @@ def test_extract_video_end_to_end(tmp_path):
         assert (player_red_name, player_blue_name) == ("blanxz", "SeriousChallenges")
     finally:
         con.close()
+
+
+def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
+    # Regression test for "only the first game of a video is extracted": this clip is
+    # trimmed around a real game boundary -- game 1 finished with a claimed board, then
+    # the between-games splash, then game 2's fresh board and countdown -- and used to
+    # come back as one game spanning the whole thing.
+    summary = extract_video(
+        _GAME_BOUNDARY_CLIP_PATH,
+        match_metadata=MatchMetadata(
+            match_date=datetime.date(2026, 9, 1), season=6, match_type=MatchType.PLAYOFFS
+        ),
+        json_dir=tmp_path / "json",
+        on_missing_game_type=lambda game: GameType.BASE,
+    )
+
+    assert summary.num_games == 2
+
+    games = json.loads((tmp_path / "json" / f"{summary.video_id}.json").read_text())["games"]
+    assert [game["game_index"] for game in games] == [1, 2]
+    # The splash between the two games falls in the gap here -- its samples are dropped
+    # rather than read as either game's board (see _collect_observations).
+    assert games[0]["end_video_ts_s"] < games[1]["start_video_ts_s"]
 
 
 def _extract_once(json_dir, **kwargs):

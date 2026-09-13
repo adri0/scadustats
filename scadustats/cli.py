@@ -113,10 +113,9 @@ def _prompt_game_type(game: GameResult, game_type_opt: GameType | None) -> GameT
         return game_type_opt
 
     choices = [t.value for t in GameType]
-    label = f" ({game.label})" if game.label else ""
     while True:
         raw = typer.prompt(
-            f"Game {game.game_index}{label} type -- couldn't infer from its squares "
+            f"Game {game.game_index} type -- couldn't infer from its squares "
             f"({'/'.join(choices)})"
         )
         try:
@@ -407,7 +406,7 @@ def match_show(
     ] = Path("matches"),
 ) -> None:
     """Print one match's full extracted summary: its metadata plus a per-game breakdown
-    (label, game type, winner, event counts)."""
+    (game type, winner, event counts)."""
     path = Path(json_dir) / f"{video_id}.json"
     if not path.exists():
         raise typer.BadParameter(f"no match file at {path}", param_hint="video_id")
@@ -439,7 +438,7 @@ def match_show(
         winner = game.winner_color.value if game.winner_color else "none"
         game_type = game.game_type.value if game.game_type else "unknown"
         typer.echo(
-            f"\n  Game {game.game_index} ({game.label or 'no label'}): "
+            f"\n  Game {game.game_index}: "
             f"type={game_type}  winner={winner} ({game.win_type.value})  "
             f"marks={marks}  unmarks={unmarks}"
         )

@@ -21,8 +21,6 @@ from scadustats import (
     frames,
     game_type_label,
     json_export,
-    layout,
-    ocr,
     scoreboard,
     squares,
     timer,
@@ -42,11 +40,6 @@ from scadustats.segmentation import Observation, detect_boundaries
 
 logger = logging.getLogger(__name__)
 
-# Samples (~seconds, at the default 1Hz sample rate) between game-label OCR reads --
-# the label only needs to be read occasionally since it's one of three redundant
-# game-boundary signals, and label OCR is comparatively expensive.
-_LABEL_SAMPLE_INTERVAL = 5
-
 # Frames to majority-vote per game when reading square text -- a single frame's OCR
 # occasionally misreads a cell, so square text is read from this many frames spread
 # across the game and, per cell, whichever exact text came back most often wins (see
@@ -61,6 +54,17 @@ _SQUARE_TEXT_FRAME_COUNT = 10
 # long video doesn't queue thousands of frames/tesseract processes at once.
 _OCR_WORKERS = min(8, os.cpu_count() or 4)
 
+# Largest one-sample rise the game clock can plausibly show once it has started ticking
+# up (~1s/sample at the default rate, with slack for a run of unreadable samples in
+# between). Anything larger is the overlay swapping which timer it displays -- see
+# _detect_game_start.
+_CLOCK_STEP_TOLERANCE_S = 30
+
+# Share of gameplay samples whose timer may be unreadable before that stops looking like
+# the usual between-game transition (well under 1% on real videos) and starts looking
+# like the timer simply isn't being read -- see _collect_observations.
+_UNREADABLE_TIMER_WARN_FRACTION = 0.05
+
 
 @dataclass
 class ExtractionSummary:
@@ -71,12 +75,6 @@ class ExtractionSummary:
     # num_games/num_claims are meaningless (left at 0) in that case, since nothing was
     # written.
     skipped: bool = False
-
-
-def _read_label(frame: np.ndarray) -> str:
-    height, width = frame.shape[:2]
-    crop = layout.crop(frame, layout.GAME_LABEL_BOX, width, height)
-    return ocr.read_text(crop, psm=7)
 
 
 def estimate_sample_count(video_path: str | Path, sample_rate_hz: float = 1.0) -> int:
@@ -93,13 +91,11 @@ def _collect_observations(
     on_progress: Callable[[], None] | None = None,
 ) -> list[Observation]:
     prev_counts = (0, 0)
-    # (index, video_ts_s, colors, timer_future, label_future) per gameplay sample, in
-    # sample order -- OCR runs in the background via the futures below, so this fills in
-    # while later samples are still being decoded, and is drained into Observations only
-    # once every future for it has resolved.
-    pending: list[
-        tuple[int, float, list[list[CellColor]], Future[int | None], Future[str] | None]
-    ] = []
+    # (index, video_ts_s, colors, timer_future) per gameplay sample, in sample order --
+    # the timer OCR runs in the background via the future, so this fills in while later
+    # samples are still being decoded, and is drained into Observations only once every
+    # future for it has resolved.
+    pending: list[tuple[int, float, list[list[CellColor]], Future[int | None]]] = []
     ocr_slots = threading.Semaphore(_OCR_WORKERS)
 
     def _release_slot(_future: Future) -> None:
@@ -113,7 +109,7 @@ def _collect_observations(
             if not board.is_gameplay_frame(frame):
                 # Not showing the live overlay (e.g. a "POST GAME" recap screen, which
                 # reuses the same grid coordinates to cycle through other completed games'
-                # boards) -- cell colors and timer/label crops would be meaningless here.
+                # boards) -- the cell colors and the timer crop would be meaningless here.
                 continue
 
             colors = board.cell_colors(frame)
@@ -145,24 +141,39 @@ def _collect_observations(
             timer_future = executor.submit(timer.read_timer, frame)
             timer_future.add_done_callback(_release_slot)
 
-            label_future = None
-            if i % _LABEL_SAMPLE_INTERVAL == 0:
-                ocr_slots.acquire()
-                label_future = executor.submit(_read_label, frame)
-                label_future.add_done_callback(_release_slot)
+            pending.append((i, video_ts_s, colors, timer_future))
 
-            pending.append((i, video_ts_s, colors, timer_future, label_future))
-
-        return [
-            Observation(
-                i,
-                video_ts_s,
-                colors,
-                timer_future.result(),
-                label_future.result() if label_future is not None else None,
-            )
-            for i, video_ts_s, colors, timer_future, label_future in pending
+        # An unreadable timer means the overlay isn't in a live-gameplay state, so the
+        # sample is dropped here for the same reason board.is_gameplay_frame drops a
+        # recap screen -- it just isn't detectable until the OCR result is in hand. The
+        # case this catches is the splash *between* two games: the score bars stay
+        # colored (so is_gameplay_frame still passes), but the grid and the timer are
+        # both torn down for a few samples. Reading cell colors off that splash produced
+        # a burst of spurious unmarks that wiped the previous game's winning line out of
+        # its final board state, costing game 1 of a real two-game video its winner.
+        # Unreadable timers are otherwise vanishingly rare in practice (8 samples out of
+        # 6280 on that video -- all 8 of them this exact transition), so this drops
+        # essentially nothing else.
+        observations = [
+            Observation(i, video_ts_s, colors, timer_s)
+            for i, video_ts_s, colors, timer_future in pending
+            if (timer_s := timer_future.result()) is not None
         ]
+
+    # Dropping a handful of samples is the point; dropping a large share of them means
+    # the timer isn't being read at all (a miscalibrated TIMER_BOX, a source too low-
+    # bitrate for it) and claims are silently going missing with it -- which would
+    # otherwise look like a quiet, successful extraction of a near-empty game.
+    dropped = len(pending) - len(observations)
+    if dropped > len(pending) * _UNREADABLE_TIMER_WARN_FRACTION:
+        logger.warning(
+            "timer unreadable on %d of %d gameplay samples (%.0f%%) -- those samples were "
+            "skipped, so claims in them are missing; check the timer layout box",
+            dropped,
+            len(pending),
+            100 * dropped / len(pending),
+        )
+    return observations
 
 
 def _segment_games(observations: list[Observation]) -> list[list[Observation]]:
@@ -221,10 +232,20 @@ def _detect_game_start(segment: list[Observation]) -> GameEvent | None:
     moment is where the reading stops decreasing and starts ascending again, i.e. the
     first strict local minimum in the segment's timer readings. Returns None if no such
     minimum is observed (e.g. the segment's footage starts mid-countdown-descent, or
-    already mid-game with no countdown captured at all)."""
+    already mid-game with no countdown captured at all).
+
+    The ascent out of the minimum has to be *continuous* to count, though. A segment can
+    open on the tail of a short countdown belonging to the previous screen, which then
+    gives way to the game's own countdown -- observed on a real match as ...3, 2, 1 and
+    then straight to 180, a 3-minute countdown that only then descends to 0 and ascends
+    as the game clock. That reading of 1 is a strict local minimum, but the +179 step out
+    of it is the overlay swapping which timer it's showing, not a clock ticking up.
+    """
     timed = [obs for obs in segment if obs.timer_s is not None]
     for prev, curr, nxt in zip(timed, timed[1:], timed[2:], strict=False):
-        if curr.timer_s < prev.timer_s and curr.timer_s < nxt.timer_s:
+        is_local_minimum = curr.timer_s < prev.timer_s and curr.timer_s < nxt.timer_s
+        clock_continues = nxt.timer_s - curr.timer_s <= _CLOCK_STEP_TOLERANCE_S
+        if is_local_minimum and clock_continues:
             return GameEvent(
                 row=None,
                 col=None,
@@ -361,7 +382,6 @@ def extract_video(
         if game_index == 1:
             representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
             player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
-        label = next((obs.label for obs in segment if obs.label), None)
 
         events = _extract_events(segment)
         game_start = _detect_game_start(segment)
@@ -372,7 +392,6 @@ def extract_video(
         games.append(
             GameResult(
                 game_index=game_index,
-                label=label,
                 start_video_ts_s=segment[0].video_ts_s,
                 end_video_ts_s=segment[-1].video_ts_s,
                 square_texts=square_texts,
@@ -399,9 +418,8 @@ def extract_video(
         if game.game_type is None:
             if on_missing_game_type is None:
                 raise ValueError(
-                    f"couldn't infer game type for game {game.game_index} "
-                    f"(label={game.label!r}) from its squares, and no "
-                    "on_missing_game_type callback was given to supply one"
+                    f"couldn't infer game type for game {game.game_index} from its "
+                    "squares, and no on_missing_game_type callback was given to supply one"
                 )
             game.game_type = on_missing_game_type(game)
 

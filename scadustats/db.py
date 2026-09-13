@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS games (
     game_id VARCHAR PRIMARY KEY,
     video_id VARCHAR NOT NULL REFERENCES videos(video_id),
     game_index INTEGER NOT NULL,
-    label VARCHAR,
     start_video_ts_s DOUBLE NOT NULL,
     end_video_ts_s DOUBLE,
     -- Nullable: extract_video always resolves this before writing JSON (inferred, or
@@ -134,14 +133,13 @@ def write_extraction(
             game_id = f"{extraction.video_id}-{game.game_index}"
             con.execute(
                 """INSERT INTO games
-                   (game_id, video_id, game_index, label, start_video_ts_s, end_video_ts_s,
+                   (game_id, video_id, game_index, start_video_ts_s, end_video_ts_s,
                     game_type, winner_color, win_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     game_id,
                     extraction.video_id,
                     game.game_index,
-                    game.label,
                     game.start_video_ts_s,
                     game.end_video_ts_s,
                     game.game_type.value if game.game_type else None,

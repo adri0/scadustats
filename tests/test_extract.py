@@ -1,7 +1,17 @@
 import datetime
 import logging
 
-from scadustats.extract import _detect_game_start, _determine_winner, _extract_events, _video_id
+import numpy as np
+
+from scadustats import extract
+from scadustats.extract import (
+    _collect_observations,
+    _detect_game_start,
+    _determine_winner,
+    _extract_events,
+    _segment_games,
+    _video_id,
+)
 from scadustats.models import CellColor, EventType, MatchMetadata, MatchType
 from scadustats.segmentation import Observation
 
@@ -13,6 +23,25 @@ def _board(*colors: tuple[int, int, CellColor]) -> list[list[CellColor]]:
     for row, col, color in colors:
         board[row][col] = color
     return board
+
+
+def _stub_sampling(monkeypatch, timer_readings: list[int | None]) -> None:
+    """Run _collect_observations over synthetic frames whose timer reads as given, with
+    every frame passing the gameplay check and showing an empty board."""
+    # Each frame is painted with its own sample number so the stubbed timer read can tell
+    # which frame it was handed -- OCR runs concurrently, so a plain call counter would
+    # race. (Sample number has to fit in a uint8 pixel, capping this at 256 samples.)
+    frames = [np.full((4, 4, 3), i, dtype=np.uint8) for i in range(len(timer_readings))]
+
+    monkeypatch.setattr(
+        extract.frames,
+        "sample_frames",
+        lambda path, rate: ((float(i), frame) for i, frame in enumerate(frames)),
+    )
+    monkeypatch.setattr(extract.board, "is_gameplay_frame", lambda frame: True)
+    monkeypatch.setattr(extract.board, "cell_colors", lambda frame: _board())
+    monkeypatch.setattr(extract.scoreboard, "read_scores", lambda frame: (None, None))
+    monkeypatch.setattr(extract.timer, "read_timer", lambda frame: timer_readings[frame[0, 0, 0]])
 
 
 def _debounced(board: list[list[CellColor]], count: int = 2) -> list[Observation]:
@@ -89,6 +118,31 @@ def test_detect_game_start_finds_ascent_from_countdown_minimum():
     assert event.video_ts_s == 3.0
 
 
+def test_detect_game_start_skips_a_minimum_the_clock_does_not_continue_from():
+    # A segment can open on the tail of a previous screen's short countdown, which then
+    # gives way to the game's own 3-minute one: ...2, 1, then straight to 180. That 1 is
+    # a strict local minimum, but the +179 step out of it is the overlay swapping timers,
+    # not a clock ticking up -- the real start is the bottom of the countdown that
+    # follows.
+    board = _board()
+    segment = [
+        Observation(0, 0.0, board, 3),
+        Observation(1, 1.0, board, 2),
+        Observation(2, 2.0, board, 1),
+        Observation(3, 3.0, board, 180),
+        Observation(4, 4.0, board, 179),
+        Observation(5, 5.0, board, 0),
+        Observation(6, 6.0, board, 1),
+        Observation(7, 7.0, board, 2),
+    ]
+
+    event = _detect_game_start(segment)
+
+    assert event is not None
+    assert event.game_elapsed_s == 0
+    assert event.video_ts_s == 5.0
+
+
 def test_detect_game_start_returns_none_without_a_local_minimum():
     # No countdown captured -- the timer only ever ascends, so there's no dip to find.
     board = _board()
@@ -99,6 +153,53 @@ def test_detect_game_start_returns_none_without_a_local_minimum():
     ]
 
     assert _detect_game_start(segment) is None
+
+
+def test_collect_observations_drops_samples_with_an_unreadable_timer(monkeypatch, caplog):
+    # The splash between two games keeps the score bars colored (so is_gameplay_frame
+    # still passes) while the grid and timer are both torn down -- reading cell colors
+    # off it produced a burst of spurious unmarks that cost the finished game its
+    # winner. An unreadable timer is the tell, so those samples don't become
+    # observations at all.
+    _stub_sampling(monkeypatch, [10, None, None, 12])
+
+    with caplog.at_level(logging.WARNING):
+        observations = _collect_observations("video.mp4", 1.0)
+
+    assert [(obs.sample_index, obs.timer_s) for obs in observations] == [(0, 10), (3, 12)]
+    # Half the samples gone is far past "the usual transition" and worth flagging.
+    assert "timer unreadable on 2 of 4" in caplog.text
+
+
+def test_collect_observations_does_not_warn_about_a_few_unreadable_timers(monkeypatch, caplog):
+    _stub_sampling(monkeypatch, [*range(50), None, *range(50)])
+
+    with caplog.at_level(logging.WARNING):
+        observations = _collect_observations("video.mp4", 1.0)
+
+    assert len(observations) == 100
+    assert not caplog.records
+
+
+def test_segment_games_splits_a_video_whose_samples_have_gaps():
+    # Regression test for the whole-video-is-one-game bug: non-gameplay frames (the
+    # recap between games) never become observations, so sample_index runs ahead of list
+    # position -- slicing the observation list by sample_index put the split past the end
+    # of the list and yielded a single segment spanning both games.
+    observations = [
+        Observation(0, 0.0, _board((0, 0, R)), 100),
+        Observation(1, 1.0, _board((0, 0, R)), 101),
+        # samples 2-49 were a recap screen and never became observations
+        Observation(50, 50.0, _board(), 5),
+        Observation(51, 51.0, _board(), 4),
+    ]
+
+    segments = _segment_games(observations)
+
+    assert [[obs.video_ts_s for obs in segment] for segment in segments] == [
+        [0.0, 1.0],
+        [50.0, 51.0],
+    ]
 
 
 _MATCH_METADATA = MatchMetadata(

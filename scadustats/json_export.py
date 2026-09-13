@@ -40,7 +40,6 @@ def _event_to_dict(event: GameEvent) -> dict:
 def _game_to_dict(game: GameResult) -> dict:
     return {
         "game_index": game.game_index,
-        "label": game.label,
         "start_video_ts_s": game.start_video_ts_s,
         "end_video_ts_s": game.end_video_ts_s,
         "game_type": game.game_type.value if game.game_type else None,
@@ -113,7 +112,6 @@ def _dict_to_event(data: dict) -> GameEvent:
 def _dict_to_game(data: dict) -> GameResult:
     return GameResult(
         game_index=data["game_index"],
-        label=data["label"],
         start_video_ts_s=data["start_video_ts_s"],
         end_video_ts_s=data["end_video_ts_s"],
         square_texts=data["square_texts"],

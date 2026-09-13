@@ -22,7 +22,6 @@ def _sample_game(game_index: int = 1) -> GameResult:
     square_texts = [[f"goal {r}-{c}" for c in range(5)] for r in range(5)]
     return GameResult(
         game_index=game_index,
-        label="GAME 1",
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=square_texts,

@@ -20,7 +20,6 @@ def _sample_game(game_index: int = 1) -> GameResult:
     square_texts = [[f"goal {r}-{c}" for c in range(5)] for r in range(5)]
     return GameResult(
         game_index=game_index,
-        label="GAME 1",
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=square_texts,
@@ -66,7 +65,6 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
 
     game_data = data["games"][0]
     assert game_data["game_index"] == 1
-    assert game_data["label"] == "GAME 1"
     assert game_data["game_type"] == "base"
     assert game_data["winner_color"] == "red"
     assert game_data["win_type"] == "line"
@@ -183,22 +181,22 @@ def test_if_exists_replace_overwrites(tmp_path):
     write_video(tmp_path, _sample_extraction())
 
     game = _sample_game()
-    game.label = "GAME 1 UPDATED"
+    game.win_type = WinType.MAJORITY
     path = write_video(tmp_path, _sample_extraction(games=[game]), if_exists="replace")
 
     data = json.loads(path.read_text())
-    assert data["games"][0]["label"] == "GAME 1 UPDATED"
+    assert data["games"][0]["win_type"] == "majority"
 
 
 def test_if_exists_append_behaves_like_replace(tmp_path):
     write_video(tmp_path, _sample_extraction())
 
     game = _sample_game()
-    game.label = "GAME 1 UPDATED"
+    game.win_type = WinType.MAJORITY
     path = write_video(tmp_path, _sample_extraction(games=[game]), if_exists="append")
 
     data = json.loads(path.read_text())
-    assert data["games"][0]["label"] == "GAME 1 UPDATED"
+    assert data["games"][0]["win_type"] == "majority"
 
 
 def test_read_video_round_trips_write_video(tmp_path):
