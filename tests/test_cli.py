@@ -586,6 +586,106 @@ def test_show_match_omits_length_when_the_duration_is_unknown(tmp_path):
     assert "length:" not in result.output
 
 
+def _valid_match_extraction(**overrides) -> VideoExtraction:
+    """A match that passes every validation rule: playoffs, two games (base then DLC),
+    each with exactly one game_start and a genuine line win. The shared
+    `_sample_extraction` above is deliberately *not* valid (one game, a recorded winner
+    with no line behind it), which is what the failure cases below reuse."""
+
+    def game(game_index: int, color: CellColor, game_type: GameType) -> GameResult:
+        return _match_sample_game(
+            game_index,
+            events=[
+                GameEvent(
+                    row=None,
+                    col=None,
+                    color=None,
+                    video_ts_s=0.0,
+                    game_elapsed_s=0,
+                    event_type=EventType.GAME_START,
+                ),
+                *(
+                    GameEvent(row=0, col=col, color=color, video_ts_s=1.0 + col, game_elapsed_s=col)
+                    for col in range(5)
+                ),
+            ],
+            winner_color=color,
+            win_type=WinType.LINE,
+            game_type=game_type,
+        )
+
+    overrides.setdefault(
+        "games",
+        [game(1, CellColor.RED, GameType.BASE), game(2, CellColor.BLUE, GameType.DLC)],
+    )
+    return _sample_extraction(**overrides)
+
+
+def test_validate_match_reports_a_clean_match_as_ok(tmp_path):
+    write_video(tmp_path, _valid_match_extraction())
+
+    result = CliRunner().invoke(
+        app, ["match", "validate", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "2026-03-05-alice-vs-bob: ok" in result.output
+
+
+def test_validate_match_lists_issues_and_exits_nonzero(tmp_path):
+    write_video(tmp_path, _sample_extraction())
+
+    result = CliRunner().invoke(
+        app, ["match", "validate", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 1
+    # A playoffs match with one game, whose single recorded line win has no line behind
+    # it -- one match-level and one game-level rule, each naming its own scope.
+    assert "[game_count]" in result.output
+    assert "game 1: " in result.output
+    assert "[winner_board_mismatch]" in result.output
+
+
+def test_validate_checks_every_match_in_the_directory_by_default(tmp_path):
+    write_video(tmp_path, _valid_match_extraction())
+    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
+
+    result = CliRunner().invoke(app, ["match", "validate", "--json-dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "2026-03-05-alice-vs-bob: ok" in result.output
+    assert "2026-01-01-carol-vs-dave: " in result.output
+    assert "1 of 2 matches have issues" in result.output
+
+
+def test_validate_skips_unparseable_files_with_a_warning(tmp_path):
+    write_video(tmp_path, _valid_match_extraction())
+    (tmp_path / "old-format.json").write_text('{"game_id": "x"}')
+
+    result = CliRunner().invoke(app, ["match", "validate", "--json-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "Skipping old-format.json" in result.output
+    assert "2026-03-05-alice-vs-bob: ok" in result.output
+
+
+def test_validate_reports_when_directory_has_no_matches(tmp_path):
+    result = CliRunner().invoke(app, ["match", "validate", "--json-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "No matches found" in result.output
+
+
+def test_validate_errors_on_unknown_video_id(tmp_path):
+    result = CliRunner().invoke(
+        app, ["match", "validate", "nonexistent", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code != 0
+    assert "nonexistent" in result.output
+
+
 def test_show_match_errors_on_unknown_video_id(tmp_path):
     result = CliRunner().invoke(
         app, ["match", "show", "nonexistent", "--json-dir", str(tmp_path)]

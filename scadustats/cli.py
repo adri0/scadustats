@@ -15,6 +15,7 @@ from scadustats.download import download_video
 from scadustats.extract import estimate_sample_count, extract_video
 from scadustats.json_export import read_video
 from scadustats.models import CellColor, EventType, GameResult, GameType, MatchMetadata, MatchType
+from scadustats.validation import validate_extraction
 
 app = typer.Typer()
 
@@ -402,6 +403,65 @@ def match_list(
         )
     if shown == 0:
         typer.echo(f"No matches found in {json_dir}")
+
+
+@match_app.command("validate")
+def match_validate(
+    video_id: Annotated[
+        str | None,
+        typer.Argument(
+            help="video_id to validate, as printed by `match list` (omitted validates "
+            "every match in json_dir)"
+        ),
+    ] = None,
+    json_dir: Annotated[
+        Path, typer.Option(help="Directory of JSON files written by `extract`")
+    ] = Path("matches"),
+) -> None:
+    """Check extracted matches against the tournament's own rules and report what
+    doesn't add up.
+
+    A reported issue means the JSON says something the rules say can't happen (a playoffs
+    match with one game, a winner the board doesn't support, squares claimed after a line
+    was completed) -- so an extraction mistake probably slipped through and that file
+    needs a look. Exits non-zero if any match has issues, so this can gate a batch of
+    extractions.
+    """
+    if video_id is not None:
+        path = Path(json_dir) / f"{video_id}.json"
+        if not path.exists():
+            raise typer.BadParameter(f"no match file at {path}", param_hint="video_id")
+        paths = [path]
+    else:
+        paths = sorted(Path(json_dir).glob("*.json"))
+        if not paths:
+            typer.echo(f"No matches found in {json_dir}")
+            return
+
+    checked = 0
+    with_issues = 0
+    for path in paths:
+        try:
+            extraction = read_video(path)
+        except (KeyError, ValueError) as exc:
+            # Same tolerance as `match list`: an unreadable file is skipped with a
+            # warning rather than aborting the run over the files after it.
+            typer.echo(f"Skipping {path.name}: {exc}", err=True)
+            continue
+        checked += 1
+        issues = validate_extraction(extraction)
+        if not issues:
+            typer.echo(f"{extraction.video_id}: ok")
+            continue
+        with_issues += 1
+        typer.echo(f"{extraction.video_id}: {len(issues)} issue(s)")
+        for issue in issues:
+            typer.echo(f"  {issue.scope}: {issue.message} [{issue.code}]")
+
+    if checked > 1:
+        typer.echo(f"\n{with_issues} of {checked} matches have issues")
+    if with_issues:
+        raise typer.Exit(1)
 
 
 @match_app.command("show")
