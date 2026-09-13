@@ -86,6 +86,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
         {
             "row": 0,
             "col": 0,
+            "square_text": "goal 0-0",
             "color": "red",
             "event_type": "mark",
             "game_timer": "00:00:09",
@@ -195,7 +196,20 @@ def test_write_video_serializes_game_start_event_with_null_fields(tmp_path):
 
     game_start = next(e for e in data["games"][0]["events"] if e["event_type"] == "game_start")
     assert (game_start["row"], game_start["col"], game_start["color"]) == (None, None, None)
+    assert game_start["square_text"] is None
     assert game_start["game_timer"] == "00:00:00"
+
+
+def test_write_video_yields_null_square_text_for_a_ragged_square_texts_grid(tmp_path):
+    """square_texts is OCR output and can be hand-edited into a ragged grid -- an event
+    whose square falls outside it gets a null square_text rather than an IndexError."""
+    game = _sample_game()
+    game.square_texts = []
+
+    path = write_video(tmp_path, _sample_extraction(games=[game]))
+    data = json.loads(path.read_text())
+
+    assert data["games"][0]["events"][0]["square_text"] is None
 
 
 def test_write_video_handles_no_winner(tmp_path):
