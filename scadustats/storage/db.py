@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS videos (
     duration_s DOUBLE,
     video_url VARCHAR,
     match_date DATE NOT NULL,
-    season INTEGER NOT NULL,
+    -- Free text, not a number: seasons aren't always named with a plain integer (see
+    -- models.MatchMetadata.season).
+    season VARCHAR NOT NULL,
     match_type VARCHAR NOT NULL,
     -- Player names live here, not on games -- one video is one match, and the same two
     -- players hold for every game in it (see models.VideoExtraction).
@@ -269,8 +271,9 @@ def load_json_dir(
     DuckDB at db_path -- the separate, optional process that turns extracted JSON into
     database rows. extract_video itself never touches the database; this is the only
     path that does. Returns the video_ids written, in filename order -- sorted by
-    filename alone, not the full path, since a season subdirectory's name (a plain
-    integer, not zero-padded) doesn't sort chronologically against another season's.
+    filename alone, not the full path, since a season subdirectory's name (free text,
+    not necessarily a sortable number) doesn't sort chronologically against another
+    season's.
     """
     json_dir = Path(json_dir)
     video_ids = []

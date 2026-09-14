@@ -102,15 +102,19 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
     }
 
 
-def video_path(json_dir: str | Path, season: int, video_id: str) -> Path:
+def video_path(json_dir: str | Path, season: str, video_id: str) -> Path:
     """The path write_video writes (or would write) a video's extraction to --
-    `<json_dir>/<season>/<video_id>.json`. Shared with extract.py's duplicate check, so
-    both agree on where a given (season, video_id) lives without either hand-rolling the
-    layout: files are grouped one directory per season, rather than flat across every
-    season a tournament has run, since json_dir otherwise only grows across seasons and
-    a season is a natural, already-recorded grouping to browse it by.
+    `<json_dir>/season-<season>/<video_id>.json`. Shared with extract.py's duplicate
+    check, so both agree on where a given (season, video_id) lives without either
+    hand-rolling the layout: files are grouped one directory per season, rather than flat
+    across every season a tournament has run, since json_dir otherwise only grows across
+    seasons and a season is a natural, already-recorded grouping to browse it by. The
+    `season-` prefix keeps the directory name unambiguous now that season is free text
+    (see models.MatchMetadata.season) -- a bare season value could otherwise collide with
+    another entry under json_dir, or (for a purely numeric season) look like something
+    else entirely when browsing the directory tree.
     """
-    return Path(json_dir) / str(season) / f"{video_id}.json"
+    return Path(json_dir) / f"season-{season}" / f"{video_id}.json"
 
 
 def write_video(
@@ -119,7 +123,7 @@ def write_video(
     if_exists: str = "replace",
 ) -> Path:
     """Write one video's full extraction (every game it contains) to
-    `<json_dir>/<season>/<video_id>.json` (see video_path), creating any missing
+    `<json_dir>/season-<season>/<video_id>.json` (see video_path), creating any missing
     directories. Returns the path written.
 
     if_exists="error" raises FileExistsError if the target file already exists.

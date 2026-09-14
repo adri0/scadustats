@@ -131,7 +131,7 @@ def render_match_table(extractions: Sequence[VideoExtraction]) -> list[str]:
     rows = [
         [
             extraction.video_id,
-            str(extraction.season),
+            extraction.season,
             extraction.match_type.value,
             str(extraction.num_games),
             format_outcome(extraction),

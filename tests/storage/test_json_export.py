@@ -38,7 +38,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         video_id="2026-03-05-alice-vs-bob",
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
-        season=6,
+        season="6",
         match_type=MatchType.PLAYOFFS,
         player_red_name="alice",
         player_blue_name="bob",
@@ -55,13 +55,13 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     extraction = _sample_extraction()
     path = write_video(tmp_path, extraction)
 
-    assert path == video_path(tmp_path, season=6, video_id="2026-03-05-alice-vs-bob")
+    assert path == video_path(tmp_path, season="6", video_id="2026-03-05-alice-vs-bob")
     data = json.loads(path.read_text())
 
     assert data["video_id"] == "2026-03-05-alice-vs-bob"
     assert data["video_url"] == "https://youtu.be/abc123"
     assert data["match_date"] == "2026-03-05"
-    assert data["season"] == 6
+    assert data["season"] == "6"
     assert data["match_type"] == "playoffs"
     assert data["player_red_name"] == "alice"
     assert data["player_blue_name"] == "bob"
@@ -316,16 +316,16 @@ def test_write_video_creates_json_dir_if_missing(tmp_path):
 
 
 def test_write_video_groups_matches_under_a_season_subdirectory(tmp_path):
-    path = write_video(tmp_path, _sample_extraction(season=7))
+    path = write_video(tmp_path, _sample_extraction(season="Off-Season Cup"))
 
-    assert path == tmp_path / "7" / "2026-03-05-alice-vs-bob.json"
+    assert path == tmp_path / "season-Off-Season Cup" / "2026-03-05-alice-vs-bob.json"
     assert path.parent.parent == tmp_path
 
 
 def test_write_video_puts_different_seasons_in_different_subdirectories(tmp_path):
-    season_6 = write_video(tmp_path, _sample_extraction(season=6))
+    season_6 = write_video(tmp_path, _sample_extraction(season="6"))
     season_7 = write_video(
-        tmp_path, _sample_extraction(season=7, video_id="2027-03-05-alice-vs-bob")
+        tmp_path, _sample_extraction(season="7", video_id="2027-03-05-alice-vs-bob")
     )
 
     assert season_6.parent != season_7.parent

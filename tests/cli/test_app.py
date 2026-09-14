@@ -34,11 +34,11 @@ def test_prompt_match_metadata_uses_supplied_options_without_prompting(monkeypat
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fail_prompt)
 
     metadata = _prompt_match_metadata(
-        "2026-03-05", 6, MatchType.PLAYOFFS, "https://youtu.be/abc123"
+        "2026-03-05", "6", MatchType.PLAYOFFS, "https://youtu.be/abc123"
     )
 
     assert metadata.match_date == datetime.date(2026, 3, 5)
-    assert metadata.season == 6
+    assert metadata.season == "6"
     assert metadata.match_type == MatchType.PLAYOFFS
     assert metadata.video_url == "https://youtu.be/abc123"
 
@@ -55,8 +55,8 @@ def test_prompt_match_metadata_defaults_season_from_match_date(monkeypatch):
     # 2026 is season 6, one season per year -- so 2029 should default to season 9.
     metadata = _prompt_match_metadata("2029-01-01", None, MatchType.DOUBLE_ELIMINATION, None)
 
-    assert metadata.season == 9
-    assert ("Season", 9) in prompts
+    assert metadata.season == "9"
+    assert ("Season", "9") in prompts
     assert metadata.video_url is None
 
 
@@ -513,7 +513,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         video_id="2026-03-05-alice-vs-bob",
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
-        season=6,
+        season="6",
         match_type=MatchType.PLAYOFFS,
         player_red_name="alice",
         player_blue_name="bob",
