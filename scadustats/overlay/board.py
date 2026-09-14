@@ -1,5 +1,6 @@
 """5x5 bingo grid analysis: per-cell claim color and square text."""
 
+import os
 import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -95,8 +96,13 @@ def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
 
     Each cell is an independent tesseract subprocess call (~70ms fixed overhead
     regardless of crop size, per profiling -- see CLAUDE.md), so this is run as one
-    bounded batch of 25 concurrent calls rather than sequentially -- there's no per-video
-    stream to bound here, just a fixed 5x5 grid read once per game.
+    bounded batch of concurrent calls rather than sequentially -- there's no per-video
+    stream to bound here, just a fixed 5x5 grid read once per game. The batch is capped
+    at the machine's CPU count rather than always all 25 at once: on a well-provisioned
+    dev machine that cap never bites, but a CPU-constrained CI runner (e.g. GitHub's
+    4-vCPU ubuntu-latest) was oversubscribed 6x by 25 concurrent tesseract subprocesses,
+    which turned every game's square-text read into minutes of context-switch thrashing
+    instead of the sub-second read this is meant to be.
     """
     height, width = frame.shape[:2]
     crops = [
@@ -104,7 +110,7 @@ def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
         for r in range(5)
         for c in range(5)
     ]
-    with ThreadPoolExecutor(max_workers=len(crops)) as executor:
+    with ThreadPoolExecutor(max_workers=min(len(crops), os.cpu_count() or 4)) as executor:
         flat_texts = list(
             executor.map(
                 lambda crop: ocr.read_text(crop, psm=6, scale=_SQUARE_TEXT_OCR_SCALE), crops
