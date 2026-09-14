@@ -139,15 +139,7 @@ def download(
     ] = Path("downloads"),
 ) -> None:
     """Download a YouTube video."""
-    with typer.progressbar(length=100, label="Downloading") as progress:
-        last = 0.0
-
-        def on_progress(percent: float) -> None:
-            nonlocal last
-            progress.update(percent - last)
-            last = percent
-
-        path = download_video(url, output_dir=output_dir, on_progress=on_progress)
+    path = download_video(url, output_dir=output_dir)
     print(path)
 
 
@@ -245,17 +237,7 @@ def extract(
         if video_url is None:
             video_url = video_path_or_url
         typer.echo(f"Downloading {video_path_or_url}...")
-        with typer.progressbar(length=100, label="Downloading") as dl_progress:
-            last = 0.0
-
-            def on_dl_progress(percent: float) -> None:
-                nonlocal last
-                dl_progress.update(percent - last)
-                last = percent
-
-            video_path = download_video(
-                video_path_or_url, output_dir=download_dir, on_progress=on_dl_progress
-            )
+        video_path = download_video(video_path_or_url, output_dir=download_dir)
         downloaded_path = video_path
         typer.echo(f"Downloaded to {video_path}")
     else:

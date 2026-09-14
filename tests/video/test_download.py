@@ -22,7 +22,7 @@ def test_download_video(tmp_path):
 
 def _install_fake_yt_dlp(tmp_path, monkeypatch, body):
     """Puts a fake `yt-dlp` executable on PATH so download_video's subprocess plumbing
-    (progress parsing, error handling, timeout) can be exercised without the network.
+    (error handling, timeout) can be exercised without the network.
     `body` is the Python source of the fake script, run with the real yt-dlp's argv.
     """
     script = tmp_path / "bin" / "yt-dlp"
@@ -32,26 +32,24 @@ def _install_fake_yt_dlp(tmp_path, monkeypatch, body):
     monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ['PATH']}")
 
 
-def test_download_video_reports_progress(tmp_path, monkeypatch):
+def test_download_video_returns_the_final_path(tmp_path, monkeypatch):
     _install_fake_yt_dlp(
         tmp_path,
         monkeypatch,
         """
         import sys
         print("[download]   0.0% of 1.00MiB at 1.00MiB/s ETA 00:01")
-        print("[download]  50.0% of 1.00MiB at 1.00MiB/s ETA 00:01")
         print("[download] 100.0% of 1.00MiB at 1.00MiB/s ETA 00:00")
         outtmpl = sys.argv[sys.argv.index("-o") + 1]
-        print(outtmpl.replace("%(id)s", "fake").replace("%(ext)s", "mp4"))
+        path = outtmpl.replace("%(id)s", "fake").replace("%(ext)s", "mp4")
+        print_to_file = sys.argv[sys.argv.index("--print-to-file") + 2]
+        with open(print_to_file, "w") as f:
+            f.write(path)
         """,
     )
-    updates = []
 
-    path = download_video(
-        VIDEO_URL, output_dir=tmp_path / "out", on_progress=updates.append
-    )
+    path = download_video(VIDEO_URL, output_dir=tmp_path / "out")
 
-    assert updates == [0.0, 50.0, 100.0]
     assert path == tmp_path / "out" / "fake.mp4"
 
 
