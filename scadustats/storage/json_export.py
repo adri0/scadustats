@@ -75,20 +75,31 @@ def _game_to_dict(game: GameResult) -> dict:
     }
 
 
-def _extraction_to_dict(extraction: VideoExtraction) -> dict:
+def _metadata_to_dict(extraction: VideoExtraction) -> dict:
+    """The fields that describe the *video file* itself, as opposed to the match it
+    records -- grouped under their own "metadata" key so a reviewer skimming the file's
+    match-identifying fields (video_id, players, season, ...) isn't interleaved with this
+    provenance/technical detail. See CLAUDE.md and issue #47.
+    """
     return {
-        "video_id": extraction.video_id,
         "video_url": extraction.video_url,
-        "match_date": extraction.match_date.isoformat(),
-        "season": extraction.season,
-        "match_type": extraction.match_type.value,
         "duration_s": extraction.duration_s,
         "published_at": extraction.published_at.isoformat() if extraction.published_at else None,
         "source_path": extraction.source_path,
+        "extracted_at": extraction.extracted_at.isoformat(),
+    }
+
+
+def _extraction_to_dict(extraction: VideoExtraction) -> dict:
+    return {
+        "video_id": extraction.video_id,
+        "match_date": extraction.match_date.isoformat(),
+        "season": extraction.season,
+        "match_type": extraction.match_type.value,
         "player_red_name": extraction.player_red_name,
         "player_blue_name": extraction.player_blue_name,
         "commentators": extraction.commentators,
-        "extracted_at": extraction.extracted_at.isoformat(),
+        "metadata": _metadata_to_dict(extraction),
         # Written as a header for the list below, so a reviewer (or a SQL query against
         # the matching videos columns) sees the match's game count and result without
         # tallying the games by hand. All four are derived from `games` every time they're
@@ -182,18 +193,28 @@ def read_video(path: str | Path) -> VideoExtraction:
     The file's `num_games`/`red_score`/`blue_score`/`winner` keys are deliberately ignored
     (like a pre-existing file's per-game `label`): all four are derived from `games`, so a
     hand-edited file that added a game, or corrected one's winner, is re-tallied from what
-    it actually holds rather than trusted to have had every place updated in step."""
+    it actually holds rather than trusted to have had every place updated in step.
+
+    video_url/duration_s/published_at/source_path/extracted_at moved under a "metadata"
+    key (issue #47). A file written before that lacks the key entirely; `metadata` falls
+    back to `data` itself in that case, since those fields lived at the top level there --
+    the .get() calls below then behave exactly as they did against the flat layout.
+    """
     data = json.loads(Path(path).read_text())
+    metadata = data.get("metadata", data)
 
     return VideoExtraction(
         video_id=data["video_id"],
-        video_url=data["video_url"],
+        # .get, unlike every other field read directly off `data` here: a pre-#47 file
+        # always had this key, but it's genuinely optional (see VideoExtraction.video_url)
+        # so there's no reason to demand it be present.
+        video_url=metadata.get("video_url"),
         match_date=date.fromisoformat(data["match_date"]),
         season=data["season"],
         match_type=MatchType(data["match_type"]),
         player_red_name=data["player_red_name"],
         player_blue_name=data["player_blue_name"],
-        extracted_at=date.fromisoformat(data["extracted_at"]),
+        extracted_at=date.fromisoformat(metadata["extracted_at"]),
         games=[_dict_to_game(game) for game in data["games"]],
         # .get, for the same reason as duration_s below: a file written before
         # commentators were recorded reads back with none rather than a KeyError.
@@ -201,12 +222,14 @@ def read_video(path: str | Path) -> VideoExtraction:
         # .get, unlike every other field here: a file written before duration_s existed
         # is still a valid current-format extraction and reads back as "unknown length",
         # rather than a KeyError that `match list` would report as an unparseable file.
-        duration_s=data.get("duration_s"),
+        duration_s=metadata.get("duration_s"),
         # .get, for the same reason as duration_s: a file written before published_at
         # existed (or one whose fetch failed/was never attempted) still reads back
         # cleanly, as "unknown".
-        published_at=date.fromisoformat(data["published_at"]) if data.get("published_at") else None,
+        published_at=(
+            date.fromisoformat(metadata["published_at"]) if metadata.get("published_at") else None
+        ),
         # .get, for the same reason as duration_s/published_at: a file written before
         # source_path existed still reads back cleanly, as "unknown".
-        source_path=data.get("source_path"),
+        source_path=metadata.get("source_path"),
     )
