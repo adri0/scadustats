@@ -137,7 +137,7 @@ def test_render_board_shows_each_cell_as_a_colored_square():
         board[2][col] = CellColor.RED
     board[0][0] = CellColor.BLUE
 
-    lines = render_board(board, WinLine.ROW_3)
+    lines = render_board(board)
 
     assert lines[0] == "🟦 ⬛ ⬛ ⬛ ⬛"
     assert lines[2] == "🟥 🟥 🟥 🟥 🟥"
