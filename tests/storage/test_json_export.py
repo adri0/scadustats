@@ -15,7 +15,7 @@ from scadustats.models import (
     WinLine,
     WinType,
 )
-from scadustats.storage.json_export import read_video, write_video
+from scadustats.storage.json_export import read_video, video_path, write_video
 
 
 def _sample_game(game_index: int = 1) -> GameResult:
@@ -55,7 +55,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     extraction = _sample_extraction()
     path = write_video(tmp_path, extraction)
 
-    assert path == tmp_path / "2026-03-05-alice-vs-bob.json"
+    assert path == video_path(tmp_path, season=6, video_id="2026-03-05-alice-vs-bob")
     data = json.loads(path.read_text())
 
     assert data["video_id"] == "2026-03-05-alice-vs-bob"
@@ -313,6 +313,24 @@ def test_write_video_creates_json_dir_if_missing(tmp_path):
     path = write_video(nested, _sample_extraction())
 
     assert path.exists()
+
+
+def test_write_video_groups_matches_under_a_season_subdirectory(tmp_path):
+    path = write_video(tmp_path, _sample_extraction(season=7))
+
+    assert path == tmp_path / "7" / "2026-03-05-alice-vs-bob.json"
+    assert path.parent.parent == tmp_path
+
+
+def test_write_video_puts_different_seasons_in_different_subdirectories(tmp_path):
+    season_6 = write_video(tmp_path, _sample_extraction(season=6))
+    season_7 = write_video(
+        tmp_path, _sample_extraction(season=7, video_id="2027-03-05-alice-vs-bob")
+    )
+
+    assert season_6.parent != season_7.parent
+    assert season_6.exists()
+    assert season_7.exists()
 
 
 def test_if_exists_error_raises_on_existing_file(tmp_path):

@@ -264,15 +264,18 @@ def load_json_dir(
     json_dir: str | Path,
     if_exists: str = "replace",
 ) -> list[str]:
-    """Reflects every `*.json` video file (as written by json_export.write_video) under
-    json_dir into the DuckDB at db_path -- the separate, optional process that turns
-    extracted JSON into database rows. extract_video itself never touches the database;
-    this is the only path that does. Returns the video_ids written, in filename order.
+    """Reflects every `*.json` video file (as written by json_export.write_video, one
+    per season subdirectory -- see json_export.video_path) under json_dir into the
+    DuckDB at db_path -- the separate, optional process that turns extracted JSON into
+    database rows. extract_video itself never touches the database; this is the only
+    path that does. Returns the video_ids written, in filename order -- sorted by
+    filename alone, not the full path, since a season subdirectory's name (a plain
+    integer, not zero-padded) doesn't sort chronologically against another season's.
     """
     json_dir = Path(json_dir)
     video_ids = []
 
-    for path in sorted(json_dir.glob("*.json")):
+    for path in sorted(json_dir.rglob("*.json"), key=lambda p: p.name):
         extraction = json_export.read_video(path)
         write_extraction(db_path, extraction, if_exists=if_exists)
         video_ids.append(extraction.video_id)

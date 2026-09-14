@@ -489,7 +489,7 @@ def extract_video(
     # json_export.write_video below, which already knows how to raise or overwrite
     # unconditionally for those.
     if if_exists is None:
-        target_path = Path(json_dir) / f"{video_id}.json"
+        target_path = json_export.video_path(json_dir, extraction.season, video_id)
         if target_path.exists():
             if on_duplicate is None:
                 raise ValueError(

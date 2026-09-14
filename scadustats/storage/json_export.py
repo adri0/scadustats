@@ -102,21 +102,32 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
     }
 
 
+def video_path(json_dir: str | Path, season: int, video_id: str) -> Path:
+    """The path write_video writes (or would write) a video's extraction to --
+    `<json_dir>/<season>/<video_id>.json`. Shared with extract.py's duplicate check, so
+    both agree on where a given (season, video_id) lives without either hand-rolling the
+    layout: files are grouped one directory per season, rather than flat across every
+    season a tournament has run, since json_dir otherwise only grows across seasons and
+    a season is a natural, already-recorded grouping to browse it by.
+    """
+    return Path(json_dir) / str(season) / f"{video_id}.json"
+
+
 def write_video(
     json_dir: str | Path,
     extraction: VideoExtraction,
     if_exists: str = "replace",
 ) -> Path:
     """Write one video's full extraction (every game it contains) to
-    `<json_dir>/<video_id>.json`, creating json_dir if needed. Returns the path written.
+    `<json_dir>/<season>/<video_id>.json` (see video_path), creating any missing
+    directories. Returns the path written.
 
     if_exists="error" raises FileExistsError if the target file already exists.
     Any other value (including "append") overwrites unconditionally -- there's nothing
     meaningful to append into a single already-complete video's extraction file.
     """
-    json_dir = Path(json_dir)
-    json_dir.mkdir(parents=True, exist_ok=True)
-    path = json_dir / f"{extraction.video_id}.json"
+    path = video_path(json_dir, extraction.season, extraction.video_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     if if_exists == "error" and path.exists():
         raise FileExistsError(f"match file {path} already exists")

@@ -365,11 +365,19 @@ def load_db(
 
 def _match_path(json_dir: Path, video_id: str) -> Path:
     """The JSON file one video_id names, as a CLI error rather than a traceback when
-    it isn't there -- a mistyped id is a user mistake, not a bug."""
-    path = Path(json_dir) / f"{video_id}.json"
-    if not path.exists():
-        raise typer.BadParameter(f"no match file at {path}", param_hint="video_id")
-    return path
+    it isn't there -- a mistyped id is a user mistake, not a bug.
+
+    video_id alone doesn't say which season subdirectory the file lives under (see
+    json_export.video_path), so this searches json_dir for it rather than building the
+    path directly -- a video_id is unique across the whole match history, so at most one
+    match is ever expected.
+    """
+    matches = sorted(Path(json_dir).rglob(f"{video_id}.json"))
+    if not matches:
+        raise typer.BadParameter(
+            f"no match file for {video_id!r} under {json_dir}", param_hint="video_id"
+        )
+    return matches[0]
 
 
 match_app = typer.Typer(
@@ -385,11 +393,15 @@ def _read_matches(json_dir: Path) -> list[VideoExtraction]:
     than aborting the whole run -- shared by `match list` and `match validate`, which
     both walk the directory and both want that tolerance.
 
-    Filenames are "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>" (see
-    extract._video_id), so a plain filename sort already sorts chronologically.
+    Searches every season subdirectory (see json_export.video_path), not just json_dir
+    itself. Sorted by filename alone rather than the full path: a filename is
+    "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>" (see
+    extract._video_id), so filename order already is chronological order, whereas a
+    season subdirectory's name (a plain integer, not zero-padded) would not sort that
+    way against another season's.
     """
     extractions = []
-    for path in sorted(Path(json_dir).glob("*.json")):
+    for path in sorted(Path(json_dir).rglob("*.json"), key=lambda p: p.name):
         try:
             extractions.append(read_video(path))
         except (KeyError, ValueError) as exc:
