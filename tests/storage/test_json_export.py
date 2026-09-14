@@ -337,6 +337,33 @@ def test_read_video_treats_a_file_without_published_at_as_unknown(tmp_path):
     assert read_video(path).published_at is None
 
 
+def test_source_path_round_trips(tmp_path):
+    path = write_video(tmp_path, _sample_extraction(source_path="downloads/abc123.mp4"))
+    data = json.loads(path.read_text())
+
+    assert data["source_path"] == "downloads/abc123.mp4"
+    assert read_video(path).source_path == "downloads/abc123.mp4"
+
+
+def test_write_video_handles_unknown_source_path(tmp_path):
+    path = write_video(tmp_path, _sample_extraction(source_path=None))
+    data = json.loads(path.read_text())
+
+    assert data["source_path"] is None
+    assert read_video(path).source_path is None
+
+
+def test_read_video_treats_a_file_without_source_path_as_unknown(tmp_path):
+    """A file written before source_path existed is still a valid current-format
+    extraction -- same story as duration_s/published_at above."""
+    path = write_video(tmp_path, _sample_extraction())
+    data = json.loads(path.read_text())
+    del data["source_path"]
+    path.write_text(json.dumps(data))
+
+    assert read_video(path).source_path is None
+
+
 def test_write_video_creates_json_dir_if_missing(tmp_path):
     nested = tmp_path / "a" / "b"
 
