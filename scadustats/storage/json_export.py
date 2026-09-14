@@ -40,7 +40,8 @@ def _event_square_text(
     if row is None or col is None:
         return None
     try:
-        return square_texts[row][col]
+        # row/col are 1-based (see models.GameEvent); square_texts is a plain 0-based grid.
+        return square_texts[row - 1][col - 1]
     except IndexError:
         return None
 

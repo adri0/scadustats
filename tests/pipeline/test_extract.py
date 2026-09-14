@@ -63,8 +63,8 @@ def test_claim_then_mistaken_unclaim_produces_both_events(caplog):
         events = _extract_events(segment)
 
     assert [(e.row, e.col, e.color, e.event_type) for e in events] == [
-        (0, 0, R, EventType.MARK),
-        (0, 0, R, EventType.UNMARK),
+        (1, 1, R, EventType.MARK),
+        (1, 1, R, EventType.UNMARK),
     ]
     assert not caplog.records
 
@@ -81,7 +81,7 @@ def test_brief_reversion_to_unclaimed_is_not_recorded_as_an_unmark(caplog):
     with caplog.at_level(logging.WARNING):
         events = _extract_events(segment)
 
-    assert [(e.row, e.col, e.color, e.event_type) for e in events] == [(0, 0, R, EventType.MARK)]
+    assert [(e.row, e.col, e.color, e.event_type) for e in events] == [(1, 1, R, EventType.MARK)]
     assert not caplog.records
 
 
@@ -95,7 +95,7 @@ def test_direct_color_swap_is_logged_not_recorded_as_event(caplog):
 
     # The initial unclaimed -> red is a real claim; the direct red -> blue swap that
     # follows is logged as a data-quality warning rather than recorded as a second event.
-    assert [(e.row, e.col, e.color, e.event_type) for e in events] == [(0, 0, R, EventType.MARK)]
+    assert [(e.row, e.col, e.color, e.event_type) for e in events] == [(1, 1, R, EventType.MARK)]
     assert any("unexpected direct color swap" in r.message for r in caplog.records)
 
 
@@ -124,7 +124,7 @@ def test_winner_names_the_line_it_was_completed_on():
 
     from scadustats.models import WinLine, WinType
 
-    assert (winner_color, win_type, win_line) == (R, WinType.LINE, WinLine.ROW_2)
+    assert (winner_color, win_type, win_line) == (R, WinType.LINE, WinLine.ROW_3)
 
 
 def test_detect_game_start_finds_ascent_from_countdown_minimum():

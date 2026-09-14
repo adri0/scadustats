@@ -315,21 +315,27 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
 
                 old = confirmed[r][c]
                 game_elapsed = obs.timer_s if obs.timer_s is not None else 0
+                # r/c are 0-based list indices; GameEvent.row/col are 1-based (see
+                # models.GameEvent), hence the +1s below.
                 if old is CellColor.UNCLAIMED and observed is not CellColor.UNCLAIMED:
                     events.append(
-                        GameEvent(r, c, observed, obs.video_ts_s, game_elapsed, EventType.MARK)
+                        GameEvent(
+                            r + 1, c + 1, observed, obs.video_ts_s, game_elapsed, EventType.MARK
+                        )
                     )
                 elif old is not CellColor.UNCLAIMED and observed is CellColor.UNCLAIMED:
                     events.append(
-                        GameEvent(r, c, old, obs.video_ts_s, game_elapsed, EventType.UNMARK)
+                        GameEvent(
+                            r + 1, c + 1, old, obs.video_ts_s, game_elapsed, EventType.UNMARK
+                        )
                     )
                 else:
                     logger.warning(
                         "unexpected direct color swap %s -> %s at (%d,%d), ts=%.1fs",
                         old,
                         observed,
-                        r,
-                        c,
+                        r + 1,
+                        c + 1,
                         obs.video_ts_s,
                     )
                 confirmed[r][c] = observed

@@ -75,19 +75,19 @@ CREATE TABLE IF NOT EXISTS games (
     winner_color VARCHAR CHECK (winner_color IN ('red', 'blue')),
     win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'tie', 'none')),
     -- Which line a win_type='line' win was completed on; NULL for every other win type,
-    -- since there's no line to name. Row/column indices are 0-based, like the row/col
+    -- since there's no line to name. Row/column indices are 1-based, like the row/col
     -- columns on squares/events (see models.WinLine).
     win_line VARCHAR CHECK (win_line IN (
-        'row_0', 'row_1', 'row_2', 'row_3', 'row_4',
-        'col_0', 'col_1', 'col_2', 'col_3', 'col_4',
+        'row_1', 'row_2', 'row_3', 'row_4', 'row_5',
+        'col_1', 'col_2', 'col_3', 'col_4', 'col_5',
         'diagonal_tl_br', 'diagonal_bl_tr'
     ))
 );
 
 CREATE TABLE IF NOT EXISTS squares (
     game_id VARCHAR NOT NULL REFERENCES games(game_id),
-    row INTEGER NOT NULL CHECK (row BETWEEN 0 AND 4),
-    col INTEGER NOT NULL CHECK (col BETWEEN 0 AND 4),
+    row INTEGER NOT NULL CHECK (row BETWEEN 1 AND 5),
+    col INTEGER NOT NULL CHECK (col BETWEEN 1 AND 5),
     square_text VARCHAR NOT NULL,
     PRIMARY KEY (game_id, row, col)
 );
@@ -237,9 +237,11 @@ def write_extraction(
 
             for row in range(5):
                 for col in range(5):
+                    # game.square_texts is a plain 0-based grid; the squares table's
+                    # row/col columns are 1-based (see models.GameEvent), hence the +1s.
                     con.execute(
                         "INSERT INTO squares (game_id, row, col, square_text) VALUES (?, ?, ?, ?)",
-                        [game_id, row, col, game.square_texts[row][col]],
+                        [game_id, row + 1, col + 1, game.square_texts[row][col]],
                     )
 
             for event in game.events:

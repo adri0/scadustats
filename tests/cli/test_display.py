@@ -36,13 +36,17 @@ def _game(game_index: int = 1, **overrides) -> GameResult:
         square_texts=[[f"goal {r}-{c}" for c in range(5)] for r in range(5)],
         events=[
             GameEvent(
-                row=0, col=col, color=CellColor.RED, video_ts_s=310.0 + col, game_elapsed_s=col
+                row=1,
+                col=col + 1,
+                color=CellColor.RED,
+                video_ts_s=310.0 + col,
+                game_elapsed_s=col,
             )
             for col in range(5)
         ],
         winner_color=CellColor.RED,
         win_type=WinType.LINE,
-        win_line=WinLine.ROW_0,
+        win_line=WinLine.ROW_1,
         game_type=GameType.BASE,
     )
     defaults.update(overrides)
@@ -112,7 +116,7 @@ def test_format_outcome_falls_back_to_colors_when_a_player_name_is_missing():
 
 
 def test_format_result_names_the_line_a_game_was_won_on():
-    assert format_result(_game(), _extraction()) == "alice (red) by line on row 0"
+    assert format_result(_game(), _extraction()) == "alice (red) by line on row 1"
 
 
 def test_format_result_describes_a_tie():
@@ -133,7 +137,7 @@ def test_render_board_brackets_the_winning_line():
         board[2][col] = CellColor.RED
     board[0][0] = CellColor.BLUE
 
-    lines = render_board(board, WinLine.ROW_2)
+    lines = render_board(board, WinLine.ROW_3)
 
     assert lines[0] == " B  .  .  .  ."
     assert lines[2] == "[R][R][R][R][R]"
@@ -157,7 +161,7 @@ def test_render_events_orders_by_video_timestamp_not_the_game_clock():
     3-minute reading has to still come first -- sorting by the clock would bury it."""
     game = _game(
         events=[
-            GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=310.0, game_elapsed_s=10),
+            GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=310.0, game_elapsed_s=10),
             GameEvent(
                 row=None,
                 col=None,

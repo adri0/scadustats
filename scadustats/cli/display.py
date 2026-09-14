@@ -166,7 +166,8 @@ def _square_text(game: GameResult, row: int | None, col: int | None) -> str:
     if row is None or col is None:
         return ""
     try:
-        return game.square_texts[row][col]
+        # row/col are 1-based (see models.GameEvent); square_texts is a plain 0-based grid.
+        return game.square_texts[row - 1][col - 1]
     except IndexError:
         return ""
 

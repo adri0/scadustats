@@ -55,22 +55,24 @@ class MatchWinner(StrEnum):
 class WinLine(StrEnum):
     """Which of the board's 12 lines a LINE win was completed on (see winner.LINES).
 
-    Row/column indices are 0-based, matching GameEvent.row/col and the `squares` DB
-    table: a JSON file shows `"win_line": "row_0"` a few lines from a claim's `"row": 0`,
-    and a prettier 1-based label would line up with nothing else in the file. StrEnum
-    like the other persisted enums, so it serializes as its own value.
+    Row/column indices are 1-based, matching GameEvent.row/col and the `squares` DB
+    table: a JSON file shows `"win_line": "row_1"` a few lines from a claim's `"row": 1`,
+    and a 0-based value here would line up with nothing else in the file -- a contributor
+    hand-reviewing the JSON otherwise has no reason to expect a square's row/col to be
+    off by one from what the board visually looks like. StrEnum like the other persisted
+    enums, so it serializes as its own value.
     """
 
-    ROW_0 = "row_0"
     ROW_1 = "row_1"
     ROW_2 = "row_2"
     ROW_3 = "row_3"
     ROW_4 = "row_4"
-    COL_0 = "col_0"
+    ROW_5 = "row_5"
     COL_1 = "col_1"
     COL_2 = "col_2"
     COL_3 = "col_3"
     COL_4 = "col_4"
+    COL_5 = "col_5"
     DIAGONAL_TL_BR = "diagonal_tl_br"
     DIAGONAL_BL_TR = "diagonal_bl_tr"
 
@@ -117,6 +119,7 @@ class VideoInfo:
 
 @dataclass
 class GameEvent:
+    # 1-based (1-5), matching the board as a reviewer sees it and WinLine's own values --
     # None for a game-level event (GAME_START) that isn't about any one square.
     row: int | None
     col: int | None

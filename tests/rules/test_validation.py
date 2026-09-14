@@ -15,9 +15,11 @@ from scadustats.rules.validation import validate_extraction, validate_game
 
 
 def _mark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
+    """row/col here are 0-based board positions, for readability at call sites --
+    converted to the 1-based GameEvent.row/col at construction."""
     return GameEvent(
-        row=row,
-        col=col,
+        row=row + 1,
+        col=col + 1,
         color=color,
         video_ts_s=ts,
         game_elapsed_s=int(ts),
@@ -26,9 +28,10 @@ def _mark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
 
 
 def _unmark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
+    """See _mark: row/col are 0-based board positions here too."""
     return GameEvent(
-        row=row,
-        col=col,
+        row=row + 1,
+        col=col + 1,
         color=color,
         video_ts_s=ts,
         game_elapsed_s=int(ts),
@@ -63,7 +66,7 @@ def _game(game_index: int = 1, **overrides) -> GameResult:
         winner_color=CellColor.RED,
         win_type=WinType.LINE,
         # _line_win_events claims the top row, whichever color it's asked for.
-        win_line=WinLine.ROW_0,
+        win_line=WinLine.ROW_1,
         game_type=GameType.BASE if game_index == 1 else GameType.DLC,
     )
     defaults.update(overrides)
@@ -245,7 +248,7 @@ def test_recorded_winner_must_match_the_replayed_board():
     issues = validate_game(_game(events=events))
 
     assert _codes(issues) == ["winner_board_mismatch"]
-    assert "red (line on row 0)" in issues[0].message
+    assert "red (line on row 1)" in issues[0].message
     assert "no winner (none)" in issues[0].message
 
 
@@ -255,17 +258,17 @@ def test_a_missing_win_line_is_reported_under_its_own_code():
     issues = validate_game(_game(win_line=None))
 
     assert _codes(issues) == ["win_line_not_recorded"]
-    assert "row 0" in issues[0].message
+    assert "row 1" in issues[0].message
 
 
 def test_a_win_recorded_on_the_wrong_line_is_reported():
     """The board holds the top row, not the left column -- the same defect as a win
     recorded for the wrong color, so it's the same rule."""
-    issues = validate_game(_game(win_line=WinLine.COL_0))
+    issues = validate_game(_game(win_line=WinLine.COL_1))
 
     assert _codes(issues) == ["winner_board_mismatch"]
-    assert "red (line on column 0)" in issues[0].message
-    assert "red (line on row 0)" in issues[0].message
+    assert "red (line on column 1)" in issues[0].message
+    assert "red (line on row 1)" in issues[0].message
 
 
 def test_a_line_completed_and_then_undone_is_not_a_win():
@@ -348,7 +351,7 @@ def test_marks_after_a_majority_win_are_allowed():
 
 
 def test_a_non_line_win_may_not_name_a_line():
-    majority_win = _game(win_type=WinType.MAJORITY, win_line=WinLine.ROW_0)
+    majority_win = _game(win_type=WinType.MAJORITY, win_line=WinLine.ROW_1)
 
     assert _codes(validate_game(majority_win)) == ["winner_board_mismatch"]
 
