@@ -732,6 +732,22 @@ def test_validate_match_lists_issues_and_exits_nonzero(tmp_path):
     assert "[winner_board_mismatch]" in result.output
 
 
+def test_validate_output_is_colorized_when_color_is_supported(tmp_path):
+    """CliRunner strips ANSI codes by default, matching a non-terminal pipe (see
+    match_validate's docstring) -- every other test here reads that stripped text, so this
+    one forces color on to confirm the codes are actually emitted for a real terminal, not
+    just that the plain text still reads correctly once they're gone."""
+    write_video(tmp_path, _valid_match_extraction())
+    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
+
+    result = CliRunner().invoke(
+        app, ["match", "validate", "--json-dir", str(tmp_path)], color=True
+    )
+
+    assert "\x1b[32m" in result.output  # green -- the clean match's "ok"
+    assert "\x1b[31m" in result.output  # red -- the other match's issue count
+
+
 def test_validate_checks_every_match_in_the_directory_by_default(tmp_path):
     write_video(tmp_path, _valid_match_extraction())
     write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
