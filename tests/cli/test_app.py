@@ -312,7 +312,10 @@ def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
     downloaded = tmp_path / "abc123.mp4"
     downloaded.write_bytes(b"fake video")
 
-    monkeypatch.setattr("scadustats.cli.app.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr(
+        "scadustats.cli.app.download_video",
+        lambda url, output_dir: downloaded,
+    )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video_success)
 
@@ -335,7 +338,10 @@ def test_extract_keeps_downloaded_video_on_success_with_keep_video_flag(tmp_path
     downloaded = tmp_path / "abc123.mp4"
     downloaded.write_bytes(b"fake video")
 
-    monkeypatch.setattr("scadustats.cli.app.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr(
+        "scadustats.cli.app.download_video",
+        lambda url, output_dir: downloaded,
+    )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video_success)
 
@@ -361,7 +367,10 @@ def test_extract_keeps_downloaded_video_on_failure_with_keep_video_flag_without_
     downloaded = tmp_path / "abc123.mp4"
     downloaded.write_bytes(b"fake video")
 
-    monkeypatch.setattr("scadustats.cli.app.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr(
+        "scadustats.cli.app.download_video",
+        lambda url, output_dir: downloaded,
+    )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
 
     def _boom(*args, **kwargs):
@@ -411,7 +420,10 @@ def test_extract_deletes_downloaded_video_when_extraction_fails_and_confirmed(
     downloaded = tmp_path / "abc123.mp4"
     downloaded.write_bytes(b"fake video")
 
-    monkeypatch.setattr("scadustats.cli.app.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr(
+        "scadustats.cli.app.download_video",
+        lambda url, output_dir: downloaded,
+    )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
 
     def _boom(*args, **kwargs):
@@ -433,7 +445,10 @@ def test_extract_keeps_downloaded_video_when_extraction_fails_and_declined(tmp_p
     downloaded = tmp_path / "abc123.mp4"
     downloaded.write_bytes(b"fake video")
 
-    monkeypatch.setattr("scadustats.cli.app.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr(
+        "scadustats.cli.app.download_video",
+        lambda url, output_dir: downloaded,
+    )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
 
     def _boom(*args, **kwargs):
@@ -462,7 +477,10 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
         captured["match_metadata"] = match_metadata.result()
         return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
 
-    monkeypatch.setattr("scadustats.cli.app.download_video", lambda url, output_dir: downloaded)
+    monkeypatch.setattr(
+        "scadustats.cli.app.download_video",
+        lambda url, output_dir: downloaded,
+    )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
 
