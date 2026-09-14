@@ -19,7 +19,7 @@ from scadustats.storage.db import load_json_dir
 from scadustats.storage.json_export import video_path
 from scadustats.video.frames import probe
 
-# A short (80s), downscaled, re-encoded clip trimmed from a real match video, covering
+# A short (13s), downscaled, re-encoded clip trimmed from a real match video, covering
 # exactly one known claim transition (see CLAUDE.md for how it was produced) -- small
 # enough to commit directly, unlike the multi-GB originals in downloads/.
 _CLIP_PATH = "tests/fixtures/clip_claim.mp4"
