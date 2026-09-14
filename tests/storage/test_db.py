@@ -472,6 +472,43 @@ def test_video_duration_falls_back_to_the_probed_video(tmp_path):
         con.close()
 
 
+def test_source_path_prefers_the_extraction_over_the_caller_supplied_value(tmp_path):
+    """Mirrors duration_s: the JSON's own source_path (this project's source of truth,
+    including any hand correction) wins over a caller-supplied one when both are in
+    hand."""
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(
+        db_path, _sample_extraction(source_path="matches/real.mp4"), "downloads/vid1.mp4"
+    )
+
+    con = duckdb.connect(str(db_path))
+    try:
+        source_path = con.execute(
+            "SELECT source_path FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert source_path == "matches/real.mp4"
+    finally:
+        con.close()
+
+
+def test_source_path_falls_back_to_the_caller_supplied_value(tmp_path):
+    """JSON predating source_path has none to write, but a caller extracting from a real
+    file (or a direct write_extraction caller) still has the path in hand."""
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction(source_path=None), "downloads/vid1.mp4")
+
+    con = duckdb.connect(str(db_path))
+    try:
+        source_path = con.execute(
+            "SELECT source_path FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert source_path == "downloads/vid1.mp4"
+    finally:
+        con.close()
+
+
 def test_init_schema_adds_duration_to_a_database_predating_it(tmp_path):
     """CREATE TABLE IF NOT EXISTS leaves an existing videos table alone, so the column
     has to be added explicitly or every insert into an older database file fails."""

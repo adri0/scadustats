@@ -46,16 +46,31 @@ def _prompt_match_metadata(
     season_opt: str | None,
     match_type_opt: MatchType | None,
     video_url_opt: str | None,
+    existing_match: VideoExtraction | None = None,
 ) -> MatchMetadata:
     """Prompts for whichever of the match details weren't already supplied as CLI
     options. Run on a background thread by the `extract` command so it overlaps with the
-    (much longer) extraction pipeline instead of blocking it."""
-    match_date_val = date.fromisoformat(match_date_opt) if match_date_opt else _prompt_match_date()
+    (much longer) extraction pipeline instead of blocking it.
+
+    existing_match, when given (see _find_existing_match), is a previously-extracted match
+    that came from this same source link (the same local path, or the same YouTube URL) --
+    its match_date/season/video_url are offered as prompt defaults instead of the usual
+    from-scratch ones, since re-extracting the same source (e.g. after a calibration fix)
+    shouldn't mean retyping details already on record. Still just defaults: any of them
+    can be overridden at the prompt, or by the matching --option, same as always.
+    """
+    match_date_val = (
+        date.fromisoformat(match_date_opt)
+        if match_date_opt
+        else _prompt_match_date(existing_match.match_date if existing_match else None)
+    )
 
     # season is free text (e.g. a one-off "Off-Season Cup"), not a number -- but most
     # seasons are numbered one per year, and 2026 is season 6, so that numbering still
     # makes a reasonable default. Just a default: the user can override it at the prompt.
-    default_season = str(match_date_val.year - 2020)
+    default_season = (
+        existing_match.season if existing_match else str(match_date_val.year - 2020)
+    )
     season = (
         season_opt
         if season_opt is not None
@@ -65,7 +80,9 @@ def _prompt_match_metadata(
     match_type = match_type_opt or _prompt_match_type()
 
     video_url = (
-        (video_url_opt.strip() or None) if video_url_opt is not None else _prompt_video_url()
+        (video_url_opt.strip() or None)
+        if video_url_opt is not None
+        else _prompt_video_url(existing_match.video_url if existing_match else None)
     )
 
     return MatchMetadata(
@@ -73,12 +90,17 @@ def _prompt_match_metadata(
     )
 
 
-def _prompt_match_date() -> date:
-    # No default here -- unlike season/match type, the match date can't be reasonably
-    # guessed (defaulting to "today" silently produced wrong data whenever extraction
-    # wasn't run the same day the match was played), so the user must type one in.
+def _prompt_match_date(default: date | None = None) -> date:
+    # No default here, ordinarily -- unlike season/match type, the match date can't be
+    # reasonably guessed (defaulting to "today" silently produced wrong data whenever
+    # extraction wasn't run the same day the match was played), so the user must type one
+    # in. The exception is a previously-extracted match found from the same source link
+    # (see _find_existing_match): its match_date is a real recorded fact about this same
+    # source, not a guess, so it's safe to offer as a default here.
     while True:
-        raw = typer.prompt("Match date (YYYY-MM-DD)")
+        raw = typer.prompt(
+            "Match date (YYYY-MM-DD)", default=default.isoformat() if default else None
+        )
         try:
             return date.fromisoformat(raw)
         except ValueError:
@@ -97,11 +119,15 @@ def _prompt_match_type() -> MatchType:
             typer.echo(f"Invalid match type {raw!r}, must be one of: {', '.join(choices)}")
 
 
-def _prompt_video_url() -> str | None:
+def _prompt_video_url(default: str | None = None) -> str | None:
     # Unlike match date, this one really can be left blank -- e.g. extracting from a
-    # video someone else downloaded, with no link handy.
+    # video someone else downloaded, with no link handy. default, when given (see
+    # _find_existing_match), is the video_url recorded on a previously-extracted match
+    # from this same source link.
     while True:
-        raw = typer.prompt("Video URL (optional)", default="", show_default=False).strip()
+        raw = typer.prompt(
+            "Video URL (optional)", default=default or "", show_default=bool(default)
+        ).strip()
         if not raw:
             return None
         if _is_youtube_url(raw):
@@ -216,6 +242,11 @@ def extract(
     if this exact match already has a JSON extraction in json_dir, you're asked whether
     to replace it, unless --if-exists was given to decide that upfront.
 
+    If video_path_or_url matches the video_url or local source path of a match already
+    extracted into json_dir, its match_date/season/video_url are offered as defaults at
+    the prompts instead of the usual from-scratch ones -- handy when re-extracting the
+    same source after a calibration fix.
+
     This only writes JSON -- it never touches a database. Run `load-db` separately
     (and optionally) to reflect that JSON into DuckDB.
     """
@@ -229,6 +260,16 @@ def extract(
             f"{video_url!r} doesn't look like a youtube.com/youtu.be URL",
             param_hint="--video-url",
         )
+
+    # A previously-extracted match from this exact same source link (its video_url for a
+    # YouTube URL, its source_path for a local file) -- if found, its match_date/season/
+    # video_url are offered as prompt defaults below instead of asking from scratch, e.g.
+    # when re-extracting the same source after a calibration fix. Looked up here, upfront
+    # (a quick directory walk, unlike the metadata prompts), rather than inside
+    # prompt_for_metadata on the background thread below, so its own JSON-parsing warnings
+    # (see _read_matches) don't get interleaved with the progress bar the way a prompt
+    # would need progress_lock to avoid.
+    existing_match = _find_existing_match(json_dir, video_path_or_url)
 
     # video_path_or_url doubles as the source of the --video-url provenance field when
     # it's itself a YouTube URL and --video-url wasn't separately given -- the two are
@@ -285,7 +326,9 @@ def extract(
             def prompt_for_metadata() -> MatchMetadata:
                 with progress_lock:
                     typer.echo()  # fresh line, so this doesn't run into the bar's last redraw
-                    return _prompt_match_metadata(match_date, season, match_type, video_url)
+                    return _prompt_match_metadata(
+                        match_date, season, match_type, video_url, existing_match
+                    )
 
             def on_missing_game_type(game: GameResult) -> GameType:
                 # Runs on the main thread, after match_metadata has been awaited (see
@@ -416,6 +459,24 @@ def _read_matches(json_dir: Path) -> list[VideoExtraction]:
         except (KeyError, ValueError) as exc:
             typer.echo(f"Skipping {path.name}: {exc}", err=True)
     return extractions
+
+
+def _find_existing_match(json_dir: Path, link: str) -> VideoExtraction | None:
+    """The previously-extracted match, if any, that came from the same source link as
+    this `extract` run's video_path_or_url -- a YouTube URL is matched against that
+    match's video_url, a local path against its source_path (see
+    extract_video/models.VideoExtraction). Used by `extract` to offer that match's
+    match_date/season/video_url as prompt defaults, so re-extracting the same source
+    (e.g. after a calibration fix) doesn't mean retyping details already on record.
+
+    Reuses _read_matches' directory walk, so an unparseable file is skipped the same way
+    match list/validate already tolerate it, rather than failing this lookup outright.
+    """
+    field = "video_url" if _is_youtube_url(link) else "source_path"
+    for extraction in _read_matches(json_dir):
+        if getattr(extraction, field) == link:
+            return extraction
+    return None
 
 
 @match_app.command("list")

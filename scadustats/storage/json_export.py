@@ -83,6 +83,7 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
         "match_type": extraction.match_type.value,
         "duration_s": extraction.duration_s,
         "published_at": extraction.published_at.isoformat() if extraction.published_at else None,
+        "source_path": extraction.source_path,
         "player_red_name": extraction.player_red_name,
         "player_blue_name": extraction.player_blue_name,
         "commentators": extraction.commentators,
@@ -204,4 +205,7 @@ def read_video(path: str | Path) -> VideoExtraction:
         # existed (or one whose fetch failed/was never attempted) still reads back
         # cleanly, as "unknown".
         published_at=date.fromisoformat(data["published_at"]) if data.get("published_at") else None,
+        # .get, for the same reason as duration_s/published_at: a file written before
+        # source_path existed still reads back cleanly, as "unknown".
+        source_path=data.get("source_path"),
     )

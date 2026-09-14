@@ -161,8 +161,8 @@ def write_extraction(
     if_exists: str = "replace",
 ) -> None:
     """source_path/video_info are optional since load_json_dir calls this from
-    previously-extracted JSON alone, with no source video file in hand -- resolution/fps/
-    source_path are stored as NULL in that case."""
+    previously-extracted JSON alone, with no source video file in hand -- resolution/fps
+    are stored as NULL in that case."""
     con = duckdb.connect(str(db_path))
     try:
         init_schema(con)
@@ -176,13 +176,16 @@ def write_extraction(
             if if_exists == "replace":
                 _delete_video(con, extraction.video_id)
 
-        # The extraction's own duration wins over the source video's when both are in
-        # hand: it's what the JSON -- this project's source of truth -- records, including
-        # any hand correction. video_info only fills in for JSON written before the field
-        # existed, where it's the one thing still able to answer.
+        # The extraction's own duration/source_path win over the caller-supplied ones when
+        # both are in hand: they're what the JSON -- this project's source of truth --
+        # records, including any hand correction. The caller-supplied values only fill in
+        # for JSON written before those fields existed, where they're the one thing still
+        # able to answer.
         duration_s = extraction.duration_s
         if duration_s is None and video_info is not None:
             duration_s = video_info.duration_s
+        if extraction.source_path is not None:
+            source_path = extraction.source_path
 
         con.execute(
             """INSERT INTO videos

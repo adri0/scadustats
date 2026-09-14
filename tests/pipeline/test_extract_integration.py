@@ -166,6 +166,27 @@ def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
     assert json.loads(json_path.read_text())["published_at"] is None
 
 
+def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
+    """source_path records the local file extraction actually ran against, whether it
+    was supplied directly (this fixture, always) or downloaded from a URL first -- see
+    cli.app.extract, which resolves either case to the same on-disk path before calling
+    extract_video."""
+    json_dir = tmp_path / "json"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+    )
+
+    summary = extract_video(
+        _CLIP_PATH,
+        match_metadata=match_metadata,
+        json_dir=json_dir,
+        on_missing_game_type=lambda game: GameType.BASE,
+    )
+
+    json_path = video_path(json_dir, "6", summary.video_id)
+    assert json.loads(json_path.read_text())["source_path"] == _CLIP_PATH
+
+
 def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
     # Regression test for "only the first game of a video is extracted": this clip is
     # trimmed around a real game boundary -- game 1 finished with a claimed board, then

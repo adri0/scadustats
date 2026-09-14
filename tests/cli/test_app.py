@@ -4,6 +4,7 @@ import pytest
 from typer.testing import CliRunner
 
 from scadustats.cli.app import (
+    _find_existing_match,
     _is_youtube_url,
     _prompt_game_type,
     _prompt_match_date,
@@ -61,6 +62,52 @@ def test_prompt_match_metadata_defaults_season_from_match_date(monkeypatch):
     assert metadata.video_url is None
 
 
+def test_prompt_match_metadata_offers_existing_match_details_as_defaults(monkeypatch):
+    """existing_match (see _find_existing_match) comes from a previously-extracted match
+    that shares this run's source link -- its date/season/video_url are real recorded
+    facts about that same source, so they're safe to offer as defaults rather than the
+    usual from-scratch ones (no default date, a computed season, no default video_url)."""
+    prompts = []
+
+    def _fake_prompt(text, default=None, type=None, **kwargs):
+        prompts.append((text, default))
+        return default if default else "unused"
+
+    monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fake_prompt)
+
+    existing = _sample_extraction(
+        match_date=datetime.date(2026, 1, 1), season="Off-Season Cup"
+    )
+    metadata = _prompt_match_metadata(None, None, MatchType.DOUBLE_ELIMINATION, None, existing)
+
+    assert metadata.match_date == datetime.date(2026, 1, 1)
+    assert metadata.season == "Off-Season Cup"
+    assert metadata.video_url == "https://youtu.be/abc123"
+    assert ("Match date (YYYY-MM-DD)", "2026-01-01") in prompts
+    assert ("Season", "Off-Season Cup") in prompts
+
+
+def test_prompt_match_metadata_explicit_options_override_existing_match_defaults(
+    monkeypatch,
+):
+    """An existing match only supplies defaults -- an explicitly-given --option still
+    wins, same as when there's no existing match at all."""
+
+    def _fail_prompt(*args, **kwargs):
+        raise AssertionError("typer.prompt should not be called when all options are supplied")
+
+    monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fail_prompt)
+
+    existing = _sample_extraction(match_date=datetime.date(2026, 1, 1), season="1")
+    metadata = _prompt_match_metadata(
+        "2026-03-05", "6", MatchType.PLAYOFFS, "https://youtu.be/xyz789", existing
+    )
+
+    assert metadata.match_date == datetime.date(2026, 3, 5)
+    assert metadata.season == "6"
+    assert metadata.video_url == "https://youtu.be/xyz789"
+
+
 def test_prompt_match_date_has_no_default(monkeypatch):
     calls = []
 
@@ -88,6 +135,21 @@ def test_prompt_match_date_reprompts_on_invalid_input(monkeypatch):
     assert any("Invalid date" in msg for msg in echoed)
 
 
+def test_prompt_match_date_offers_a_default_when_given(monkeypatch):
+    calls = []
+
+    def _fake_prompt(text, default=None, type=None):
+        calls.append((text, default))
+        return default
+
+    monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fake_prompt)
+
+    result = _prompt_match_date(datetime.date(2026, 1, 1))
+
+    assert result == datetime.date(2026, 1, 1)
+    assert calls == [("Match date (YYYY-MM-DD)", "2026-01-01")]
+
+
 def test_prompt_match_metadata_requires_match_date_when_not_supplied(monkeypatch):
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", lambda *a, **k: "2026-03-05")
 
@@ -106,6 +168,12 @@ def test_prompt_video_url_strips_and_returns_value(monkeypatch):
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", lambda *a, **k: "  https://youtu.be/x  ")
 
     assert _prompt_video_url() == "https://youtu.be/x"
+
+
+def test_prompt_video_url_offers_a_default_when_given(monkeypatch):
+    monkeypatch.setattr("scadustats.cli.app.typer.prompt", lambda *a, **k: k.get("default", ""))
+
+    assert _prompt_video_url("https://youtu.be/abc123") == "https://youtu.be/abc123"
 
 
 def test_prompt_video_url_reprompts_on_non_youtube_url(monkeypatch):
@@ -500,6 +568,57 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
     assert captured["match_metadata"].video_url == "https://youtu.be/abc123"
 
 
+def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_path(
+    tmp_path, monkeypatch
+):
+    """Re-extracting the same local file a match was already extracted from (e.g. after
+    a calibration fix) offers that earlier extraction's date/season/video_url as prompt
+    defaults instead of asking from scratch -- see _find_existing_match."""
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    json_dir = tmp_path / "matches"
+    write_video(
+        json_dir,
+        _sample_extraction(
+            video_url="https://youtu.be/abc123",
+            source_path=str(local),
+            match_date=datetime.date(2026, 1, 1),
+            season="Off-Season Cup",
+        ),
+    )
+    captured: dict = {}
+
+    def _fake_extract_video(video_path, *, match_metadata, **kwargs):
+        captured["match_metadata"] = match_metadata.result()
+        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            str(local),
+            "--json-dir",
+            str(json_dir),
+            "--match-type",
+            "playoffs",
+            "--game-type",
+            "base",
+        ],
+        # Blank lines accept whatever default each prompt offers -- match date, season,
+        # video URL, in that order.
+        input="\n\n\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    metadata = captured["match_metadata"]
+    assert metadata.match_date == datetime.date(2026, 1, 1)
+    assert metadata.season == "Off-Season Cup"
+    assert metadata.video_url == "https://youtu.be/abc123"
+
+
 def test_extract_passes_the_downloaded_published_date_through_to_extract_video(
     tmp_path, monkeypatch
 ):
@@ -604,6 +723,47 @@ def _sample_extraction(**overrides) -> VideoExtraction:
     )
     defaults.update(overrides)
     return VideoExtraction(**defaults)
+
+
+def test_find_existing_match_matches_a_youtube_link_by_video_url(tmp_path):
+    write_video(tmp_path, _sample_extraction(video_url="https://youtu.be/abc123"))
+
+    found = _find_existing_match(tmp_path, "https://youtu.be/abc123")
+
+    assert found is not None
+    assert found.video_id == "2026-03-05-alice-vs-bob"
+
+
+def test_find_existing_match_matches_a_local_path_by_source_path(tmp_path):
+    write_video(
+        tmp_path, _sample_extraction(video_url=None, source_path="downloads/local.mp4")
+    )
+
+    found = _find_existing_match(tmp_path, "downloads/local.mp4")
+
+    assert found is not None
+    assert found.video_id == "2026-03-05-alice-vs-bob"
+
+
+def test_find_existing_match_does_not_match_a_local_path_against_video_url(tmp_path):
+    """A local path is only ever matched against source_path -- a match whose video_url
+    happens to equal the given string (e.g. by coincidence in a test) shouldn't count."""
+    write_video(
+        tmp_path, _sample_extraction(video_url="downloads/local.mp4", source_path=None)
+    )
+
+    assert _find_existing_match(tmp_path, "downloads/local.mp4") is None
+
+
+def test_find_existing_match_returns_none_when_nothing_matches(tmp_path):
+    write_video(tmp_path, _sample_extraction())
+
+    assert _find_existing_match(tmp_path, "https://youtu.be/other") is None
+    assert _find_existing_match(tmp_path, "downloads/nonexistent.mp4") is None
+
+
+def test_find_existing_match_returns_none_for_an_empty_directory(tmp_path):
+    assert _find_existing_match(tmp_path, "https://youtu.be/abc123") is None
 
 
 def test_list_matches_prints_a_row_per_video_under_a_header(tmp_path):
