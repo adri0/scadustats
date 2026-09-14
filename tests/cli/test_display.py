@@ -175,6 +175,27 @@ def test_render_events_orders_by_video_timestamp_not_the_game_clock():
     assert "mark" in rows[2] and "alice" in rows[2] and "goal 0-0" in rows[2]
 
 
+def test_render_events_shows_a_game_end_event_with_no_player_or_square():
+    game = _game(
+        events=[
+            GameEvent(row=1, col=5, color=CellColor.RED, video_ts_s=305.0, game_elapsed_s=5),
+            GameEvent(
+                row=None,
+                col=None,
+                color=None,
+                video_ts_s=305.0,
+                game_elapsed_s=5,
+                event_type=EventType.GAME_END,
+            ),
+        ]
+    )
+
+    rows = render_events(game, _extraction())
+
+    game_end_row = next(row for row in rows if "game end" in row)
+    assert game_end_row.split() == ["00:05:05", "00:05", "game", "end"]
+
+
 def test_render_events_truncates_a_long_goal_text():
     game = _game(square_texts=[[("x" * 80) for _ in range(5)] for _ in range(5)])
 

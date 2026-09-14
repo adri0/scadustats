@@ -61,36 +61,6 @@ def _ordered_events(game: GameResult) -> list[GameEvent]:
     return sorted(game.events, key=lambda event: event.video_ts_s)
 
 
-def _board_states(events: list[GameEvent]) -> list[Board]:
-    """The board state after each event, index-aligned with `events`. Mirrors
-    extract._determine_winner's replay, but keeps every intermediate state instead of
-    only the final one -- the "no marks after the win" rule needs to know *when* the
-    board became won, not just that it ended that way."""
-    state = winner.empty_board()
-    states = []
-    for event in events:
-        winner.apply_event(state, event)
-        states.append([row[:] for row in state])
-    return states
-
-
-def _settled_win_index(states: list[Board], winner_color: CellColor) -> int | None:
-    """Index of the earliest event after which `winner_color` holds the win for the rest
-    of the game. Found by walking back from the end rather than forward from the start,
-    because a line can be completed and then immediately undone -- a player can claim the
-    wrong square and unclaim it (see extract._extract_events) -- and that transient win
-    isn't the one that ended the game. Returns None if the board isn't won at the end.
-    """
-    settled = None
-    for index in reversed(range(len(states))):
-        line_win = winner.winning_line(states[index])
-        if line_win is not None and line_win[0] is winner_color:
-            settled = index
-        else:
-            break
-    return settled
-
-
 def _check_recorded_winner_matches_board(
     game: GameResult, states: list[Board]
 ) -> list[ValidationIssue]:
@@ -168,7 +138,7 @@ def _check_no_marks_after_win(
     if game.win_type is not WinType.LINE or game.winner_color is None:
         return []
 
-    settled = _settled_win_index(states, game.winner_color)
+    settled = winner.settled_result_index(states, game.winner_color, WinType.LINE)
     if settled is None:
         # The board doesn't end on a line at all -- _check_recorded_winner_matches_board
         # already reports that, and re-reporting it here would just be noise.
@@ -200,7 +170,7 @@ def _describe_result(color: CellColor | None, win_type: WinType, win_line: WinLi
 
 def validate_game(game: GameResult) -> list[ValidationIssue]:
     events = _ordered_events(game)
-    states = _board_states(events)
+    states = winner.board_states(events)
     return [
         *_check_recorded_winner_matches_board(game, states),
         *_check_single_game_start(game),
