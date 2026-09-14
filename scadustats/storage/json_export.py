@@ -82,6 +82,7 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
         "season": extraction.season,
         "match_type": extraction.match_type.value,
         "duration_s": extraction.duration_s,
+        "published_at": extraction.published_at.isoformat() if extraction.published_at else None,
         "player_red_name": extraction.player_red_name,
         "player_blue_name": extraction.player_blue_name,
         "commentators": extraction.commentators,
@@ -199,4 +200,8 @@ def read_video(path: str | Path) -> VideoExtraction:
         # is still a valid current-format extraction and reads back as "unknown length",
         # rather than a KeyError that `match list` would report as an unparseable file.
         duration_s=data.get("duration_s"),
+        # .get, for the same reason as duration_s: a file written before published_at
+        # existed (or one whose fetch failed/was never attempted) still reads back
+        # cleanly, as "unknown".
+        published_at=date.fromisoformat(data["published_at"]) if data.get("published_at") else None,
     )

@@ -276,6 +276,8 @@ def render_match(extraction: VideoExtraction, *, events: bool = False) -> list[s
     details = []
     if extraction.duration_s is not None:
         details.append(f"length {format_duration(extraction.duration_s)}")
+    if extraction.published_at is not None:
+        details.append(f"published {extraction.published_at}")
     details.append(f"extracted {extraction.extracted_at}")
     lines.append("  " + "  ".join(details))
     if extraction.video_url:

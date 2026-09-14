@@ -32,7 +32,7 @@ from scadustats.pipeline import squares
 from scadustats.pipeline.segmentation import Observation, detect_boundaries
 from scadustats.rules import winner
 from scadustats.storage import json_export
-from scadustats.video import frames
+from scadustats.video import download, frames
 
 logger = logging.getLogger(__name__)
 
@@ -468,6 +468,18 @@ def extract_video(
                 )
             game.game_type = on_missing_game_type(game)
 
+    # Only fetched once a video_url is known, and only here (after match_metadata has
+    # resolved) rather than upfront -- a URL supplied interactively isn't available any
+    # earlier. This is a metadata-only network call (fetch_published_date never downloads
+    # the video), and best-effort: it returns None rather than raising on failure, so a
+    # video that's since been removed/privated doesn't take down an otherwise-successful
+    # extraction over one supplementary field.
+    published_at = (
+        download.fetch_published_date(match_metadata.video_url)
+        if match_metadata.video_url
+        else None
+    )
+
     video_id = _video_id(match_metadata, player_red_name, player_blue_name)
     extraction = VideoExtraction(
         video_id=video_id,
@@ -481,6 +493,7 @@ def extract_video(
         games=games,
         commentators=casters,
         duration_s=duration_s if duration_s > 0 else None,
+        published_at=published_at,
     )
     # A match is unique by match_date + player names (see _video_id), which video_id
     # already encodes -- so a same-name file here means this exact match was already

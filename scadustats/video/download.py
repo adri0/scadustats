@@ -2,6 +2,7 @@
 
 import subprocess
 import tempfile
+from datetime import date, datetime
 from pathlib import Path
 
 _FORMAT = "bestvideo[height<=720]"
@@ -45,3 +46,31 @@ def download_video(
             check=True,
         )
         return Path(path_file.read().strip())
+
+
+def fetch_published_date(url: str, timeout: float | None = None) -> date | None:
+    """The video's upload date on YouTube (yt-dlp's `upload_date` field, YYYYMMDD) --
+    fetched with `--skip-download`, so this doesn't pull the video itself, just its
+    metadata. Used to populate VideoExtraction.published_at.
+
+    Returns None on any failure -- yt-dlp erroring (an unreachable/removed/private
+    video), a timeout, or a response with no parseable upload date -- rather than
+    raising: unlike download_video, this is a best-effort supplementary field, not
+    something the rest of extraction depends on.
+    """
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--skip-download", "--print", "upload_date", url],
+            timeout=timeout,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return None
+
+    raw = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    try:
+        return datetime.strptime(raw, "%Y%m%d").date()
+    except ValueError:
+        return None

@@ -1,3 +1,4 @@
+import datetime
 import os
 import stat
 import subprocess
@@ -6,7 +7,7 @@ import textwrap
 
 import pytest
 
-from scadustats.video.download import download_video
+from scadustats.video.download import download_video, fetch_published_date
 
 VIDEO_URL = "https://www.youtube.com/watch?v=tPEE9ZwTmy0"
 
@@ -80,3 +81,59 @@ def test_download_video_raises_on_timeout(tmp_path, monkeypatch):
 
     with pytest.raises(subprocess.TimeoutExpired):
         download_video(VIDEO_URL, output_dir=tmp_path / "out", timeout=0.5)
+
+
+def test_fetch_published_date_parses_yt_dlps_upload_date(tmp_path, monkeypatch):
+    _install_fake_yt_dlp(
+        tmp_path,
+        monkeypatch,
+        """
+        print("20260301")
+        """,
+    )
+
+    assert fetch_published_date(VIDEO_URL) == datetime.date(2026, 3, 1)
+
+
+def test_fetch_published_date_returns_none_on_yt_dlp_failure(tmp_path, monkeypatch):
+    """Unlike download_video, a failed lookup here is best-effort: the caller
+    (extract_video) treats a missing published date as just another unknown field, not a
+    reason to abort an otherwise-successful extraction."""
+    _install_fake_yt_dlp(
+        tmp_path,
+        monkeypatch,
+        """
+        import sys
+        print("ERROR: Video unavailable", file=sys.stderr)
+        sys.exit(1)
+        """,
+    )
+
+    assert fetch_published_date(VIDEO_URL) is None
+
+
+def test_fetch_published_date_returns_none_on_timeout(tmp_path, monkeypatch):
+    _install_fake_yt_dlp(
+        tmp_path,
+        monkeypatch,
+        """
+        import time
+        time.sleep(30)
+        """,
+    )
+
+    assert fetch_published_date(VIDEO_URL, timeout=0.5) is None
+
+
+def test_fetch_published_date_returns_none_for_unparseable_output(tmp_path, monkeypatch):
+    """yt-dlp prints "NA" for a video with no upload date on record, rather than an
+    empty line -- neither is a valid YYYYMMDD, so both come back as unknown."""
+    _install_fake_yt_dlp(
+        tmp_path,
+        monkeypatch,
+        """
+        print("NA")
+        """,
+    )
+
+    assert fetch_published_date(VIDEO_URL) is None

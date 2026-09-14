@@ -119,6 +119,61 @@ def test_extract_video_end_to_end(tmp_path):
         con.close()
 
 
+def test_extract_video_fetches_published_date_when_video_url_is_known(tmp_path, monkeypatch):
+    json_dir = tmp_path / "json"
+    fetched_urls = []
+
+    def _fake_fetch_published_date(url):
+        fetched_urls.append(url)
+        return datetime.date(2026, 2, 20)
+
+    monkeypatch.setattr(
+        "scadustats.pipeline.extract.download.fetch_published_date",
+        _fake_fetch_published_date,
+    )
+
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5),
+        season="6",
+        match_type=MatchType.PLAYOFFS,
+        video_url="https://youtu.be/abc123",
+    )
+
+    summary = extract_video(
+        _CLIP_PATH,
+        match_metadata=match_metadata,
+        json_dir=json_dir,
+        on_missing_game_type=lambda game: GameType.BASE,
+    )
+
+    assert fetched_urls == ["https://youtu.be/abc123"]
+    json_path = video_path(json_dir, "6", summary.video_id)
+    assert json.loads(json_path.read_text())["published_at"] == "2026-02-20"
+
+
+def test_extract_video_skips_published_date_lookup_without_a_video_url(tmp_path, monkeypatch):
+    json_dir = tmp_path / "json"
+
+    def _fail_fetch(url):
+        raise AssertionError("fetch_published_date should not be called without a video_url")
+
+    monkeypatch.setattr("scadustats.pipeline.extract.download.fetch_published_date", _fail_fetch)
+
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+    )
+
+    summary = extract_video(
+        _CLIP_PATH,
+        match_metadata=match_metadata,
+        json_dir=json_dir,
+        on_missing_game_type=lambda game: GameType.BASE,
+    )
+
+    json_path = video_path(json_dir, "6", summary.video_id)
+    assert json.loads(json_path.read_text())["published_at"] is None
+
+
 def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
     # Regression test for "only the first game of a video is extracted": this clip is
     # trimmed around a real game boundary -- game 1 finished with a claimed board, then

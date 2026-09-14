@@ -195,6 +195,13 @@ class VideoExtraction:
     # existed (or hand-edited to drop it) still has to read back cleanly, and since
     # a video whose fps can't be read has no duration to record.
     duration_s: float | None = None
+    # When the video was uploaded to YouTube (yt-dlp's `upload_date`), as opposed to
+    # match_date (when the match was played, user-supplied) or extracted_at (when this
+    # extraction ran) -- distinct from both, and useful for e.g. sanity-checking
+    # match_date against it. Best-effort and optional: it's only fetched when video_url
+    # is known, the fetch itself can fail (an unreachable/removed video), and a JSON file
+    # written before this field existed still has to read back cleanly.
+    published_at: date | None = None
 
     @property
     def red_score(self) -> int:

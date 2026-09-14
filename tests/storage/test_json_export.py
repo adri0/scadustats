@@ -46,6 +46,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         games=[_sample_game()],
         commentators=["star0chris", "Captain_Domo"],
         duration_s=4321.0,
+        published_at=datetime.date(2026, 3, 1),
     )
     defaults.update(overrides)
     return VideoExtraction(**defaults)
@@ -68,6 +69,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     assert data["extracted_at"] == "2026-03-06"
     assert data["commentators"] == ["star0chris", "Captain_Domo"]
     assert data["duration_s"] == 4321.0
+    assert data["published_at"] == "2026-03-01"
     assert data["num_games"] == 1
     assert data["red_score"] == 1
     assert data["blue_score"] == 0
@@ -305,6 +307,34 @@ def test_read_video_treats_a_file_without_duration_as_unknown_length(tmp_path):
     path.write_text(json.dumps(data))
 
     assert read_video(path).duration_s is None
+
+
+def test_published_at_round_trips(tmp_path):
+    path = write_video(tmp_path, _sample_extraction())
+
+    assert read_video(path).published_at == datetime.date(2026, 3, 1)
+
+
+def test_write_video_handles_unknown_published_date(tmp_path):
+    """Not every video_url resolves a published date -- the fetch is best-effort (see
+    video.download.fetch_published_date) -- and a video with no known URL at all never
+    even attempts it, so this has to serialize/read back as null, like duration_s."""
+    path = write_video(tmp_path, _sample_extraction(published_at=None))
+    data = json.loads(path.read_text())
+
+    assert data["published_at"] is None
+    assert read_video(path).published_at is None
+
+
+def test_read_video_treats_a_file_without_published_at_as_unknown(tmp_path):
+    """A file written before published_at existed is still a valid current-format
+    extraction -- same story as duration_s above."""
+    path = write_video(tmp_path, _sample_extraction())
+    data = json.loads(path.read_text())
+    del data["published_at"]
+    path.write_text(json.dumps(data))
+
+    assert read_video(path).published_at is None
 
 
 def test_write_video_creates_json_dir_if_missing(tmp_path):
