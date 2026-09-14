@@ -80,6 +80,12 @@ class ExtractionSummary:
     video_id: str
     num_games: int
     num_claims: int
+    # The full extraction, for a caller that wants to show/inspect it (e.g. the CLI
+    # printing the same output as `match show` right after extracting) without a separate
+    # read back off disk. Optional since it's meaningless when skipped=True -- the
+    # existing file on disk was left untouched, and this would otherwise describe the
+    # replacement that didn't happen.
+    extraction: VideoExtraction | None = None
     # True when a duplicate was found and on_duplicate declined to replace it --
     # num_games/num_claims are meaningless (left at 0) in that case, since nothing was
     # written.
@@ -528,4 +534,5 @@ def extract_video(
         num_claims=sum(
             1 for game in games for event in game.events if event.event_type is EventType.MARK
         ),
+        extraction=extraction,
     )
