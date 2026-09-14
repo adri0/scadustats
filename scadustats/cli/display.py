@@ -24,7 +24,10 @@ from scadustats.models import (
 )
 from scadustats.rules import winner
 
-_CELL_SYMBOLS = {CellColor.RED: "R", CellColor.BLUE: "B", CellColor.UNCLAIMED: "."}
+# Colored square emoji rather than letters or ANSI-styled text: each glyph is inherently
+# colored, so the board reads at a glance and stays legible even when piped/redirected
+# (unlike ANSI codes, which typer.echo strips outside a terminal).
+_CELL_SYMBOLS = {CellColor.RED: "🟥", CellColor.BLUE: "🟦", CellColor.UNCLAIMED: "⬛"}
 
 _GAME_TYPE_LABELS = {GameType.BASE: "base game", GameType.DLC: "DLC game"}
 
@@ -141,22 +144,13 @@ def render_match_table(extractions: Sequence[VideoExtraction]) -> list[str]:
     return render_table(["MATCH", "SEASON", "TYPE", "GAMES", "RESULT"], rows)
 
 
-def render_board(board: winner.Board, win_line: WinLine | None = None) -> list[str]:
-    """The 5x5 board as five lines of three-character cells, with the winning line's
-    cells bracketed. Every cell is the same width whether or not it's bracketed, so the
-    grid stays square -- the shape is what makes a completed line visible at a glance.
+def render_board(board: winner.Board) -> list[str]:
+    """The 5x5 board as five lines of colored square emoji (red/blue/black, see
+    _CELL_SYMBOLS) -- a completed line is already visible as five squares of one color
+    in a row, so no extra marker (e.g. brackets) is needed to call it out, and one would
+    only break the grid's symmetry.
     """
-    highlighted = set(winner.LINES[win_line]) if win_line is not None else set()
-    lines = []
-    for r, row in enumerate(board):
-        cells = [
-            f"[{_CELL_SYMBOLS[cell]}]" if (r, c) in highlighted else f" {_CELL_SYMBOLS[cell]} "
-            for c, cell in enumerate(row)
-        ]
-        # rstrip: an unbracketed cell in the last column would otherwise leave trailing
-        # whitespace on the line, which the column padding in render_table also avoids.
-        lines.append("".join(cells).rstrip())
-    return lines
+    return [" ".join(_CELL_SYMBOLS[cell] for cell in row) for row in board]
 
 
 def _square_text(game: GameResult, row: int | None, col: int | None) -> str:
@@ -242,7 +236,7 @@ def render_game(game: GameResult, extraction: VideoExtraction, *, events: bool) 
         f"{unmarks} unmark{'s' if unmarks != 1 else ''}",
         "",
     ]
-    lines.extend(f"    {line}" for line in render_board(board, game.win_line))
+    lines.extend(f"    {line}" for line in render_board(board))
     if events:
         lines.append("")
         lines.extend(f"    {line}" for line in render_events(game, extraction))
@@ -283,7 +277,12 @@ def render_match(extraction: VideoExtraction, *, events: bool = False) -> list[s
 
     if games:
         lines.append("")
-        lines.append(f"  board key: R = {red}, B = {blue}, . = unclaimed, [ ] = winning line")
+        red_symbol, blue_symbol = _CELL_SYMBOLS[CellColor.RED], _CELL_SYMBOLS[CellColor.BLUE]
+        unclaimed_symbol = _CELL_SYMBOLS[CellColor.UNCLAIMED]
+        lines.append(
+            f"  board key: {red_symbol} = {red}, {blue_symbol} = {blue}, "
+            f"{unclaimed_symbol} = unclaimed"
+        )
     for game in games:
         lines.append("")
         lines.extend(render_game(game, extraction, events=events))
