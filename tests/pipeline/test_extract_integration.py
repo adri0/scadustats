@@ -76,7 +76,7 @@ def test_extract_video_end_to_end(tmp_path):
     assert video_data["games"][0]["game_type"] == "base"
     events = video_data["games"][0]["events"]
     marks = [(e["row"], e["col"], e["color"]) for e in events if e["row"] is not None]
-    assert marks == [(0, 4, "red")]
+    assert marks == [(1, 5, "red")]
 
     # extract_video itself never touches a database -- load_json_dir is the separate,
     # optional step that reflects the JSON it wrote into DuckDB.
@@ -96,7 +96,7 @@ def test_extract_video_end_to_end(tmp_path):
             "SELECT row, col, color FROM events WHERE game_id = ? AND event_type = 'mark'",
             [f"{summary.video_id}-1"],
         ).fetchall()
-        assert claims == [(0, 4, "red")]
+        assert claims == [(1, 5, "red")]
 
         game_type = con.execute(
             "SELECT game_type FROM games WHERE game_id = ?", [f"{summary.video_id}-1"]

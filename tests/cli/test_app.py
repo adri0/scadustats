@@ -570,10 +570,10 @@ def _match_sample_game(game_index: int = 1, **overrides) -> GameResult:
         end_video_ts_s=100.0,
         square_texts=square_texts,
         events=[
-            GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9),
+            GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9),
             GameEvent(
-                row=1,
-                col=1,
+                row=2,
+                col=2,
                 color=CellColor.BLUE,
                 video_ts_s=20.0,
                 game_elapsed_s=19,
@@ -671,16 +671,20 @@ def test_show_match_prints_metadata_and_per_game_breakdown(tmp_path):
     assert "length 01:12:01" in result.output
 
 
-def test_show_match_draws_the_final_board(tmp_path):
-    # A genuine row-0 line win, so the board actually holds the line it's shown on.
+def test_show_match_draws_the_final_board_with_the_winning_line_marked(tmp_path):
+    # A genuine row-1 line win, so the board actually holds the line it's shown on.
     game = _match_sample_game(
         events=[
             GameEvent(
-                row=0, col=col, color=CellColor.RED, video_ts_s=1.0 + col, game_elapsed_s=col
+                row=1,
+                col=col + 1,
+                color=CellColor.RED,
+                video_ts_s=1.0 + col,
+                game_elapsed_s=col,
             )
             for col in range(5)
         ],
-        win_line=WinLine.ROW_0,
+        win_line=WinLine.ROW_1,
     )
     write_video(tmp_path, _sample_extraction(games=[game]))
 
@@ -746,8 +750,8 @@ def test_show_match_lists_events_only_when_asked(tmp_path):
     assert "goal 0-0" not in without.output
     assert with_events.exit_code == 0, with_events.output
     # The mark's own row: its video timestamp, game clock, player, square and goal text.
-    assert "00:00:10  00:09  mark    alice   r0 c0   goal 0-0" in with_events.output
-    assert "unmark  bob     r1 c1   goal 1-1" in with_events.output
+    assert "00:00:10  00:09  mark    alice   r1 c1   goal 0-0" in with_events.output
+    assert "unmark  bob     r2 c2   goal 1-1" in with_events.output
 
 
 def _valid_match_extraction(**overrides) -> VideoExtraction:
@@ -769,13 +773,19 @@ def _valid_match_extraction(**overrides) -> VideoExtraction:
                     event_type=EventType.GAME_START,
                 ),
                 *(
-                    GameEvent(row=0, col=col, color=color, video_ts_s=1.0 + col, game_elapsed_s=col)
+                    GameEvent(
+                        row=1,
+                        col=col + 1,
+                        color=color,
+                        video_ts_s=1.0 + col,
+                        game_elapsed_s=col,
+                    )
                     for col in range(5)
                 ),
             ],
             winner_color=color,
             win_type=WinType.LINE,
-            win_line=WinLine.ROW_0,
+            win_line=WinLine.ROW_1,
             game_type=game_type,
         )
 

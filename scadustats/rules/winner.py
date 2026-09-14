@@ -10,10 +10,13 @@ Coord = tuple[int, int]
 
 # Keyed by WinLine so a win can name the line it was completed on, not just the color
 # that completed it. Built from the indices rather than written out 12 times, which is
-# what keeps each key's coordinates guaranteed to match the name it's filed under.
+# what keeps each key's coordinates guaranteed to match the name it's filed under. The
+# WinLine names are 1-based (see models.WinLine), but Coord stays a 0-based index into
+# the internal Board list -- `r`/`c` here are plain Python list indices, never a
+# GameEvent.row/col value, so they're offset by one from the name built alongside them.
 LINES: dict[WinLine, list[Coord]] = {
-    **{WinLine(f"row_{r}"): [(r, c) for c in range(5)] for r in range(5)},
-    **{WinLine(f"col_{c}"): [(r, c) for r in range(5)] for c in range(5)},
+    **{WinLine(f"row_{r + 1}"): [(r, c) for c in range(5)] for r in range(5)},
+    **{WinLine(f"col_{c + 1}"): [(r, c) for r in range(5)] for c in range(5)},
     WinLine.DIAGONAL_TL_BR: [(i, i) for i in range(5)],
     # Written bottom-left first so it reads as its name; a line's cells are compared as a
     # set, so the order within one has no effect either way.
@@ -28,10 +31,14 @@ def empty_board() -> Board:
 def apply_event(board: Board, event: GameEvent) -> None:
     """Apply one event to `board`, in place. A non-square event (GAME_START carries no
     row/col -- see models.GameEvent) leaves the board alone rather than being an error:
-    replaying a game means walking its whole event list, not a filtered copy of it."""
+    replaying a game means walking its whole event list, not a filtered copy of it.
+
+    event.row/col are 1-based (see models.GameEvent); board is a plain 0-based Python
+    list, hence the -1s.
+    """
     if event.row is None or event.col is None:
         return
-    board[event.row][event.col] = (
+    board[event.row - 1][event.col - 1] = (
         event.color if event.event_type is EventType.MARK else CellColor.UNCLAIMED
     )
 

@@ -20,8 +20,8 @@ def test_row_win():
         [U] * 5,
         [U] * 5,
     )
-    assert winning_line(board) == (CellColor.RED, WinLine.ROW_0)
-    assert determine_winner(board) == (CellColor.RED, WinType.LINE, WinLine.ROW_0)
+    assert winning_line(board) == (CellColor.RED, WinLine.ROW_1)
+    assert determine_winner(board) == (CellColor.RED, WinType.LINE, WinLine.ROW_1)
 
 
 def test_column_win():
@@ -32,8 +32,8 @@ def test_column_win():
         [B, U, U, U, U],
         [B, U, U, U, U],
     )
-    assert winning_line(board) == (CellColor.BLUE, WinLine.COL_0)
-    assert determine_winner(board) == (CellColor.BLUE, WinType.LINE, WinLine.COL_0)
+    assert winning_line(board) == (CellColor.BLUE, WinLine.COL_1)
+    assert determine_winner(board) == (CellColor.BLUE, WinType.LINE, WinLine.COL_1)
 
 
 def test_diagonal_win():
@@ -59,23 +59,23 @@ def test_anti_diagonal_win():
 
 
 def test_inner_row_and_column_wins_name_their_own_index():
-    row_3 = _board(
+    row_4 = _board(
         [U] * 5,
         [U] * 5,
         [U] * 5,
         [R, R, R, R, R],
         [U] * 5,
     )
-    assert winning_line(row_3) == (CellColor.RED, WinLine.ROW_3)
+    assert winning_line(row_4) == (CellColor.RED, WinLine.ROW_4)
 
-    col_2 = _board(
+    col_3 = _board(
         [U, U, B, U, U],
         [U, U, B, U, U],
         [U, U, B, U, U],
         [U, U, B, U, U],
         [U, U, B, U, U],
     )
-    assert winning_line(col_2) == (CellColor.BLUE, WinLine.COL_2)
+    assert winning_line(col_3) == (CellColor.BLUE, WinLine.COL_3)
 
 
 @pytest.mark.parametrize("win_line", list(WinLine))
@@ -136,7 +136,7 @@ def test_tie_when_blocked_and_equal():
 @pytest.mark.parametrize(
     ("win_line", "expected"),
     [
-        (WinLine.ROW_0, "row 0"),
+        (WinLine.ROW_1, "row 1"),
         (WinLine.COL_4, "column 4"),
         (WinLine.DIAGONAL_TL_BR, "diagonal (top-left to bottom-right)"),
         (WinLine.DIAGONAL_BL_TR, "diagonal (bottom-left to top-right)"),
@@ -148,11 +148,11 @@ def test_win_line_labels_read_as_prose(win_line, expected):
 
 def test_replay_applies_marks_and_unmarks_to_an_empty_board():
     events = [
-        GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=1.0, game_elapsed_s=1),
-        GameEvent(row=1, col=1, color=CellColor.BLUE, video_ts_s=2.0, game_elapsed_s=2),
+        GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=1.0, game_elapsed_s=1),
+        GameEvent(row=2, col=2, color=CellColor.BLUE, video_ts_s=2.0, game_elapsed_s=2),
         GameEvent(
-            row=0,
-            col=0,
+            row=1,
+            col=1,
             color=CellColor.RED,
             video_ts_s=3.0,
             game_elapsed_s=3,

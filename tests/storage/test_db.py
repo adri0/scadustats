@@ -27,7 +27,7 @@ def _sample_game(game_index: int = 1) -> GameResult:
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=square_texts,
-        events=[GameEvent(row=0, col=0, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
+        events=[GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
         winner_color=None,
         win_type=WinType.NONE,
         game_type=GameType.BASE,
