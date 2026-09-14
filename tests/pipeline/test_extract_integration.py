@@ -70,7 +70,7 @@ def test_extract_video_end_to_end(tmp_path):
     assert video_data["player_blue_name"] == "SeriousChallenges"
     # The whole video's length, not the extracted game's -- the clip's single game
     # covers only part of it.
-    assert video_data["duration_s"] == pytest.approx(probe(_CLIP_PATH).duration_s)
+    assert video_data["metadata"]["duration_s"] == pytest.approx(probe(_CLIP_PATH).duration_s)
     assert video_data["num_games"] == 1
     assert len(video_data["games"]) == 1
     assert video_data["games"][0]["game_type"] == "base"
@@ -140,7 +140,7 @@ def test_extract_video_records_the_supplied_published_date(tmp_path):
     )
 
     json_path = video_path(json_dir, "6", summary.video_id)
-    assert json.loads(json_path.read_text())["published_at"] == "2026-02-20"
+    assert json.loads(json_path.read_text())["metadata"]["published_at"] == "2026-02-20"
 
 
 def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
@@ -163,7 +163,7 @@ def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
     )
 
     json_path = video_path(json_dir, "6", summary.video_id)
-    assert json.loads(json_path.read_text())["published_at"] is None
+    assert json.loads(json_path.read_text())["metadata"]["published_at"] is None
 
 
 def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
@@ -184,7 +184,7 @@ def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
     )
 
     json_path = video_path(json_dir, "6", summary.video_id)
-    assert json.loads(json_path.read_text())["source_path"] == _CLIP_PATH
+    assert json.loads(json_path.read_text())["metadata"]["source_path"] == _CLIP_PATH
 
 
 def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
