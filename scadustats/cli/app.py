@@ -441,7 +441,9 @@ def match_validate(
     match with one game, a winner the board doesn't support, squares claimed after a line
     was completed) -- so an extraction mistake probably slipped through and that file
     needs a look. Exits non-zero if any match has issues, so this can gate a batch of
-    extractions.
+    extractions. A clean match is marked green, an issue red -- typer.echo (via click)
+    strips the color codes automatically when the output isn't a terminal (piped to a
+    file, or under CliRunner in tests), so this doesn't need its own --no-color flag.
     """
     if video_id is not None:
         extractions = [read_video(_match_path(json_dir, video_id))]
@@ -457,15 +459,24 @@ def match_validate(
         checked += 1
         issues = validate_extraction(extraction)
         if not issues:
-            typer.echo(f"{extraction.video_id}: ok")
+            mark = typer.style("✓", fg=typer.colors.GREEN)
+            status = typer.style("ok", fg=typer.colors.GREEN, bold=True)
+            typer.echo(f"{mark} {extraction.video_id}: {status}")
             continue
         with_issues += 1
-        typer.echo(f"{extraction.video_id}: {len(issues)} issue(s)")
+        mark = typer.style("✗", fg=typer.colors.RED)
+        count = f"{len(issues)} issue{'s' if len(issues) != 1 else ''}"
+        status = typer.style(count, fg=typer.colors.RED, bold=True)
+        typer.echo(f"{mark} {extraction.video_id}: {status}")
         for issue in issues:
-            typer.echo(f"  {issue.scope}: {issue.message} [{issue.code}]")
+            scope = typer.style(f"{issue.scope}:", fg=typer.colors.CYAN)
+            code = typer.style(f"[{issue.code}]", dim=True)
+            typer.echo(f"    {scope} {issue.message} {code}")
 
     if checked > 1:
-        typer.echo(f"\n{with_issues} of {checked} matches have issues")
+        summary = f"{with_issues} of {checked} matches have issues"
+        color = typer.colors.RED if with_issues else typer.colors.GREEN
+        typer.echo(f"\n{typer.style(summary, fg=color, bold=True)}")
     if with_issues:
         raise typer.Exit(1)
 
