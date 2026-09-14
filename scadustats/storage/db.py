@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS events (
     row INTEGER,
     col INTEGER,
     color VARCHAR CHECK (color IN ('red', 'blue')),
-    event_type VARCHAR NOT NULL CHECK (event_type IN ('mark', 'unmark', 'game_start')),
+    event_type VARCHAR NOT NULL
+        CHECK (event_type IN ('mark', 'unmark', 'game_start', 'game_end')),
     game_elapsed_s INTEGER NOT NULL,
     video_ts_s DOUBLE NOT NULL,
     FOREIGN KEY (game_id, row, col) REFERENCES squares(game_id, row, col)

@@ -1,7 +1,7 @@
 """Win-condition logic over a 5x5 board of CellColor, plus the event replay that
 produces such a board. Pure functions, no I/O."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from scadustats.models import CellColor, EventType, GameEvent, WinLine, WinType
 
@@ -98,3 +98,38 @@ def determine_winner(board: Board) -> tuple[CellColor | None, WinType, WinLine |
             return winner, WinType.MAJORITY, None
         return None, WinType.TIE, None
     return None, WinType.NONE, None
+
+
+def board_states(events: Iterable[GameEvent]) -> list[Board]:
+    """The board state after each event, in the given order -- index-aligned with
+    `events`. Like `replay`, but keeps every intermediate state instead of collapsing to
+    only the final one, for a caller that needs to know *when* the board first reached a
+    particular result, not just what it ended as (see `settled_result_index`)."""
+    board = empty_board()
+    states = []
+    for event in events:
+        apply_event(board, event)
+        states.append([row[:] for row in board])
+    return states
+
+
+def settled_result_index(
+    states: Sequence[Board], color: CellColor, win_type: WinType
+) -> int | None:
+    """Index of the earliest state in `states` from which `(color, win_type)` is the
+    result `determine_winner` keeps giving all the way through to the end -- i.e. when
+    that outcome first became locked in, rather than merely reached and later undone.
+
+    Walked backward from the end, not forward from the start: a line -- or a majority --
+    can be reached and then undone by a later unclaim (a player can mark the wrong square
+    and undo it), and a transient reach-and-undo isn't the point that decided the game.
+    Returns None if the result never holds continuously through to the end, including
+    for an empty `states`.
+    """
+    settled = None
+    for index in reversed(range(len(states))):
+        if determine_winner(states[index])[:2] == (color, win_type):
+            settled = index
+        else:
+            break
+    return settled

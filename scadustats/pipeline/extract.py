@@ -344,6 +344,40 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
     return events
 
 
+def _detect_game_end(
+    events: list[GameEvent], winner_color: CellColor | None, win_type: WinType
+) -> GameEvent | None:
+    """The GAME_END event for a game with a recorded winner (LINE or MAJORITY) --
+    timestamped at the one MARK event that locks that outcome in for the rest of the
+    game (see winner.settled_result_index), the same way _detect_game_start locates
+    GAME_START at a signal in the existing events rather than inventing a new timestamp.
+
+    `events` need not be in video-timestamp order on the way in (GAME_START is prepended
+    to the front of the list regardless of its own timestamp -- see extract_video), so
+    this sorts its own copy before replaying. Returns None when there's no winner to
+    settle (TIE/NONE, where winner_color is None) or the settling point can't be found --
+    including, in principle, a settling point that lands on something other than a MARK
+    (an UNMARK can't complete a line, but could in principle tip a majority swing; that
+    isn't a real "square marked" ending and isn't reported as one).
+    """
+    if winner_color is None:
+        return None
+    ordered = sorted(events, key=lambda event: event.video_ts_s)
+    states = winner.board_states(ordered)
+    index = winner.settled_result_index(states, winner_color, win_type)
+    if index is None or ordered[index].event_type is not EventType.MARK:
+        return None
+    settling = ordered[index]
+    return GameEvent(
+        row=None,
+        col=None,
+        color=None,
+        video_ts_s=settling.video_ts_s,
+        game_elapsed_s=settling.game_elapsed_s,
+        event_type=EventType.GAME_END,
+    )
+
+
 def _determine_winner(
     events: list[GameEvent],
 ) -> tuple[CellColor | None, WinType, WinLine | None]:
@@ -444,6 +478,9 @@ def extract_video(
         if game_start is not None:
             events = [game_start, *events]
         winner_color, win_type, win_line = _determine_winner(events)
+        game_end = _detect_game_end(events, winner_color, win_type)
+        if game_end is not None:
+            events = [*events, game_end]
 
         games.append(
             GameResult(

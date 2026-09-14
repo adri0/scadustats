@@ -202,6 +202,29 @@ def test_write_video_serializes_game_start_event_with_null_fields(tmp_path):
     assert game_start["game_timer"] == "00:00:00"
 
 
+def test_write_video_serializes_game_end_event_with_null_fields(tmp_path):
+    game = _sample_game()
+    game.events = [
+        *game.events,
+        GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_ts_s=30.0,
+            game_elapsed_s=29,
+            event_type=EventType.GAME_END,
+        ),
+    ]
+
+    path = write_video(tmp_path, _sample_extraction(games=[game]))
+    data = json.loads(path.read_text())
+
+    game_end = next(e for e in data["games"][0]["events"] if e["event_type"] == "game_end")
+    assert (game_end["row"], game_end["col"], game_end["color"]) == (None, None, None)
+    assert game_end["square_text"] is None
+    assert game_end["game_timer"] == "00:00:29"
+
+
 def test_write_video_yields_null_square_text_for_a_ragged_square_texts_grid(tmp_path):
     """square_texts is OCR output and can be hand-edited into a ragged grid -- an event
     whose square falls outside it gets a null square_text rather than an IndexError."""
@@ -417,6 +440,27 @@ def test_if_exists_append_behaves_like_replace(tmp_path):
 
     data = json.loads(path.read_text())
     assert data["games"][0]["win_type"] == "majority"
+
+
+def test_read_video_round_trips_game_end_event(tmp_path):
+    game = _sample_game()
+    game.events = [
+        *game.events,
+        GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_ts_s=30.0,
+            game_elapsed_s=29,
+            event_type=EventType.GAME_END,
+        ),
+    ]
+    extraction = _sample_extraction(games=[game])
+    path = write_video(tmp_path, extraction)
+
+    read_back = read_video(path)
+
+    assert read_back == extraction
 
 
 def test_read_video_round_trips_write_video(tmp_path):

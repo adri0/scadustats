@@ -179,3 +179,67 @@ def test_replay_ignores_an_event_that_is_not_about_a_square():
     )
 
     assert winner.replay([game_start]) == winner.empty_board()
+
+
+def _mark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
+    """row/col here are 0-based board positions, for readability at call sites --
+    converted to the 1-based GameEvent.row/col at construction."""
+    return GameEvent(row=row + 1, col=col + 1, color=color, video_ts_s=ts, game_elapsed_s=int(ts))
+
+
+def _unmark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
+    return GameEvent(
+        row=row + 1,
+        col=col + 1,
+        color=color,
+        video_ts_s=ts,
+        game_elapsed_s=int(ts),
+        event_type=EventType.UNMARK,
+    )
+
+
+def test_board_states_keeps_every_intermediate_board():
+    events = [_mark(0, 0, R, 1.0), _mark(1, 1, B, 2.0)]
+
+    states = winner.board_states(events)
+
+    assert len(states) == 2
+    # After the first event only (0, 0) has changed.
+    assert states[0][0][0] is R
+    assert states[0][1][1] is U
+    # The second event doesn't undo the first.
+    assert states[1][0][0] is R
+    assert states[1][1][1] is B
+
+
+def test_settled_result_index_finds_the_mark_that_completes_the_line():
+    # Row 1 filled left to right, then an unrelated mark elsewhere that doesn't affect it.
+    events = [_mark(0, c, R, float(c)) for c in range(5)] + [_mark(1, 0, B, 10.0)]
+
+    states = winner.board_states(events)
+
+    assert winner.settled_result_index(states, R, WinType.LINE) == 4
+
+
+def test_settled_result_index_ignores_a_result_undone_before_the_end():
+    events = [_mark(0, c, R, float(c)) for c in range(5)] + [_unmark(0, 4, R, 10.0)]
+
+    states = winner.board_states(events)
+
+    assert winner.settled_result_index(states, R, WinType.LINE) is None
+
+
+def test_settled_result_index_finds_the_later_settling_point_after_an_undo():
+    events = [
+        *(_mark(0, c, R, float(c)) for c in range(5)),
+        _unmark(0, 4, R, 10.0),
+        _mark(0, 4, R, 11.0),
+    ]
+
+    states = winner.board_states(events)
+
+    assert winner.settled_result_index(states, R, WinType.LINE) == 6
+
+
+def test_settled_result_index_returns_none_for_no_states():
+    assert winner.settled_result_index([], R, WinType.LINE) is None

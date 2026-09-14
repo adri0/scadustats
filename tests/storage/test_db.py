@@ -145,6 +145,33 @@ def test_game_start_event_writes_with_null_row_col_color(tmp_path):
         con.close()
 
 
+def test_game_end_event_writes_with_null_row_col_color(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    game = _sample_game()
+    game.events = [
+        *game.events,
+        GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_ts_s=30.0,
+            game_elapsed_s=29,
+            event_type=EventType.GAME_END,
+        ),
+    ]
+
+    write_extraction(db_path, _sample_extraction(games=[game]))
+
+    con = duckdb.connect(str(db_path))
+    try:
+        row, col, color, event_type = con.execute(
+            "SELECT row, col, color, event_type FROM events WHERE event_type = 'game_end'"
+        ).fetchone()
+        assert (row, col, color, event_type) == (None, None, None, "game_end")
+    finally:
+        con.close()
+
+
 def test_video_row_carries_match_metadata_and_players(tmp_path):
     db_path = tmp_path / "test.duckdb"
 

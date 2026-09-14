@@ -3,10 +3,11 @@ import logging
 
 import numpy as np
 
-from scadustats.models import CellColor, EventType, MatchMetadata, MatchType
+from scadustats.models import CellColor, EventType, MatchMetadata, MatchType, WinType
 from scadustats.pipeline import extract
 from scadustats.pipeline.extract import (
     _collect_observations,
+    _detect_game_end,
     _detect_game_start,
     _determine_winner,
     _extract_events,
@@ -125,6 +126,79 @@ def test_winner_names_the_line_it_was_completed_on():
     from scadustats.models import WinLine, WinType
 
     assert (winner_color, win_type, win_line) == (R, WinType.LINE, WinLine.ROW_3)
+
+
+def test_detect_game_end_locates_the_mark_that_completes_the_winning_line():
+    segment = _debounced(_board(*[(2, c, R) for c in range(5)]))
+    events = _extract_events(segment)
+    winner_color, win_type, _ = _determine_winner(events)
+
+    game_end = _detect_game_end(events, winner_color, win_type)
+
+    # The row is filled left to right within the same observation, so the last event in
+    # the list is the one that actually completes it (col 5, 1-based).
+    completing_mark = events[-1]
+    assert (completing_mark.row, completing_mark.col) == (3, 5)
+
+    assert game_end is not None
+    assert game_end.event_type is EventType.GAME_END
+    assert (game_end.row, game_end.col, game_end.color) == (None, None, None)
+    assert game_end.video_ts_s == completing_mark.video_ts_s
+    assert game_end.game_elapsed_s == completing_mark.game_elapsed_s
+
+
+def test_detect_game_end_locates_the_settling_mark_of_a_majority_win():
+    # Same board as rules.winner's own majority test: a red cell plus one blue cell (both
+    # touching every row/column, the center covering both diagonals) in every line, so no
+    # line can still be completed by one color; red holds more squares overall.
+    layout = [
+        "RBRRR",
+        "BRRRR",
+        "RRBRR",
+        "RRRRB",
+        "RRRBR",
+    ]
+    colors = [
+        (r, c, R if layout[r][c] == "R" else B) for r in range(5) for c in range(5)
+    ]
+    segment = _debounced(_board(*colors))
+    events = _extract_events(segment)
+    winner_color, win_type, _ = _determine_winner(events)
+    assert (winner_color, win_type) == (R, WinType.MAJORITY)
+
+    game_end = _detect_game_end(events, winner_color, win_type)
+
+    assert game_end is not None
+    assert game_end.event_type is EventType.GAME_END
+    assert (game_end.row, game_end.col, game_end.color) == (None, None, None)
+    # It's timestamped off one real mark event -- the one that locked the majority in.
+    assert any(
+        e.event_type is EventType.MARK
+        and e.video_ts_s == game_end.video_ts_s
+        and e.game_elapsed_s == game_end.game_elapsed_s
+        for e in events
+    )
+
+
+def test_detect_game_end_returns_none_without_a_winner():
+    segment = _debounced(_board((0, 0, R), (0, 1, B)))
+    events = _extract_events(segment)
+    winner_color, win_type, _ = _determine_winner(events)
+
+    assert _detect_game_end(events, winner_color, win_type) is None
+
+
+def test_detect_game_end_returns_none_when_the_win_was_undone():
+    base = [(0, c, R) for c in range(4)]
+    segment = [
+        *_debounced(_board(*base)),
+        *_debounced(_board(*base, (0, 4, R))),
+        *_debounced(_board(*base), count=extract._UNMARK_DEBOUNCE_SAMPLES),
+    ]
+    events = _extract_events(segment)
+    winner_color, win_type, _ = _determine_winner(events)
+
+    assert _detect_game_end(events, winner_color, win_type) is None
 
 
 def test_detect_game_start_finds_ascent_from_countdown_minimum():
