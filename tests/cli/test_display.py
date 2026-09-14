@@ -131,7 +131,7 @@ def test_render_table_pads_every_column_to_its_widest_value():
     assert lines == ["A   LONGER", "xx  y", "z   wwwwwww"]
 
 
-def test_render_board_brackets_the_winning_line():
+def test_render_board_shows_each_cell_as_a_colored_square():
     board = empty_board()
     for col in range(5):
         board[2][col] = CellColor.RED
@@ -139,12 +139,8 @@ def test_render_board_brackets_the_winning_line():
 
     lines = render_board(board, WinLine.ROW_3)
 
-    assert lines[0] == " B  .  .  .  ."
-    assert lines[2] == "[R][R][R][R][R]"
-
-
-def test_render_board_brackets_nothing_without_a_winning_line():
-    assert "[" not in "".join(render_board(empty_board()))
+    assert lines[0] == "🟦 ⬛ ⬛ ⬛ ⬛"
+    assert lines[2] == "🟥 🟥 🟥 🟥 🟥"
 
 
 def test_render_match_table_has_a_header_and_a_row_per_match():
@@ -205,7 +201,7 @@ def test_render_match_shows_the_board_and_the_square_split():
     assert "alice (red) vs bob (blue) -- alice wins 1-0" in text
     assert "Game 1  base game  00:05:00-00:15:00 (10:00)" in text
     assert "squares  alice 5, bob 0, unclaimed 20" in text
-    assert "[R][R][R][R][R]" in text
+    assert "🟥 🟥 🟥 🟥 🟥" in text
 
 
 def test_render_match_omits_length_and_url_when_they_are_unknown():

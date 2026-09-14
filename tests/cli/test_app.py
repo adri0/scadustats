@@ -630,10 +630,10 @@ def test_show_match_draws_the_final_board_with_the_winning_line_marked(tmp_path)
     )
 
     assert result.exit_code == 0, result.output
-    assert "board key: R = alice, B = bob" in result.output
-    # The won row is bracketed; the four rows nobody touched print as unclaimed cells.
-    assert "[R][R][R][R][R]" in result.output
-    assert result.output.count(" .  .  .  .  .") == 4
+    assert "board key: 🟥 = alice, 🟦 = bob" in result.output
+    # The won row prints as five red squares; the four rows nobody touched as unclaimed.
+    assert "🟥 🟥 🟥 🟥 🟥" in result.output
+    assert result.output.count("⬛ ⬛ ⬛ ⬛ ⬛") == 4
     assert "squares  alice 5, bob 0, unclaimed 20" in result.output
 
 
@@ -670,7 +670,6 @@ def test_show_match_names_no_line_for_a_majority_win(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "alice (red) by majority" in result.output
-    assert "[R]" not in result.output  # no line to mark on the board
 
 
 def test_show_match_lists_events_only_when_asked(tmp_path):
