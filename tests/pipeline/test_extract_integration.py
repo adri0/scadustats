@@ -119,19 +119,11 @@ def test_extract_video_end_to_end(tmp_path):
         con.close()
 
 
-def test_extract_video_fetches_published_date_when_video_url_is_known(tmp_path, monkeypatch):
+def test_extract_video_records_the_supplied_published_date(tmp_path):
+    """published_at is read off the same yt-dlp call that downloaded the video (see
+    video.download.DownloadResult), not fetched by extract_video itself -- the caller
+    (cli/app.py) passes it straight through."""
     json_dir = tmp_path / "json"
-    fetched_urls = []
-
-    def _fake_fetch_published_date(url):
-        fetched_urls.append(url)
-        return datetime.date(2026, 2, 20)
-
-    monkeypatch.setattr(
-        "scadustats.pipeline.extract.download.fetch_published_date",
-        _fake_fetch_published_date,
-    )
-
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5),
         season="6",
@@ -144,23 +136,23 @@ def test_extract_video_fetches_published_date_when_video_url_is_known(tmp_path, 
         match_metadata=match_metadata,
         json_dir=json_dir,
         on_missing_game_type=lambda game: GameType.BASE,
+        published_at=datetime.date(2026, 2, 20),
     )
 
-    assert fetched_urls == ["https://youtu.be/abc123"]
     json_path = video_path(json_dir, "6", summary.video_id)
     assert json.loads(json_path.read_text())["published_at"] == "2026-02-20"
 
 
-def test_extract_video_skips_published_date_lookup_without_a_video_url(tmp_path, monkeypatch):
+def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
+    """A locally-supplied video (this fixture, always) has no download to read a
+    published date off, so a caller that doesn't pass one gets None recorded --
+    including when video_url happens to be set from a separate --video-url prompt."""
     json_dir = tmp_path / "json"
-
-    def _fail_fetch(url):
-        raise AssertionError("fetch_published_date should not be called without a video_url")
-
-    monkeypatch.setattr("scadustats.pipeline.extract.download.fetch_published_date", _fail_fetch)
-
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5),
+        season="6",
+        match_type=MatchType.PLAYOFFS,
+        video_url="https://youtu.be/abc123",
     )
 
     summary = extract_video(

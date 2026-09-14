@@ -316,9 +316,9 @@ def test_published_at_round_trips(tmp_path):
 
 
 def test_write_video_handles_unknown_published_date(tmp_path):
-    """Not every video_url resolves a published date -- the fetch is best-effort (see
-    video.download.fetch_published_date) -- and a video with no known URL at all never
-    even attempts it, so this has to serialize/read back as null, like duration_s."""
+    """published_at is only known when the video was downloaded as part of this run
+    (see video.download.DownloadResult) -- a locally-supplied video never has one, so
+    this has to serialize/read back as null, like duration_s."""
     path = write_video(tmp_path, _sample_extraction(published_at=None))
     data = json.loads(path.read_text())
 

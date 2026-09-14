@@ -32,7 +32,7 @@ from scadustats.pipeline import squares
 from scadustats.pipeline.segmentation import Observation, detect_boundaries
 from scadustats.rules import winner
 from scadustats.storage import json_export
-from scadustats.video import download, frames
+from scadustats.video import frames
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +379,12 @@ def extract_video(
     on_missing_game_type: Callable[[GameResult], GameType] | None = None,
     on_duplicate: Callable[[Path], bool] | None = None,
     known_squares: dict[str, GameType] | None = None,
+    # The video's YouTube upload date, when known -- read off the same yt-dlp call that
+    # downloaded the video (see video.download.DownloadResult), not fetched here: a
+    # locally-supplied video was never downloaded by this run, so there's no metadata to
+    # read it from, and this stays None rather than extract_video making its own separate
+    # network call just to look it up.
+    published_at: date | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     if known_squares is None:
@@ -467,18 +473,6 @@ def extract_video(
                     "squares, and no on_missing_game_type callback was given to supply one"
                 )
             game.game_type = on_missing_game_type(game)
-
-    # Only fetched once a video_url is known, and only here (after match_metadata has
-    # resolved) rather than upfront -- a URL supplied interactively isn't available any
-    # earlier. This is a metadata-only network call (fetch_published_date never downloads
-    # the video), and best-effort: it returns None rather than raising on failure, so a
-    # video that's since been removed/privated doesn't take down an otherwise-successful
-    # extraction over one supplementary field.
-    published_at = (
-        download.fetch_published_date(match_metadata.video_url)
-        if match_metadata.video_url
-        else None
-    )
 
     video_id = _video_id(match_metadata, player_red_name, player_blue_name)
     extraction = VideoExtraction(

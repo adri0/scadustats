@@ -2,17 +2,40 @@
 
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
 _FORMAT = "bestvideo[height<=720]"
+
+# Separates the two fields written by the single --print-to-file call below. A tab can't
+# appear in either field (a filesystem path or an 8-digit date), so this is safe to split
+# on unconditionally rather than needing a second temp file/subprocess call.
+_FIELD_SEPARATOR = "\t"
+
+
+@dataclass
+class DownloadResult:
+    path: Path
+    # The video's upload date on YouTube (yt-dlp's `upload_date` field), read off the
+    # same download -- no separate network call. None when yt-dlp didn't report one (a
+    # video with no upload date on record), not when the download itself fails, which
+    # still raises like before.
+    published_at: date | None
+
+
+def _parse_upload_date(raw: str) -> date | None:
+    try:
+        return datetime.strptime(raw, "%Y%m%d").date()
+    except ValueError:
+        return None
 
 
 def download_video(
     url: str,
     output_dir: str | Path = "downloads",
     timeout: float | None = None,
-) -> Path:
+) -> DownloadResult:
     """Download the best video-only (no audio) stream up to 720p.
 
     `timeout` (seconds) bounds the yt-dlp subprocess; by default there is none,
@@ -20,16 +43,18 @@ def download_video(
 
     stdout/stderr are left inherited rather than captured, so yt-dlp's own progress
     bar prints directly to the terminal as it would from a plain CLI invocation. That
-    means the final file path can't be recovered from captured output, so
-    `--print-to-file` is used instead to have yt-dlp write just that one line to a
-    temp file rather than to stdout, where it would otherwise land in the middle of
-    the progress output.
+    means the final file path (and the upload date alongside it) can't be recovered
+    from captured output, so `--print-to-file` is used instead to have yt-dlp write
+    both to a temp file rather than to stdout, where they'd otherwise land in the
+    middle of the progress output. One `--print-to-file` call rather than two: both
+    fields come off the same already-fetched info dict, so there's no reason to shell
+    out to yt-dlp a second time just to read the upload date separately.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     outtmpl = str(output_dir / "%(id)s.%(ext)s")
-    with tempfile.NamedTemporaryFile(mode="r+") as path_file:
+    with tempfile.NamedTemporaryFile(mode="r+") as info_file:
         subprocess.run(
             [
                 "yt-dlp",
@@ -38,39 +63,12 @@ def download_video(
                 "-o",
                 outtmpl,
                 "--print-to-file",
-                "after_move:filepath",
-                path_file.name,
+                f"after_move:%(filepath)s{_FIELD_SEPARATOR}%(upload_date)s",
+                info_file.name,
                 url,
             ],
             timeout=timeout,
             check=True,
         )
-        return Path(path_file.read().strip())
-
-
-def fetch_published_date(url: str, timeout: float | None = None) -> date | None:
-    """The video's upload date on YouTube (yt-dlp's `upload_date` field, YYYYMMDD) --
-    fetched with `--skip-download`, so this doesn't pull the video itself, just its
-    metadata. Used to populate VideoExtraction.published_at.
-
-    Returns None on any failure -- yt-dlp erroring (an unreachable/removed/private
-    video), a timeout, or a response with no parseable upload date -- rather than
-    raising: unlike download_video, this is a best-effort supplementary field, not
-    something the rest of extraction depends on.
-    """
-    try:
-        result = subprocess.run(
-            ["yt-dlp", "--skip-download", "--print", "upload_date", url],
-            timeout=timeout,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-        return None
-
-    raw = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-    try:
-        return datetime.strptime(raw, "%Y%m%d").date()
-    except ValueError:
-        return None
+        path_str, _, upload_date_str = info_file.read().strip().partition(_FIELD_SEPARATOR)
+        return DownloadResult(path=Path(path_str), published_at=_parse_upload_date(upload_date_str))
