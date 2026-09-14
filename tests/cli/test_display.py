@@ -54,7 +54,7 @@ def _extraction(**overrides) -> VideoExtraction:
         video_id="2026-03-05-alice-vs-bob",
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
-        season=6,
+        season="6",
         match_type=MatchType.DOUBLE_ELIMINATION,
         player_red_name="alice",
         player_blue_name="bob",

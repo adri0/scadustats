@@ -133,7 +133,10 @@ class MatchMetadata:
     match is one video even when it contains multiple game segments."""
 
     match_date: date
-    season: int
+    # Free text, not a number: seasons aren't always named with a plain integer (e.g. a
+    # one-off "Off-Season Cup"), and nothing here needs to do arithmetic on it -- see
+    # cli.app._prompt_match_metadata for the numbered-season default most matches use.
+    season: str
     match_type: MatchType
     # The video's URL, if extraction started from a local file rather than the URL
     # itself -- optional since a contributor may not have it handy at prompt time.
@@ -174,7 +177,7 @@ class VideoExtraction:
     video_id: str
     video_url: str | None
     match_date: date
-    season: int
+    season: str
     match_type: MatchType
     player_red_name: str | None
     player_blue_name: str | None

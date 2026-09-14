@@ -234,7 +234,7 @@ def test_segment_games_splits_a_video_whose_samples_have_gaps():
 
 
 _MATCH_METADATA = MatchMetadata(
-    match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+    match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
 )
 
 

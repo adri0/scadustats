@@ -16,6 +16,7 @@ from scadustats.pipeline.extract import (
 )
 from scadustats.pipeline.segmentation import Observation
 from scadustats.storage.db import load_json_dir
+from scadustats.storage.json_export import video_path
 from scadustats.video.frames import probe
 
 # A short (80s), downscaled, re-encoded clip trimmed from a real match video, covering
@@ -33,7 +34,7 @@ _GAME_BOUNDARY_CLIP_PATH = "tests/fixtures/clip_game_boundary.mp4"
 def test_extract_video_end_to_end(tmp_path):
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
     )
 
     progress_calls = 0
@@ -62,7 +63,7 @@ def test_extract_video_end_to_end(tmp_path):
     # (an estimate, not exact -- see its docstring) within a sample or two.
     assert progress_calls == pytest.approx(estimate_sample_count(_CLIP_PATH), abs=2)
 
-    json_path = json_dir / f"{summary.video_id}.json"
+    json_path = video_path(json_dir, "6", summary.video_id)
     assert json_path.exists()
     video_data = json.loads(json_path.read_text())
     assert video_data["player_red_name"] == "blanxz"
@@ -126,7 +127,7 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
     summary = extract_video(
         _GAME_BOUNDARY_CLIP_PATH,
         match_metadata=MatchMetadata(
-            match_date=datetime.date(2026, 9, 1), season=6, match_type=MatchType.PLAYOFFS
+            match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.PLAYOFFS
         ),
         json_dir=tmp_path / "json",
         on_missing_game_type=lambda game: GameType.BASE,
@@ -134,7 +135,7 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
 
     assert summary.num_games == 2
 
-    games = json.loads((tmp_path / "json" / f"{summary.video_id}.json").read_text())["games"]
+    games = json.loads(video_path(tmp_path / "json", "6", summary.video_id).read_text())["games"]
     assert [game["game_index"] for game in games] == [1, 2]
     # The splash between the two games falls in the gap here -- its samples are dropped
     # rather than read as either game's board (see _collect_observations).
@@ -143,7 +144,7 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
 
 def _extract_once(json_dir, **kwargs):
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
     )
     return extract_video(
         _CLIP_PATH,
@@ -157,7 +158,7 @@ def _extract_once(json_dir, **kwargs):
 def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
     json_dir = tmp_path / "json"
     first = _extract_once(json_dir)
-    json_path = json_dir / f"{first.video_id}.json"
+    json_path = video_path(json_dir, "6", first.video_id)
     # Corrupt the on-disk file so a second, successful write is unambiguously detectable.
     json_path.write_text("{}")
 
@@ -177,7 +178,7 @@ def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
 def test_extract_video_skips_write_on_duplicate_when_declined(tmp_path):
     json_dir = tmp_path / "json"
     first = _extract_once(json_dir)
-    json_path = json_dir / f"{first.video_id}.json"
+    json_path = video_path(json_dir, "6", first.video_id)
     json_path.write_text("{}")  # would prove a write happened, if one did
 
     second = _extract_once(json_dir, on_duplicate=lambda path: False)
@@ -199,7 +200,7 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
     interactively -- extract_video should resolve it itself before persisting."""
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
     )
     metadata_future: Future[MatchMetadata] = Future()
     metadata_future.set_result(match_metadata)
@@ -211,10 +212,10 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    json_path = json_dir / f"{summary.video_id}.json"
+    json_path = video_path(json_dir, "6", summary.video_id)
     video_data = json.loads(json_path.read_text())
     assert video_data["match_date"] == "2026-03-05"
-    assert video_data["season"] == 6
+    assert video_data["season"] == "6"
     assert video_data["match_type"] == "playoffs"
 
 
@@ -223,7 +224,7 @@ def test_extract_video_infers_game_type_from_known_squares(tmp_path):
     succeeds, the callback should never be needed."""
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
     )
 
     summary = extract_video(
@@ -233,7 +234,7 @@ def test_extract_video_infers_game_type_from_known_squares(tmp_path):
         known_squares={"Kill Wormface": GameType.BASE},
     )
 
-    video_data = json.loads((json_dir / f"{summary.video_id}.json").read_text())
+    video_data = json.loads(video_path(json_dir, "6", summary.video_id).read_text())
     assert video_data["games"][0]["game_type"] == "base"
 
 
@@ -250,7 +251,7 @@ def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip,
     resolve game_type on its own, with no reference file and nobody to prompt."""
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
     )
 
     summary = extract_video(
@@ -260,7 +261,7 @@ def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip,
         known_squares={},
     )
 
-    video_data = json.loads((json_dir / f"{summary.video_id}.json").read_text())
+    video_data = json.loads(video_path(json_dir, "6", summary.video_id).read_text())
     assert [game["game_type"] for game in video_data["games"]] == [expected]
 
 
@@ -272,7 +273,7 @@ def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):
     # test_extract_video_reads_game_type_from_the_overlay_subtitle covers.
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season=6, match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
     )
 
     with pytest.raises(ValueError, match="game type"):
