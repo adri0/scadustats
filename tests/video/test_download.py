@@ -1,3 +1,4 @@
+import datetime
 import os
 import stat
 import subprocess
@@ -13,11 +14,12 @@ VIDEO_URL = "https://www.youtube.com/watch?v=tPEE9ZwTmy0"
 
 @pytest.mark.integration
 def test_download_video(tmp_path):
-    path = download_video(VIDEO_URL, output_dir=tmp_path, timeout=120)
+    result = download_video(VIDEO_URL, output_dir=tmp_path, timeout=120)
 
-    assert path.exists()
-    assert path.parent == tmp_path
-    assert path.stat().st_size > 0
+    assert result.path.exists()
+    assert result.path.parent == tmp_path
+    assert result.path.stat().st_size > 0
+    assert result.published_at is not None
 
 
 def _install_fake_yt_dlp(tmp_path, monkeypatch, body):
@@ -32,7 +34,7 @@ def _install_fake_yt_dlp(tmp_path, monkeypatch, body):
     monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ['PATH']}")
 
 
-def test_download_video_returns_the_final_path(tmp_path, monkeypatch):
+def test_download_video_returns_the_final_path_and_published_date(tmp_path, monkeypatch):
     _install_fake_yt_dlp(
         tmp_path,
         monkeypatch,
@@ -44,13 +46,36 @@ def test_download_video_returns_the_final_path(tmp_path, monkeypatch):
         path = outtmpl.replace("%(id)s", "fake").replace("%(ext)s", "mp4")
         print_to_file = sys.argv[sys.argv.index("--print-to-file") + 2]
         with open(print_to_file, "w") as f:
-            f.write(path)
+            f.write(f"{path}\\t20260301")
         """,
     )
 
-    path = download_video(VIDEO_URL, output_dir=tmp_path / "out")
+    result = download_video(VIDEO_URL, output_dir=tmp_path / "out")
 
-    assert path == tmp_path / "out" / "fake.mp4"
+    assert result.path == tmp_path / "out" / "fake.mp4"
+    assert result.published_at == datetime.date(2026, 3, 1)
+
+
+def test_download_video_returns_none_published_date_when_yt_dlp_has_none(tmp_path, monkeypatch):
+    """yt-dlp prints "NA" for a field it has no value for, rather than an empty line --
+    that isn't a valid YYYYMMDD, so it comes back as unknown rather than as a bad date."""
+    _install_fake_yt_dlp(
+        tmp_path,
+        monkeypatch,
+        """
+        import sys
+        outtmpl = sys.argv[sys.argv.index("-o") + 1]
+        path = outtmpl.replace("%(id)s", "fake").replace("%(ext)s", "mp4")
+        print_to_file = sys.argv[sys.argv.index("--print-to-file") + 2]
+        with open(print_to_file, "w") as f:
+            f.write(f"{path}\\tNA")
+        """,
+    )
+
+    result = download_video(VIDEO_URL, output_dir=tmp_path / "out")
+
+    assert result.path == tmp_path / "out" / "fake.mp4"
+    assert result.published_at is None
 
 
 def test_download_video_raises_on_yt_dlp_failure(tmp_path, monkeypatch):

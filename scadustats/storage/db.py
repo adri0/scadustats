@@ -124,6 +124,11 @@ ALTER TABLE videos ADD COLUMN IF NOT EXISTS num_games INTEGER;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS red_score INTEGER;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS blue_score INTEGER;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS winner VARCHAR;
+-- And for the video's YouTube upload date (models.VideoExtraction.published_at) --
+-- nullable for the usual ALTER reason, and also because it's only known when the video
+-- was downloaded as part of this run (see video.download.DownloadResult) -- a locally-
+-- supplied video leaves it empty even for one extracted after this field existed.
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS published_at DATE;
 -- The commentators table needs no such fixup: CREATE TABLE IF NOT EXISTS does create a
 -- table that an older database file simply doesn't have yet. Only *columns* added to a
 -- table that already exists need the ALTERs above.
@@ -183,8 +188,9 @@ def write_extraction(
             """INSERT INTO videos
                (video_id, source_path, resolution_width, resolution_height, fps,
                 duration_s, video_url, match_date, season, match_type, player_red_name,
-                player_blue_name, extracted_at, num_games, red_score, blue_score, winner)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                player_blue_name, extracted_at, num_games, red_score, blue_score, winner,
+                published_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 extraction.video_id,
                 source_path,
@@ -203,6 +209,7 @@ def write_extraction(
                 extraction.red_score,
                 extraction.blue_score,
                 extraction.winner.value if extraction.winner else None,
+                extraction.published_at,
             ],
         )
 

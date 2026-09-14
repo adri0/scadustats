@@ -140,8 +140,8 @@ def download(
     ] = Path("downloads"),
 ) -> None:
     """Download a YouTube video."""
-    path = download_video(url, output_dir=output_dir)
-    print(path)
+    result = download_video(url, output_dir=output_dir)
+    print(result.path)
 
 
 @app.command()
@@ -234,11 +234,18 @@ def extract(
     # it's itself a YouTube URL and --video-url wasn't separately given -- the two are
     # the same link, so there's no reason to make a user paste it twice.
     downloaded_path: Path | None = None
+    # Only known when this run actually downloaded the video -- read off that same
+    # yt-dlp call (see video.download.DownloadResult), not looked up separately. A
+    # locally-supplied video has no metadata to read it from, so this stays None and
+    # VideoExtraction.published_at is simply left unrecorded for it.
+    published_at: date | None = None
     if _is_youtube_url(video_path_or_url):
         if video_url is None:
             video_url = video_path_or_url
         typer.echo(f"Downloading {video_path_or_url}...")
-        video_path = download_video(video_path_or_url, output_dir=download_dir)
+        download_result = download_video(video_path_or_url, output_dir=download_dir)
+        video_path = download_result.path
+        published_at = download_result.published_at
         downloaded_path = video_path
         typer.echo(f"Downloaded to {video_path}")
     else:
@@ -310,6 +317,7 @@ def extract(
                     on_progress=on_progress,
                     on_missing_game_type=on_missing_game_type,
                     on_duplicate=on_duplicate,
+                    published_at=published_at,
                 )
 
             # If extraction (typically minutes) finishes faster than the prompts (a handful

@@ -47,6 +47,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         games=[_sample_game()],
         commentators=["star0chris", "Captain_Domo"],
         duration_s=4321.0,
+        published_at=datetime.date(2026, 3, 1),
     )
     defaults.update(overrides)
     return VideoExtraction(**defaults)
@@ -405,6 +406,50 @@ def test_init_schema_adds_num_games_to_a_database_predating_it(tmp_path):
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert row == (1, 0, 0, None)
+    finally:
+        con.close()
+
+
+def test_published_at_round_trips_through_the_db(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        published_at = con.execute(
+            "SELECT published_at FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert published_at == datetime.date(2026, 3, 1)
+    finally:
+        con.close()
+
+
+def test_init_schema_adds_published_at_to_a_database_predating_it(tmp_path):
+    """Same story as duration_s/win_line/num_games above: a database file created before
+    this column existed still has to accept an insert, not fail on an unknown column."""
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    try:
+        con.execute(
+            "CREATE TABLE videos (video_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
+            "resolution_width INTEGER, resolution_height INTEGER, fps DOUBLE, "
+            "duration_s DOUBLE, video_url VARCHAR, match_date DATE NOT NULL, "
+            "season VARCHAR NOT NULL, match_type VARCHAR NOT NULL, "
+            "player_red_name VARCHAR, player_blue_name VARCHAR, extracted_at DATE NOT NULL, "
+            "num_games INTEGER, red_score INTEGER, blue_score INTEGER, winner VARCHAR)"
+        )
+    finally:
+        con.close()
+
+    write_extraction(db_path, _sample_extraction())
+
+    con = duckdb.connect(str(db_path))
+    try:
+        published_at = con.execute(
+            "SELECT published_at FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+        ).fetchone()[0]
+        assert published_at == datetime.date(2026, 3, 1)
     finally:
         con.close()
 

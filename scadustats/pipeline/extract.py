@@ -379,6 +379,12 @@ def extract_video(
     on_missing_game_type: Callable[[GameResult], GameType] | None = None,
     on_duplicate: Callable[[Path], bool] | None = None,
     known_squares: dict[str, GameType] | None = None,
+    # The video's YouTube upload date, when known -- read off the same yt-dlp call that
+    # downloaded the video (see video.download.DownloadResult), not fetched here: a
+    # locally-supplied video was never downloaded by this run, so there's no metadata to
+    # read it from, and this stays None rather than extract_video making its own separate
+    # network call just to look it up.
+    published_at: date | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     if known_squares is None:
@@ -481,6 +487,7 @@ def extract_video(
         games=games,
         commentators=casters,
         duration_s=duration_s if duration_s > 0 else None,
+        published_at=published_at,
     )
     # A match is unique by match_date + player names (see _video_id), which video_id
     # already encodes -- so a same-name file here means this exact match was already
