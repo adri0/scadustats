@@ -932,6 +932,49 @@ def test_show_match_lists_events_only_when_asked(tmp_path):
     assert "unmark  bob     r2 c2   goal 1-1" in with_events.output
 
 
+def test_show_match_headers_are_colorized_when_color_is_supported(tmp_path):
+    """CliRunner strips ANSI codes by default (see match_validate's docstring), so this
+    forces color on to confirm the section headers (video_id, each "Game N" line, and
+    the events header) actually emit bold codes for a real terminal."""
+    write_video(tmp_path, _sample_extraction())
+
+    result = CliRunner().invoke(
+        app,
+        ["match", "show", "2026-03-05-alice-vs-bob", "--events", "--json-dir", str(tmp_path)],
+        color=True,
+    )
+
+    assert "\x1b[1m2026-03-05-alice-vs-bob\x1b[0m" in result.output
+    assert "\x1b[1mGame 1  base game" in result.output
+    assert "\x1b[1mevent log\x1b[0m" in result.output
+
+
+def test_show_match_reports_a_clean_match_as_valid(tmp_path):
+    write_video(tmp_path, _valid_match_extraction())
+
+    result = CliRunner().invoke(
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "validation\n" in result.output
+    assert "2026-03-05-alice-vs-bob: ok" in result.output
+
+
+def test_show_match_lists_validation_issues_for_an_invalid_match(tmp_path):
+    write_video(tmp_path, _sample_extraction())
+
+    result = CliRunner().invoke(
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+    )
+
+    # Unlike `match validate`, a bad result here isn't a CLI failure -- `show` always
+    # prints the report, the validation section just says whether it holds up.
+    assert result.exit_code == 0, result.output
+    assert "[game_count]" in result.output
+    assert "[winner_board_mismatch]" in result.output
+
+
 def _valid_match_extraction(**overrides) -> VideoExtraction:
     """A match that passes every validation rule: playoffs, two games (base then DLC),
     each with exactly one game_start and a genuine line win. The shared

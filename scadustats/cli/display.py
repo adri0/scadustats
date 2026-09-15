@@ -8,9 +8,17 @@ Nothing here interprets the extraction -- it only presents what the JSON already
 In particular a game's result is shown exactly as recorded, never recomputed from its
 events: `match validate` is where the two are cross-checked, and silently showing a
 "corrected" result here would hide the very disagreement that command exists to find.
+
+Section headers (the video_id line, each "Game N" line, the "event log" label) are bold
+via `typer.style`, matching cli/app.py's own "validation" header on the same report --
+just formatting applied to a returned string, so it doesn't need a CliRunner to produce
+or test either; `typer.echo` (via click) strips the codes automatically outside a
+terminal, same as every other styled line in this CLI.
 """
 
 from collections.abc import Sequence
+
+import typer
 
 from scadustats.models import (
     CellColor,
@@ -229,8 +237,11 @@ def render_game(game: GameResult, extraction: VideoExtraction, *, events: bool) 
     unmarks = sum(event.event_type is EventType.UNMARK for event in game.events)
     game_type = _GAME_TYPE_LABELS.get(game.game_type, "unknown game type")
 
+    header = typer.style(
+        f"Game {game.game_index}  {game_type}  {_format_span(game)}", bold=True
+    )
     lines = [
-        f"  Game {game.game_index}  {game_type}  {_format_span(game)}",
+        f"  {header}",
         f"    result   {format_result(game, extraction)}",
         f"    squares  {red} {claimed[CellColor.RED]}, {blue} {claimed[CellColor.BLUE]}, "
         f"unclaimed {claimed[CellColor.UNCLAIMED]}",
@@ -241,6 +252,7 @@ def render_game(game: GameResult, extraction: VideoExtraction, *, events: bool) 
     lines.extend(f"    {line}" for line in render_board(board))
     if events:
         lines.append("")
+        lines.append(f"    {typer.style('event log', bold=True)}")
         lines.extend(f"    {line}" for line in render_events(game, extraction))
     return lines
 
@@ -256,7 +268,7 @@ def render_match(extraction: VideoExtraction, *, events: bool = False) -> list[s
     red, blue = player_names(extraction)
     games = sorted(extraction.games, key=lambda game: game.game_index)
     lines = [
-        extraction.video_id,
+        typer.style(extraction.video_id, bold=True),
         f"  {red} (red) vs {blue} (blue) -- {format_outcome(extraction)}",
         f"  {extraction.match_date}  season {extraction.season}  "
         f"{extraction.match_type.value}  "
