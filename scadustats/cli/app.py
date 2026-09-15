@@ -249,6 +249,8 @@ def extract(
 
     This only writes JSON -- it never touches a database. Run `load-db` separately
     (and optionally) to reflect that JSON into DuckDB.
+
+    On success, prints the same report as `match show` for the match just extracted.
     """
     # Checked here, upfront, rather than left to _prompt_match_metadata -- that runs on
     # a background thread overlapping the (multi-minute) extraction pipeline, so a bad
@@ -376,7 +378,8 @@ def extract(
         if summary.skipped:
             typer.echo(f"Skipped -- kept the existing JSON extraction for {summary.video_id}")
         else:
-            print(summary)
+            for line in render_match(summary.extraction):
+                typer.echo(line)
     except Exception:
         if (
             downloaded_path is not None

@@ -302,7 +302,9 @@ _EXTRACT_ARGS = [
 
 
 def _fake_extract_video_success(*args, **kwargs):
-    return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+    return ExtractionSummary(
+        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
+    )
 
 
 def test_extract_asks_on_duplicate_and_replaces_when_confirmed(tmp_path, monkeypatch):
@@ -315,7 +317,11 @@ def test_extract_asks_on_duplicate_and_replaces_when_confirmed(tmp_path, monkeyp
         captured["if_exists"] = if_exists
         approved = on_duplicate(dup_path)
         return ExtractionSummary(
-            video_id="v1", num_games=1, num_claims=0, skipped=not approved
+            video_id="v1",
+            num_games=1,
+            num_claims=0,
+            extraction=_sample_extraction(video_id="v1"),
+            skipped=not approved,
         )
 
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
@@ -330,7 +336,9 @@ def test_extract_asks_on_duplicate_and_replaces_when_confirmed(tmp_path, monkeyp
     # extract_video knows to ask rather than deciding for itself.
     assert captured["if_exists"] is None
     assert str(dup_path) in result.output
-    assert "num_games=1" in result.output
+    # Prints the same report as `match show` for the match just extracted.
+    assert "v1" in result.output
+    assert "alice (red) vs bob (blue)" in result.output
 
 
 def test_extract_reports_skip_when_duplicate_declined(tmp_path, monkeypatch):
@@ -363,7 +371,9 @@ def test_extract_if_exists_flag_skips_the_duplicate_prompt(tmp_path, monkeypatch
 
     def _fake_extract_video(video_path, *, if_exists, on_duplicate, **kwargs):
         captured["if_exists"] = if_exists
-        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+        return ExtractionSummary(
+        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
+    )
 
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
@@ -544,7 +554,9 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
 
     def _fake_extract_video(video_path, *, match_metadata, **kwargs):
         captured["match_metadata"] = match_metadata.result()
-        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+        return ExtractionSummary(
+        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
+    )
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
@@ -590,7 +602,9 @@ def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_pa
 
     def _fake_extract_video(video_path, *, match_metadata, **kwargs):
         captured["match_metadata"] = match_metadata.result()
-        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+        return ExtractionSummary(
+        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
+    )
 
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
@@ -628,7 +642,9 @@ def test_extract_passes_the_downloaded_published_date_through_to_extract_video(
 
     def _fake_extract_video(video_path, *, published_at, **kwargs):
         captured["published_at"] = published_at
-        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+        return ExtractionSummary(
+        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
+    )
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
@@ -663,7 +679,9 @@ def test_extract_leaves_published_date_unset_for_a_local_video(tmp_path, monkeyp
 
     def _fake_extract_video(video_path, *, published_at, **kwargs):
         captured["published_at"] = published_at
-        return ExtractionSummary(video_id="v1", num_games=1, num_claims=0)
+        return ExtractionSummary(
+        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
+    )
 
     def _fail_download(*args, **kwargs):
         raise AssertionError("download_video should not be called for a local path")
