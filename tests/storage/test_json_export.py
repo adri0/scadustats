@@ -39,7 +39,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
         season="6",
-        match_type=MatchType.PLAYOFFS,
+        match_type=MatchType.ROUND_ROBIN,
         player_red_name="alice",
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
@@ -62,7 +62,7 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     assert data["video_id"] == "2026-03-05-alice-vs-bob"
     assert data["match_date"] == "2026-03-05"
     assert data["season"] == "6"
-    assert data["match_type"] == "playoffs"
+    assert data["match_type"] == "round_robin"
     assert data["player_red_name"] == "alice"
     assert data["player_blue_name"] == "bob"
     assert data["commentators"] == ["star0chris", "Captain_Domo"]

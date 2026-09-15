@@ -179,11 +179,11 @@ def validate_game(game: GameResult) -> list[ValidationIssue]:
 
 
 def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: a playoffs match is exactly 2 games; a double-elimination match (best of 3)
+    """Rule: a round robin match is exactly 2 games; a double-elimination match (best of 3)
     is 2 or 3. A wrong count is the loudest sign of a segmentation problem -- games merged
     together, or a recap segment read as a game of its own."""
     count = extraction.num_games
-    if extraction.match_type is MatchType.PLAYOFFS:
+    if extraction.match_type is MatchType.ROUND_ROBIN:
         expected = "exactly 2 games"
         ok = count == 2
     else:
@@ -217,7 +217,7 @@ def _check_opening_game_types(extraction: VideoExtraction) -> list[ValidationIss
 
 
 def _check_match_outcome(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: the match must resolve to a winner or (playoffs only) a draw.
+    """Rule: the match must resolve to a winner or (round robin only) a draw.
 
     Every game has to have a winner for that to be decidable, so an undecided game is
     reported here and stops the rules below it: with the score unknown, "a decider was
@@ -236,7 +236,7 @@ def _check_match_outcome(extraction: VideoExtraction) -> list[ValidationIssue]:
             )
         ]
 
-    # A playoffs match is allowed to end 1-1 (the issue's rule 2 calls that a draw), so
+    # A round robin match is allowed to end 1-1 (the issue's rule 2 calls that a draw), so
     # only double elimination has anything left to check here. Every game has a winner by
     # this point, so extraction.winner is guaranteed non-None.
     if (

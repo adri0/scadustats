@@ -36,12 +36,12 @@ def test_prompt_match_metadata_uses_supplied_options_without_prompting(monkeypat
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fail_prompt)
 
     metadata = _prompt_match_metadata(
-        "2026-03-05", "6", MatchType.PLAYOFFS, "https://youtu.be/abc123"
+        "2026-03-05", "6", MatchType.ROUND_ROBIN, "https://youtu.be/abc123"
     )
 
     assert metadata.match_date == datetime.date(2026, 3, 5)
     assert metadata.season == "6"
-    assert metadata.match_type == MatchType.PLAYOFFS
+    assert metadata.match_type == MatchType.ROUND_ROBIN
     assert metadata.video_url == "https://youtu.be/abc123"
 
 
@@ -100,7 +100,7 @@ def test_prompt_match_metadata_explicit_options_override_existing_match_defaults
 
     existing = _sample_extraction(match_date=datetime.date(2026, 1, 1), season="1")
     metadata = _prompt_match_metadata(
-        "2026-03-05", "6", MatchType.PLAYOFFS, "https://youtu.be/xyz789", existing
+        "2026-03-05", "6", MatchType.ROUND_ROBIN, "https://youtu.be/xyz789", existing
     )
 
     assert metadata.match_date == datetime.date(2026, 3, 5)
@@ -153,7 +153,7 @@ def test_prompt_match_date_offers_a_default_when_given(monkeypatch):
 def test_prompt_match_metadata_requires_match_date_when_not_supplied(monkeypatch):
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", lambda *a, **k: "2026-03-05")
 
-    metadata = _prompt_match_metadata(None, 6, MatchType.PLAYOFFS, "")
+    metadata = _prompt_match_metadata(None, 6, MatchType.ROUND_ROBIN, "")
 
     assert metadata.match_date == datetime.date(2026, 3, 5)
 
@@ -281,7 +281,7 @@ def test_extract_rejects_non_youtube_video_url_before_doing_any_work():
             "--season",
             "6",
             "--match-type",
-            "playoffs",
+            "round_robin",
         ],
     )
 
@@ -295,7 +295,7 @@ _EXTRACT_ARGS = [
     "--season",
     "6",
     "--match-type",
-    "playoffs",
+    "round_robin",
     "--game-type",
     "base",
 ]
@@ -617,7 +617,7 @@ def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_pa
             "--json-dir",
             str(json_dir),
             "--match-type",
-            "playoffs",
+            "round_robin",
             "--game-type",
             "base",
         ],
@@ -732,7 +732,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
         season="6",
-        match_type=MatchType.PLAYOFFS,
+        match_type=MatchType.ROUND_ROBIN,
         player_red_name="alice",
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
@@ -976,7 +976,7 @@ def test_show_match_lists_validation_issues_for_an_invalid_match(tmp_path):
 
 
 def _valid_match_extraction(**overrides) -> VideoExtraction:
-    """A match that passes every validation rule: playoffs, two games (base then DLC),
+    """A match that passes every validation rule: round robin, two games (base then DLC),
     each with exactly one game_start and a genuine line win. The shared
     `_sample_extraction` above is deliberately *not* valid (one game, a recorded winner
     with no line behind it), which is what the failure cases below reuse."""
@@ -1036,7 +1036,7 @@ def test_validate_match_lists_issues_and_exits_nonzero(tmp_path):
     )
 
     assert result.exit_code == 1
-    # A playoffs match with one game, whose single recorded line win has no line behind
+    # A round robin match with one game, whose single recorded line win has no line behind
     # it -- one match-level and one game-level rule, each naming its own scope.
     assert "[game_count]" in result.output
     assert "game 1: " in result.output

@@ -209,7 +209,7 @@ def extract(
     ] = None,
     match_type: Annotated[
         MatchType | None,
-        typer.Option(help="double_elimination or playoffs (prompted if omitted)"),
+        typer.Option(help="double_elimination or round_robin (prompted if omitted)"),
     ] = None,
     video_url: Annotated[
         str | None,
@@ -549,8 +549,8 @@ def match_validate(
     """Check extracted matches against the tournament's own rules and report what
     doesn't add up.
 
-    A reported issue means the JSON says something the rules say can't happen (a playoffs
-    match with one game, a winner the board doesn't support, squares claimed after a line
+    A reported issue means the JSON says something the rules say can't happen (a round
+    robin match with one game, a winner the board doesn't support, squares claimed after a line
     was completed) -- so an extraction mistake probably slipped through and that file
     needs a look. Exits non-zero if any match has issues, so this can gate a batch of
     extractions. A clean match is marked green, an issue red -- typer.echo (via click)

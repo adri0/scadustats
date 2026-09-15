@@ -79,7 +79,7 @@ def _extraction(**overrides) -> VideoExtraction:
         video_url=None,
         match_date=datetime.date(2026, 3, 5),
         season="6",
-        match_type=MatchType.PLAYOFFS,
+        match_type=MatchType.ROUND_ROBIN,
         player_red_name="alice",
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
@@ -96,7 +96,7 @@ def _codes(issues) -> list[str]:
     return [issue.code for issue in issues]
 
 
-def test_a_clean_playoffs_match_has_no_issues():
+def test_a_clean_round_robin_match_has_no_issues():
     assert validate_extraction(_extraction()) == []
 
 
@@ -110,7 +110,7 @@ def test_a_clean_double_elimination_sweep_has_no_issues():
     assert validate_extraction(extraction) == []
 
 
-def test_playoffs_match_must_have_exactly_two_games():
+def test_round_robin_match_must_have_exactly_two_games():
     issues = validate_extraction(_extraction(games=[_game(1)]))
 
     assert _codes(issues) == ["game_count"]
@@ -236,8 +236,8 @@ def test_a_decided_double_elimination_match_needs_no_third_game():
     assert _codes(validate_extraction(extraction)) == ["unnecessary_decider_game"]
 
 
-def test_playoffs_may_end_one_apiece():
-    """A 1-1 playoffs match is a draw, not a rule violation -- unlike double
+def test_round_robin_may_end_one_apiece():
+    """A 1-1 round robin match is a draw, not a rule violation -- unlike double
     elimination."""
     assert validate_extraction(_extraction()) == []
 
