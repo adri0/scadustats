@@ -210,6 +210,37 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
     assert games[0]["end_video_ts_s"] < games[1]["start_video_ts_s"]
 
 
+def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
+    """clip_game_boundary.mp4's game 1 ends on a genuine row win (row 2, red) -- the
+    GAME_END event should land at the same timestamp as the mark that completes it. Game
+    2 in this clip never gets a winner, so it should have no GAME_END event at all.
+    """
+    summary = extract_video(
+        _GAME_BOUNDARY_CLIP_PATH,
+        match_metadata=MatchMetadata(
+            match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.PLAYOFFS
+        ),
+        json_dir=tmp_path / "json",
+        on_missing_game_type=lambda game: GameType.BASE,
+    )
+
+    games = json.loads(video_path(tmp_path / "json", "6", summary.video_id).read_text())["games"]
+
+    game_1_events = games[0]["events"]
+    assert games[0]["winner_color"] == "red"
+    assert games[0]["win_line"] == "row_2"
+    game_ends = [e for e in game_1_events if e["event_type"] == "game_end"]
+    assert len(game_ends) == 1
+    row_2_marks = [e for e in game_1_events if e["event_type"] == "mark" and e["row"] == 2]
+    completing_mark = max(row_2_marks, key=lambda e: e["col"])
+    assert game_ends[0]["video_ts_s"] == completing_mark["video_ts_s"]
+    assert (game_ends[0]["row"], game_ends[0]["col"], game_ends[0]["color"]) == (None, None, None)
+
+    game_2_events = games[1]["events"]
+    assert games[1]["winner_color"] is None
+    assert not any(e["event_type"] == "game_end" for e in game_2_events)
+
+
 def _extract_once(json_dir, **kwargs):
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS

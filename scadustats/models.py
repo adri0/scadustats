@@ -91,13 +91,19 @@ class WinLine(StrEnum):
 class EventType(Enum):
     """A square can be unmarked after being marked -- a player can inadvertently claim
     the wrong square and undo it -- so a claim's lifecycle is an event, not just a
-    one-time transition. Not every event is about a square, though: GAME_START marks a
-    whole-game moment (the stopwatch turning from the pre-game countdown into the
-    ascending game clock) and so carries no row/col/color."""
+    one-time transition. Not every event is about a square, though: GAME_START and
+    GAME_END mark whole-game moments and so carry no row/col/color. GAME_START is the
+    stopwatch turning from the pre-game countdown into the ascending game clock.
+    GAME_END is the moment the game's recorded result (a completed line, or a majority
+    once every line is blocked -- see rules.winner.determine_winner) first became locked
+    in for the rest of the game, timestamped at the settling MARK event itself (see
+    extract._detect_game_end) -- a TIE or an undetermined game has no line/majority to
+    settle on, so those have no GAME_END event at all."""
 
     MARK = "mark"
     UNMARK = "unmark"
     GAME_START = "game_start"
+    GAME_END = "game_end"
 
 
 class FractionalBox(NamedTuple):
@@ -120,10 +126,11 @@ class VideoInfo:
 @dataclass
 class GameEvent:
     # 1-based (1-5), matching the board as a reviewer sees it and WinLine's own values --
-    # None for a game-level event (GAME_START) that isn't about any one square.
+    # None for a game-level event (GAME_START/GAME_END) that isn't about any one square.
     row: int | None
     col: int | None
-    color: CellColor | None  # for an UNMARK, the color that was removed; None for GAME_START
+    # for an UNMARK, the color that was removed; None for GAME_START/GAME_END
+    color: CellColor | None
     video_ts_s: float
     game_elapsed_s: int
     event_type: EventType = EventType.MARK

@@ -180,12 +180,13 @@ def render_events(game: GameResult, extraction: VideoExtraction) -> list[str]:
     red, blue = player_names(extraction)
     rows = []
     for event in sorted(game.events, key=lambda event: event.video_ts_s):
-        if event.event_type is EventType.GAME_START:
+        if event.event_type in (EventType.GAME_START, EventType.GAME_END):
+            label = "game start" if event.event_type is EventType.GAME_START else "game end"
             rows.append(
                 [
                     format_duration(event.video_ts_s),
                     format_clock(event.game_elapsed_s),
-                    "game start",
+                    label,
                     "",
                     "",
                     "",
