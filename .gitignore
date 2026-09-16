@@ -14,3 +14,5 @@ downloads/
 calibration.png
 matches/
 youtube_cookies.txt
+.envrc
+.claude
