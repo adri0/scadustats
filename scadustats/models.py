@@ -17,7 +17,7 @@ class MatchType(StrEnum):
     above) so it doubles directly as a Typer/Click CLI choice type -- see cli/app.py."""
 
     DOUBLE_ELIMINATION = "double_elimination"
-    PLAYOFFS = "playoffs"
+    ROUND_ROBIN = "round_robin"
 
 
 class GameType(StrEnum):
@@ -42,7 +42,7 @@ class WinType(Enum):
 class MatchWinner(StrEnum):
     """Who took the *match* (as opposed to WinType/CellColor, which are about one game).
 
-    DRAW is a real outcome here, unlike in a single game: a playoffs match is two games
+    DRAW is a real outcome here, unlike in a single game: a round robin match is two games
     and is allowed to end 1-1. Its own enum rather than reusing CellColor for that reason
     -- and StrEnum like the other persisted enums, so it serializes as its own value.
     """
@@ -251,7 +251,7 @@ class VideoExtraction:
             return MatchWinner.RED
         if self.blue_score > self.red_score:
             return MatchWinner.BLUE
-        # Only legal in playoffs (validation's double_elimination_draw rule catches the
+        # Only legal in round robin (validation's double_elimination_draw rule catches the
         # other format) -- but what the games *say* happened is reported either way.
         return MatchWinner.DRAW
 

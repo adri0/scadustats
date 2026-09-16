@@ -34,7 +34,7 @@ _GAME_BOUNDARY_CLIP_PATH = "tests/fixtures/clip_game_boundary.mp4"
 def test_extract_video_end_to_end(tmp_path):
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
 
     progress_calls = 0
@@ -127,7 +127,7 @@ def test_extract_video_records_the_supplied_published_date(tmp_path):
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5),
         season="6",
-        match_type=MatchType.PLAYOFFS,
+        match_type=MatchType.ROUND_ROBIN,
         video_url="https://youtu.be/abc123",
     )
 
@@ -151,7 +151,7 @@ def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5),
         season="6",
-        match_type=MatchType.PLAYOFFS,
+        match_type=MatchType.ROUND_ROBIN,
         video_url="https://youtu.be/abc123",
     )
 
@@ -173,7 +173,7 @@ def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
     extract_video."""
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
 
     summary = extract_video(
@@ -195,7 +195,7 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
     summary = extract_video(
         _GAME_BOUNDARY_CLIP_PATH,
         match_metadata=MatchMetadata(
-            match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.PLAYOFFS
+            match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.ROUND_ROBIN
         ),
         json_dir=tmp_path / "json",
         on_missing_game_type=lambda game: GameType.BASE,
@@ -218,7 +218,7 @@ def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
     summary = extract_video(
         _GAME_BOUNDARY_CLIP_PATH,
         match_metadata=MatchMetadata(
-            match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.PLAYOFFS
+            match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.ROUND_ROBIN
         ),
         json_dir=tmp_path / "json",
         on_missing_game_type=lambda game: GameType.BASE,
@@ -243,7 +243,7 @@ def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
 
 def _extract_once(json_dir, **kwargs):
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
     return extract_video(
         _CLIP_PATH,
@@ -299,7 +299,7 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
     interactively -- extract_video should resolve it itself before persisting."""
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
     metadata_future: Future[MatchMetadata] = Future()
     metadata_future.set_result(match_metadata)
@@ -315,7 +315,7 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
     video_data = json.loads(json_path.read_text())
     assert video_data["match_date"] == "2026-03-05"
     assert video_data["season"] == "6"
-    assert video_data["match_type"] == "playoffs"
+    assert video_data["match_type"] == "round_robin"
 
 
 def test_extract_video_infers_game_type_from_known_squares(tmp_path):
@@ -323,7 +323,7 @@ def test_extract_video_infers_game_type_from_known_squares(tmp_path):
     succeeds, the callback should never be needed."""
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
 
     summary = extract_video(
@@ -350,7 +350,7 @@ def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip,
     resolve game_type on its own, with no reference file and nobody to prompt."""
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
 
     summary = extract_video(
@@ -372,7 +372,7 @@ def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):
     # test_extract_video_reads_game_type_from_the_overlay_subtitle covers.
     json_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
-        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.PLAYOFFS
+        match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
 
     with pytest.raises(ValueError, match="game type"):

@@ -216,7 +216,7 @@ def extract(
     ] = None,
     match_type: Annotated[
         MatchType | None,
-        typer.Option(help="double_elimination or playoffs (prompted if omitted)"),
+        typer.Option(help="double_elimination or round_robin (prompted if omitted)"),
     ] = None,
     video_url: Annotated[
         str | None,
@@ -522,6 +522,33 @@ def match_list(
     typer.echo(f"\n{count} match{'es' if count != 1 else ''}")
 
 
+def _echo_validation(extraction: VideoExtraction) -> bool:
+    """Echoes one match's validation result -- green "ok", or red "N issues" with each
+    issue's scope and rule code beneath it -- and reports whether any were found.
+
+    Shared by `match validate` (looped over every match it checks) and `match show`
+    (this one match, appended after its own report) -- built directly here rather than
+    through display.py for the same reason match_validate's own output always has been:
+    it's a diagnostic report on the JSON, not a presentation of it (see CLAUDE.md).
+    """
+    issues = validate_extraction(extraction)
+    if not issues:
+        mark = typer.style("✓", fg=typer.colors.GREEN)
+        status = typer.style("ok", fg=typer.colors.GREEN, bold=True)
+        typer.echo(f"{mark} {extraction.video_id}: {status}")
+        return False
+
+    mark = typer.style("✗", fg=typer.colors.RED)
+    count = f"{len(issues)} issue{'s' if len(issues) != 1 else ''}"
+    status = typer.style(count, fg=typer.colors.RED, bold=True)
+    typer.echo(f"{mark} {extraction.video_id}: {status}")
+    for issue in issues:
+        scope = typer.style(f"{issue.scope}:", fg=typer.colors.CYAN)
+        code = typer.style(f"[{issue.code}]", dim=True)
+        typer.echo(f"    {scope} {issue.message} {code}")
+    return True
+
+
 @match_app.command("validate")
 def match_validate(
     video_id: Annotated[
@@ -538,8 +565,8 @@ def match_validate(
     """Check extracted matches against the tournament's own rules and report what
     doesn't add up.
 
-    A reported issue means the JSON says something the rules say can't happen (a playoffs
-    match with one game, a winner the board doesn't support, squares claimed after a line
+    A reported issue means the JSON says something the rules say can't happen (a round
+    robin match with one game, a winner the board doesn't support, squares claimed after a line
     was completed) -- so an extraction mistake probably slipped through and that file
     needs a look. Exits non-zero if any match has issues, so this can gate a batch of
     extractions. A clean match is marked green, an issue red -- typer.echo (via click)
@@ -558,21 +585,8 @@ def match_validate(
     with_issues = 0
     for extraction in extractions:
         checked += 1
-        issues = validate_extraction(extraction)
-        if not issues:
-            mark = typer.style("✓", fg=typer.colors.GREEN)
-            status = typer.style("ok", fg=typer.colors.GREEN, bold=True)
-            typer.echo(f"{mark} {extraction.video_id}: {status}")
-            continue
-        with_issues += 1
-        mark = typer.style("✗", fg=typer.colors.RED)
-        count = f"{len(issues)} issue{'s' if len(issues) != 1 else ''}"
-        status = typer.style(count, fg=typer.colors.RED, bold=True)
-        typer.echo(f"{mark} {extraction.video_id}: {status}")
-        for issue in issues:
-            scope = typer.style(f"{issue.scope}:", fg=typer.colors.CYAN)
-            code = typer.style(f"[{issue.code}]", dim=True)
-            typer.echo(f"    {scope} {issue.message} {code}")
+        if _echo_validation(extraction):
+            with_issues += 1
 
     if checked > 1:
         summary = f"{with_issues} of {checked} matches have issues"
@@ -600,15 +614,20 @@ def match_show(
     ] = Path("matches"),
 ) -> None:
     """Print one match in full: its details, then per game the recorded result, how the
-    squares ended up split, and the final board (with the winning line marked).
+    squares ended up split, and the final board (with the winning line marked) -- then,
+    under its own "validation" header, that same match's `match validate` result, so a
+    viewer doesn't have to run both commands to know whether what they just read holds up.
 
     The board is replayed from the game's own events, so a result the board doesn't
-    support is visible right next to it -- `match validate` is what states that in so
-    many words.
+    support is visible right next to it -- the validation result at the end is what
+    states that in so many words.
     """
     extraction = read_video(_match_path(json_dir, video_id))
     for line in render_match(extraction, events=events):
         typer.echo(line)
+    typer.echo()
+    typer.echo(typer.style("validation", bold=True))
+    _echo_validation(extraction)
 
 
 def main() -> None:

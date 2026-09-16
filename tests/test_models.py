@@ -57,7 +57,7 @@ def test_winner_is_whoever_won_more_games():
 
 
 def test_an_even_split_is_a_draw():
-    """Legal in playoffs (two games, 1-1); validation's double_elimination_draw rule is
+    """Legal in round robin (two games, 1-1); validation's double_elimination_draw rule is
     what flags it in the other format -- the property reports what the games say either
     way."""
     extraction = _extraction(_game(1, CellColor.RED), _game(2, CellColor.BLUE))

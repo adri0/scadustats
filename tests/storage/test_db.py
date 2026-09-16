@@ -40,7 +40,7 @@ def _sample_extraction(**overrides) -> VideoExtraction:
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
         season="6",
-        match_type=MatchType.PLAYOFFS,
+        match_type=MatchType.ROUND_ROBIN,
         player_red_name="alice",
         player_blue_name="bob",
         extracted_at=datetime.date(2026, 3, 6),
@@ -188,7 +188,7 @@ def test_video_row_carries_match_metadata_and_players(tmp_path):
             "https://youtu.be/abc123",
             datetime.date(2026, 3, 5),
             "6",
-            "playoffs",
+            "round_robin",
             "alice",
             "bob",
             datetime.date(2026, 3, 6),
@@ -607,7 +607,7 @@ def test_load_json_dir_writes_all_games_from_one_video_file(tmp_path):
         ).fetchone()
         assert match_date == datetime.date(2026, 3, 5)
         assert season == "6"
-        assert match_type == "playoffs"
+        assert match_type == "round_robin"
     finally:
         con.close()
 
