@@ -222,7 +222,15 @@ def read_video(path: str | Path) -> VideoExtraction:
         # so there's no reason to demand it be present.
         video_url=metadata.get("video_url"),
         match_date=date.fromisoformat(data["match_date"]),
-        season=data["season"],
+        # str(...): season is free text (see models.MatchMetadata.season), but a
+        # hand-edited file can write an all-digit season unquoted, which json.loads then
+        # hands back as a Python int rather than str -- normalized here so every
+        # VideoExtraction.season is the str its type declares, regardless of how the file
+        # spelled it. Without this, a match history mixing a quoted "6" (from `extract`,
+        # which always writes a str) with an unquoted 6 (from a hand edit) fails to sort
+        # in pipeline.consolidate.consolidate_players, which groups by season across
+        # every match.
+        season=str(data["season"]),
         match_type=MatchType(data["match_type"]),
         player_red_name=data["player_red_name"],
         player_blue_name=data["player_blue_name"],

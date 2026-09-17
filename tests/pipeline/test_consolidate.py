@@ -3,9 +3,22 @@ import logging
 
 import pytest
 
-from scadustats.models import GameResult, GameType, MatchType, Square, VideoExtraction, WinType
+from scadustats.models import (
+    CellColor,
+    EventType,
+    GameEvent,
+    GameResult,
+    GameType,
+    MatchType,
+    PlayerProfile,
+    Square,
+    SquareMarks,
+    VideoExtraction,
+    WinType,
+)
 from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
+    consolidate_players,
     consolidate_squares,
     validate_squares,
 )
@@ -16,28 +29,48 @@ def _board(*texts: str) -> list[list[str]]:
     return [flat[r * 5 : r * 5 + 5] for r in range(5)]
 
 
-def _game(game_type: GameType | None, *texts: str, game_index: int = 1) -> GameResult:
+def _game(
+    game_type: GameType | None,
+    *texts: str,
+    game_index: int = 1,
+    winner_color: CellColor | None = None,
+    events: tuple[GameEvent, ...] = (),
+) -> GameResult:
     return GameResult(
         game_index=game_index,
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=_board(*texts),
-        events=[],
-        winner_color=None,
-        win_type=WinType.NONE,
+        events=list(events),
+        winner_color=winner_color,
+        win_type=WinType.LINE if winner_color else WinType.NONE,
         game_type=game_type,
     )
 
 
-def _extraction(*games: GameResult, video_id: str = "2026-03-05-alice-vs-bob") -> VideoExtraction:
+def _mark(row: int, col: int, color: CellColor) -> GameEvent:
+    return GameEvent(
+        row=row, col=col, color=color, video_ts_s=0.0, game_elapsed_s=0, event_type=EventType.MARK
+    )
+
+
+def _extraction(
+    *games: GameResult,
+    video_id: str = "2026-03-05-alice-vs-bob",
+    match_date: datetime.date = datetime.date(2026, 3, 5),
+    season: str = "6",
+    match_type: MatchType = MatchType.ROUND_ROBIN,
+    player_red_name: str | None = "alice",
+    player_blue_name: str | None = "bob",
+) -> VideoExtraction:
     return VideoExtraction(
         video_id=video_id,
         video_url=None,
-        match_date=datetime.date(2026, 3, 5),
-        season="6",
-        match_type=MatchType.ROUND_ROBIN,
-        player_red_name="alice",
-        player_blue_name="bob",
+        match_date=match_date,
+        season=season,
+        match_type=match_type,
+        player_red_name=player_red_name,
+        player_blue_name=player_blue_name,
         extracted_at=datetime.date(2026, 3, 6),
         games=list(games),
     )
@@ -315,3 +348,238 @@ def test_consolidate_match_squares_only_matches_within_the_games_own_game_type_p
         Square(id="borealis", text="Kill Borealis", game_type=GameType.BASE)
     ]
     assert known[GameType.DLC] == [Square(id="id_0", text="Kill Borealis", game_type=GameType.DLC)]
+
+
+def test_consolidate_players_assigns_incrementing_ids_by_slug():
+    extraction = _extraction(_game(GameType.BASE), player_red_name="alice", player_blue_name="bob")
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].id == 1
+    assert profiles["alice"].slug == "alice"
+    assert profiles["alice"].display_name == "alice"
+    assert profiles["bob"].id == 2
+
+
+def test_consolidate_players_slugifies_the_name():
+    extraction = _extraction(player_red_name="TwistieT", player_blue_name="Star0 Chris")
+
+    profiles = consolidate_players([extraction])
+
+    assert set(profiles) == {"twistiet", "star0_chris"}
+
+
+def test_consolidate_players_majority_votes_the_display_name():
+    extractions = [
+        _extraction(player_red_name="Grey", video_id="2026-01-01-grey-vs-bob"),
+        _extraction(player_red_name="Grey", video_id="2026-02-01-grey-vs-bob"),
+        _extraction(player_red_name="grey", video_id="2026-03-01-grey-vs-bob"),
+    ]
+
+    profiles = consolidate_players(extractions)
+
+    assert profiles["grey"].display_name == "Grey"
+
+
+def test_consolidate_players_tallies_season_match_wins_and_losses():
+    red_win = _extraction(
+        _game(GameType.BASE, winner_color=CellColor.RED),
+        video_id="2026-01-01-alice-vs-bob",
+        season="6",
+    )
+    red_loss = _extraction(
+        _game(GameType.BASE, winner_color=CellColor.BLUE),
+        video_id="2026-02-01-alice-vs-bob",
+        season="6",
+    )
+
+    profiles = consolidate_players([red_win, red_loss])
+
+    assert profiles["alice"].season_records["6"].wins == 1
+    assert profiles["alice"].season_records["6"].losses == 1
+    assert profiles["bob"].season_records["6"].wins == 1
+    assert profiles["bob"].season_records["6"].losses == 1
+
+
+def test_consolidate_players_tallies_season_match_draws():
+    draw = _extraction(
+        _game(GameType.BASE, winner_color=CellColor.RED, game_index=1),
+        _game(GameType.BASE, winner_color=CellColor.BLUE, game_index=2),
+        match_type=MatchType.ROUND_ROBIN,
+    )
+
+    profiles = consolidate_players([draw])
+
+    assert profiles["alice"].season_records["6"].draws == 1
+    assert profiles["bob"].season_records["6"].draws == 1
+
+
+def test_consolidate_players_skips_season_record_for_an_undetermined_match():
+    undetermined = _extraction(_game(GameType.BASE, winner_color=None))
+
+    profiles = consolidate_players([undetermined])
+
+    assert profiles["alice"].season_records == {}
+
+
+def test_consolidate_players_tallies_individual_game_wins_overall_and_per_type():
+    extraction = _extraction(
+        _game(GameType.BASE, winner_color=CellColor.RED, game_index=1),
+        _game(GameType.DLC, winner_color=CellColor.BLUE, game_index=2),
+    )
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].game_record.wins == 1
+    assert profiles["alice"].game_record.losses == 1
+    assert profiles["alice"].game_type_records[GameType.BASE].wins == 1
+    assert profiles["alice"].game_type_records[GameType.DLC].losses == 1
+    assert profiles["bob"].game_type_records[GameType.BASE].losses == 1
+    assert profiles["bob"].game_type_records[GameType.DLC].wins == 1
+
+
+def test_consolidate_players_skips_games_with_no_winner_color():
+    extraction = _extraction(_game(GameType.BASE, winner_color=None))
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].game_record.wins == 0
+    assert profiles["alice"].game_record.losses == 0
+    assert profiles["alice"].game_type_records == {}
+
+
+def test_consolidate_players_skips_game_type_tally_for_unresolved_game_type():
+    extraction = _extraction(_game(None, winner_color=CellColor.RED))
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].game_record.wins == 1
+    assert profiles["alice"].game_type_records == {}
+
+
+def test_consolidate_players_orders_all_matches_by_match_date_descending():
+    extractions = [
+        _extraction(video_id="2026-01-01-alice-vs-bob", match_date=datetime.date(2026, 1, 1)),
+        _extraction(video_id="2026-03-01-alice-vs-bob", match_date=datetime.date(2026, 3, 1)),
+        _extraction(video_id="2026-02-01-alice-vs-bob", match_date=datetime.date(2026, 2, 1)),
+    ]
+
+    profiles = consolidate_players(extractions)
+
+    assert profiles["alice"].all_matches == [
+        "2026-03-01-alice-vs-bob",
+        "2026-02-01-alice-vs-bob",
+        "2026-01-01-alice-vs-bob",
+    ]
+
+
+def test_consolidate_players_top_squares_counts_only_this_players_own_marks():
+    extraction = _extraction(
+        _game(
+            GameType.BASE,
+            "Kill Wormface",
+            "Kill Borealis",
+            winner_color=CellColor.RED,
+            events=(
+                _mark(1, 1, CellColor.RED),
+                _mark(1, 1, CellColor.RED),
+                _mark(1, 2, CellColor.BLUE),
+            ),
+        )
+    )
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].top_squares_base_game == [SquareMarks(text="Kill Wormface", marks=2)]
+    assert profiles["bob"].top_squares_base_game == [SquareMarks(text="Kill Borealis", marks=1)]
+
+
+def test_consolidate_players_top_squares_limited_to_5_ranked_by_count_then_text():
+    # row 1 holds the first 5 texts (Bravo..Echo), row 2 col 1 holds the 6th (Foxtrot) --
+    # see _board's flattening. Bravo is marked twice, everything else once, so it should
+    # rank first despite "Alpha" sorting earlier alphabetically.
+    events = (
+        _mark(1, 1, CellColor.RED),
+        _mark(1, 1, CellColor.RED),
+        _mark(1, 2, CellColor.RED),
+        _mark(1, 3, CellColor.RED),
+        _mark(1, 4, CellColor.RED),
+        _mark(1, 5, CellColor.RED),
+        _mark(2, 1, CellColor.RED),
+    )
+    extraction = _extraction(
+        _game(
+            GameType.BASE,
+            "Bravo",
+            "Alpha",
+            "Charlie",
+            "Delta",
+            "Echo",
+            "Foxtrot",
+            winner_color=CellColor.RED,
+            events=events,
+        )
+    )
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].top_squares_base_game == [
+        SquareMarks(text="Bravo", marks=2),
+        SquareMarks(text="Alpha", marks=1),
+        SquareMarks(text="Charlie", marks=1),
+        SquareMarks(text="Delta", marks=1),
+        SquareMarks(text="Echo", marks=1),
+    ]
+
+
+def test_consolidate_players_separates_top_squares_by_game_type():
+    extraction = _extraction(
+        _game(
+            GameType.BASE,
+            "Base goal",
+            winner_color=CellColor.RED,
+            events=(_mark(1, 1, CellColor.RED),),
+        ),
+        _game(
+            GameType.DLC,
+            "DLC goal",
+            game_index=2,
+            winner_color=CellColor.RED,
+            events=(_mark(1, 1, CellColor.RED),),
+        ),
+    )
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].top_squares_base_game == [SquareMarks(text="Base goal", marks=1)]
+    assert profiles["alice"].top_squares_dlc == [SquareMarks(text="DLC goal", marks=1)]
+
+
+def test_consolidate_players_preserves_manual_fields_from_existing_profile():
+    existing = {
+        "alice": PlayerProfile(
+            id=7,
+            slug="alice",
+            display_name="alice",
+            twitch_url="https://twitch.tv/alice",
+            avatar="alice.png",
+            bio="hand-written bio",
+        )
+    }
+    extraction = _extraction(player_blue_name=None)
+
+    profiles = consolidate_players([extraction], existing=existing)
+
+    assert profiles["alice"].id == 7
+    assert profiles["alice"].twitch_url == "https://twitch.tv/alice"
+    assert profiles["alice"].avatar == "alice.png"
+    assert profiles["alice"].bio == "hand-written bio"
+
+
+def test_consolidate_players_assigns_a_new_id_after_existing_ones():
+    existing = {"alice": PlayerProfile(id=5, slug="alice", display_name="alice")}
+    extraction = _extraction(player_red_name=None, player_blue_name="charlie")
+
+    profiles = consolidate_players([extraction], existing=existing)
+
+    assert profiles["charlie"].id == 6

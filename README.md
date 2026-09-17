@@ -18,6 +18,7 @@ scadustats match list [--data-dir data]
 scadustats match show <video_id> [--events] [--data-dir data]
 scadustats match validate [video_id] [--data-dir data]
 scadustats square consolidate [--data-dir data]
+scadustats player consolidate [--data-dir data]
 ```
 
 Run `scadustats` (or `scadustats match`) with no command to see this list with full help for each command.
@@ -33,3 +34,5 @@ The `match` sub-commands are read-only lookups over what's already been extracte
 `load-db` is a separate, optional step: it reflects those JSON files into a DuckDB database file. Run it whenever you want the JSON's current contents (including any manual corrections) written into the DB.
 
 `square consolidate` rebuilds `<data_dir>/squares/base_game.json` and `<data_dir>/squares/dlc.json` from every match under `data_dir`: every distinct goal square text seen, split by the game type it belongs to and tagged with a short, unique id, e.g. `{"id": "tunnels_3", "text": "Complete 3 Tunnels or Precipices", "game_type": "base"}`. Wholly regenerated each run from the current match history, not incrementally appended to.
+
+`player consolidate` rebuilds one YAML file per player under `<data_dir>/players/<slug>.yaml` from every match under `data_dir`: their win/loss record (per season, and overall/per game type for individual games), every match they've played (most recent first), and their 5 most-claimed squares per game type, each with its mark count. Like `square consolidate`, most of a player's file is wholly regenerated each run — but `id` is assigned once, the first time a player is seen, and kept stable after that, and `twitch_url`/`avatar`/`bio` are never set by the tool at all; fill those in by hand, and they (along with `id`) survive every later re-run.

@@ -395,6 +395,19 @@ def test_read_video_treats_a_file_without_source_path_as_unknown(tmp_path):
     assert read_video(path).source_path is None
 
 
+def test_read_video_normalizes_a_hand_edited_unquoted_season_to_a_string(tmp_path):
+    """season is free text (models.MatchMetadata.season), but a hand-edited file can
+    write an all-digit season unquoted -- json.loads then hands that back as a Python
+    int, not str. read_video normalizes it so every VideoExtraction.season really is the
+    str its type declares, regardless of how the file spelled it."""
+    path = write_video(tmp_path, _sample_extraction())
+    data = json.loads(path.read_text())
+    data["season"] = 6
+    path.write_text(json.dumps(data))
+
+    assert read_video(path).season == "6"
+
+
 def test_read_video_reads_a_pre_grouping_file_with_flat_metadata_fields(tmp_path):
     """A file written before issue #47 grouped these fields under "metadata" has them at
     the top level instead -- it still has to read back cleanly."""
