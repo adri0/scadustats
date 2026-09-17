@@ -26,7 +26,7 @@ from scadustats.models import (
     WinType,
 )
 from scadustats.pipeline.extract import ExtractionSummary
-from scadustats.storage.json_export import read_video, write_squares, write_video
+from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
 from scadustats.video.download import DownloadResult
 
 
@@ -1133,7 +1133,6 @@ def test_no_square_subcommand_prints_the_group_command_list():
 
     assert "Commands" in result.output
     assert "consolidate" in result.output
-    assert "fix" in result.output
     assert "Missing command" not in result.output
 
 
@@ -1178,32 +1177,41 @@ def test_square_consolidate_reports_when_directory_has_no_matches(tmp_path):
     assert "No matches found" in result.output
 
 
-def test_square_fix_corrects_a_misread_square_and_rewrites_the_file(tmp_path):
+def _known_for_grid(
+    square_texts: list[list[str]], game_type: GameType = GameType.BASE
+) -> dict[GameType, list[Square]]:
+    """A consolidated reference that already knows every text in square_texts exactly --
+    lets a test isolate the one cell it deliberately mismatches from the other 24, which
+    would otherwise show up as their own unmatched "added" squares too."""
+    other = GameType.DLC if game_type is GameType.BASE else GameType.BASE
+    return {
+        game_type: [
+            Square(id=f"goal_{r}_{c}", text=text, game_type=game_type)
+            for r, row in enumerate(square_texts)
+            for c, text in enumerate(row)
+        ],
+        other: [],
+    }
+
+
+def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
     json_dir = tmp_path / "matches"
     squares_dir = tmp_path / "squares"
     game = _match_sample_game()
+    known = _known_for_grid(game.square_texts)
     game.square_texts[0][0] = "Kilt 3 Friendly NPCs (No Hermit Merchants)"
+    known[GameType.BASE][0] = Square(
+        id="npcs_3", text="Kill 3 Friendly NPCs (No Hermit Merchants)", game_type=GameType.BASE
+    )
     extraction = _sample_extraction(games=[game])
     write_video(json_dir, extraction)
-    write_squares(
-        squares_dir,
-        {
-            GameType.BASE: [
-                Square(
-                    id="npcs_3",
-                    text="Kill 3 Friendly NPCs (No Hermit Merchants)",
-                    game_type=GameType.BASE,
-                )
-            ],
-            GameType.DLC: [],
-        },
-    )
+    write_squares(squares_dir, known)
 
     result = CliRunner().invoke(
         app,
         [
             "square",
-            "fix",
+            "consolidate",
             extraction.video_id,
             "--json-dir",
             str(json_dir),
@@ -1213,34 +1221,30 @@ def test_square_fix_corrects_a_misread_square_and_rewrites_the_file(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "1 square(s) fixed" in result.output
+    assert "1 square(s) fixed, 0 square(s) added" in result.output
+    # Nothing was added, so no reference file is rewritten and no "new" listing prints.
+    assert "new" not in result.output
+    assert str(squares_dir) not in result.output
     [path] = list(json_dir.rglob(f"{extraction.video_id}.json"))
     fixed = read_video(path)
     assert fixed.games[0].square_texts[0][0] == "Kill 3 Friendly NPCs (No Hermit Merchants)"
 
 
-def test_square_fix_leaves_an_unmatched_square_untouched(tmp_path):
+def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_reference(tmp_path):
     json_dir = tmp_path / "matches"
     squares_dir = tmp_path / "squares"
     game = _match_sample_game()
+    known = _known_for_grid(game.square_texts)
     game.square_texts[0][0] = "Some completely unrelated goal text"
     extraction = _sample_extraction(games=[game])
     write_video(json_dir, extraction)
-    write_squares(
-        squares_dir,
-        {
-            GameType.BASE: [
-                Square(id="wormface", text="Kill Wormface", game_type=GameType.BASE)
-            ],
-            GameType.DLC: [],
-        },
-    )
+    write_squares(squares_dir, known)
 
     result = CliRunner().invoke(
         app,
         [
             "square",
-            "fix",
+            "consolidate",
             extraction.video_id,
             "--json-dir",
             str(json_dir),
@@ -1250,38 +1254,59 @@ def test_square_fix_leaves_an_unmatched_square_untouched(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "no close match" in result.output
-    assert "no fixes applied" in result.output
+    assert "added to reference" in result.output
+    assert "0 square(s) fixed, 1 square(s) added" in result.output
+    # The new square is listed under the base_game.json line specifically -- not just
+    # counted -- so it's clear at a glance what just grew the reference.
+    base_game_path = squares_dir / "base_game.json"
+    assert f"{base_game_path}: 26 square(s) (+1 new)" in result.output
+    assert "+ 'Some completely unrelated goal text'" in result.output
+    # unfixed -- there was nothing close enough in the reference to correct it against --
+    # so the match's own JSON is untouched, only the reference gained a new entry.
     [path] = list(json_dir.rglob(f"{extraction.video_id}.json"))
     unchanged = read_video(path)
     assert unchanged.games[0].square_texts[0][0] == "Some completely unrelated goal text"
+    updated = read_squares(squares_dir)
+    assert "Some completely unrelated goal text" in [s.text for s in updated[GameType.BASE]]
 
 
-def test_square_fix_errors_when_no_consolidated_squares_found(tmp_path):
+def test_square_consolidate_with_a_video_id_reports_no_changes(tmp_path):
     json_dir = tmp_path / "matches"
+    squares_dir = tmp_path / "squares"
     extraction = _sample_extraction()
     write_video(json_dir, extraction)
+    write_squares(
+        squares_dir,
+        {
+            GameType.BASE: [
+                Square(id=f"goal_{r}_{c}", text=f"goal {r}-{c}", game_type=GameType.BASE)
+                for r in range(5)
+                for c in range(5)
+            ],
+            GameType.DLC: [],
+        },
+    )
 
     result = CliRunner().invoke(
         app,
         [
             "square",
-            "fix",
+            "consolidate",
             extraction.video_id,
             "--json-dir",
             str(json_dir),
             "--squares-dir",
-            str(tmp_path / "squares"),
+            str(squares_dir),
         ],
     )
 
-    assert result.exit_code != 0
-    assert "square consolidate" in result.output
+    assert result.exit_code == 0, result.output
+    assert f"{extraction.video_id}: no changes" in result.output
 
 
-def test_square_fix_errors_on_unknown_video_id(tmp_path):
+def test_square_consolidate_errors_on_unknown_video_id(tmp_path):
     result = CliRunner().invoke(
-        app, ["square", "fix", "nonexistent", "--json-dir", str(tmp_path)]
+        app, ["square", "consolidate", "nonexistent", "--json-dir", str(tmp_path)]
     )
 
     assert result.exit_code != 0

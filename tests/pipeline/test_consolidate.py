@@ -4,7 +4,11 @@ import logging
 import pytest
 
 from scadustats.models import GameResult, GameType, MatchType, Square, VideoExtraction, WinType
-from scadustats.pipeline.consolidate import consolidate_squares, fix_square_texts, validate_squares
+from scadustats.pipeline.consolidate import (
+    consolidate_match_squares,
+    consolidate_squares,
+    validate_squares,
+)
 
 
 def _board(*texts: str) -> list[list[str]]:
@@ -155,120 +159,159 @@ def _known(*texts: str, game_type: GameType = GameType.BASE) -> dict[GameType, l
     }
 
 
-def test_fix_square_texts_corrects_a_dropped_letter():
+def test_consolidate_match_squares_corrects_a_dropped_letter():
     extraction = _extraction(
         _game(GameType.BASE, "Kill Tree Sentinel (imgrave) with a +0 Weapon Only")
     )
     known = _known("Kill Tree Sentinel (Limgrave) with a +0 Weapon Only")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert len(fixes) == 1
-    assert fixes[0].matched_text == "Kill Tree Sentinel (Limgrave) with a +0 Weapon Only"
+    assert len(changes) == 1
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == "Kill Tree Sentinel (Limgrave) with a +0 Weapon Only"
     assert extraction.games[0].square_texts[0][0] == (
         "Kill Tree Sentinel (Limgrave) with a +0 Weapon Only"
     )
 
 
-def test_fix_square_texts_corrects_a_stray_leading_token():
+def test_consolidate_match_squares_corrects_a_stray_leading_token():
     extraction = _extraction(_game(GameType.BASE, "x Kill Borealis"))
     known = _known("Kill Borealis")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes[0].matched_text == "Kill Borealis"
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == "Kill Borealis"
 
 
-def test_fix_square_texts_corrects_a_missing_apostrophe():
+def test_consolidate_match_squares_corrects_a_missing_apostrophe():
     extraction = _extraction(_game(GameType.BASE, "Restore Rykard s Great Rune"))
     known = _known("Restore Rykard's Great Rune")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes[0].matched_text == "Restore Rykard's Great Rune"
+    assert changes[0].resolved_text == "Restore Rykard's Great Rune"
 
 
-def test_fix_square_texts_corrects_a_letter_swap():
+def test_consolidate_match_squares_corrects_a_letter_swap():
     extraction = _extraction(
         _game(GameType.BASE, "Kilt 3 Friendly NPCs (No Hermit Merchants)")
     )
     known = _known("Kill 3 Friendly NPCs (No Hermit Merchants)")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes[0].matched_text == "Kill 3 Friendly NPCs (No Hermit Merchants)"
+    assert changes[0].resolved_text == "Kill 3 Friendly NPCs (No Hermit Merchants)"
 
 
-def test_fix_square_texts_corrects_a_missing_space():
+def test_consolidate_match_squares_corrects_a_missing_space():
     extraction = _extraction(_game(GameType.BASE, "Killa Death Knight"))
     known = _known("Kill a Death Knight")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes[0].matched_text == "Kill a Death Knight"
+    assert changes[0].resolved_text == "Kill a Death Knight"
 
 
-def test_fix_square_texts_leaves_an_exact_match_unreported():
+def test_consolidate_match_squares_leaves_an_exact_match_unreported():
     extraction = _extraction(_game(GameType.BASE, "Kill Wormface"))
     known = _known("Kill Wormface")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes == []
+    assert changes == []
 
 
-def test_fix_square_texts_refuses_to_change_a_goal_count():
+def test_consolidate_match_squares_adds_rather_than_changes_a_different_goal_count():
     """"Kill 3 Friendly NPCs" and "Kill 5 Friendly NPCs" can both be real, distinct
     squares -- a wrong digit shouldn't be "fixed" just because the rest of the wording is
-    a close textual match."""
+    a close textual match, so this is filed as its own new square instead."""
     extraction = _extraction(_game(GameType.BASE, "Kill 3 Friendly NPCs (No Hermit Merchants)"))
     known = _known("Kill 5 Friendly NPCs (No Hermit Merchants)")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes[0].matched_text is None
-    assert not fixes[0].resolved
+    assert changes[0].is_new
+    assert changes[0].resolved_text == "Kill 3 Friendly NPCs (No Hermit Merchants)"
     assert extraction.games[0].square_texts[0][0] == "Kill 3 Friendly NPCs (No Hermit Merchants)"
+    assert known[GameType.BASE][-1].text == "Kill 3 Friendly NPCs (No Hermit Merchants)"
 
 
-def test_fix_square_texts_reports_but_does_not_touch_an_unmatched_square():
+def test_consolidate_match_squares_adds_an_unmatched_square_to_the_reference():
     extraction = _extraction(_game(GameType.BASE, "Some completely unrelated goal text"))
     known = _known("Kill Wormface")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert len(fixes) == 1
-    assert fixes[0].original_text == "Some completely unrelated goal text"
-    assert fixes[0].matched_text is None
+    assert len(changes) == 1
+    assert changes[0].original_text == "Some completely unrelated goal text"
+    assert changes[0].is_new
+    assert changes[0].game_type is GameType.BASE
     assert extraction.games[0].square_texts[0][0] == "Some completely unrelated goal text"
+    added = known[GameType.BASE][-1]
+    assert added.text == "Some completely unrelated goal text"
+    assert added.game_type is GameType.BASE
+    assert added.id
 
 
-def test_fix_square_texts_skips_games_with_no_resolved_game_type():
+def test_consolidate_match_squares_assigns_a_slug_id_to_a_new_square():
+    extraction = _extraction(_game(GameType.BASE, "Complete 3 Tunnels or Precipices"))
+    known = _known()
+
+    consolidate_match_squares(extraction, known)
+
+    assert known[GameType.BASE][-1].id == "tunnels_3"
+
+
+def test_consolidate_match_squares_disambiguates_a_new_squares_id_against_the_reference():
+    """The new square's own text ("Kill 3 Wolves of the Forest", no relation to the
+    unrelated placeholder already on file) is nothing like the existing entry's, so this
+    is squarely an ADD, not a fuzzy-matched FIX -- but it still slugifies to the same id
+    ("wolves_3") the existing entry was hand-assigned, which _unique_id must notice."""
+    extraction = _extraction(_game(GameType.BASE, "Kill 3 Wolves of the Forest"))
+    known = _known("Totally unrelated placeholder text")
+    known[GameType.BASE][0].id = "wolves_3"
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert changes[0].is_new
+    assert known[GameType.BASE][-1].id == "wolves_3_2"
+
+
+def test_consolidate_match_squares_skips_games_with_no_resolved_game_type():
     extraction = _extraction(_game(None, "x Kill Borealis"))
     known = _known("Kill Borealis")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes == []
+    assert changes == []
     assert extraction.games[0].square_texts[0][0] == "x Kill Borealis"
+    assert known[GameType.BASE] == [
+        Square(id="id_0", text="Kill Borealis", game_type=GameType.BASE)
+    ]
 
 
-def test_fix_square_texts_skips_blank_cells():
+def test_consolidate_match_squares_skips_blank_cells():
     extraction = _extraction(_game(GameType.BASE, "Kill Wormface"))
     known = _known("Kill Wormface", "Kill Borealis")
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes == []
+    assert changes == []
 
 
-def test_fix_square_texts_only_matches_within_the_games_own_game_type_pool():
+def test_consolidate_match_squares_only_matches_within_the_games_own_game_type_pool():
     """A BASE game's squares are never checked against the DLC pool (or vice versa) --
-    a board's squares are drawn from one pool, not a mix (see squares.infer_game_type)."""
-    extraction = _extraction(_game(GameType.BASE, "x Kill Borealis"))
+    a board's squares are drawn from one pool, not a mix (see squares.infer_game_type).
+    An unmatched square is added to its own game type's pool, not the other one's."""
+    extraction = _extraction(_game(GameType.BASE, "Kill Borealis"))
     known = _known("Kill Borealis", game_type=GameType.DLC)
 
-    fixes = fix_square_texts(extraction, known)
+    changes = consolidate_match_squares(extraction, known)
 
-    assert fixes == []
-    assert extraction.games[0].square_texts[0][0] == "x Kill Borealis"
+    assert changes[0].is_new
+    assert known[GameType.BASE] == [
+        Square(id="borealis", text="Kill Borealis", game_type=GameType.BASE)
+    ]
+    assert known[GameType.DLC] == [Square(id="id_0", text="Kill Borealis", game_type=GameType.DLC)]

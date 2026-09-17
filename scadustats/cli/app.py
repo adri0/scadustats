@@ -12,7 +12,11 @@ import typer
 
 from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import GameResult, GameType, MatchMetadata, MatchType, VideoExtraction
-from scadustats.pipeline.consolidate import consolidate_squares, fix_square_texts, validate_squares
+from scadustats.pipeline.consolidate import (
+    consolidate_match_squares,
+    consolidate_squares,
+    validate_squares,
+)
 from scadustats.pipeline.extract import estimate_sample_count, extract_video
 from scadustats.rules.validation import validate_extraction
 from scadustats.storage.db import load_json_dir
@@ -635,22 +639,83 @@ app.add_typer(square_app, name="square")
 
 @square_app.command("consolidate")
 def square_consolidate(
+    video_id: Annotated[
+        str | None,
+        typer.Argument(
+            help="video_id to reconcile against the reference, as printed by `match "
+            "list` (omitted rebuilds the whole reference from every match in json_dir)"
+        ),
+    ] = None,
     json_dir: Annotated[
         Path, typer.Option(help="Directory of JSON files written by `extract`")
     ] = Path("matches"),
     squares_dir: Annotated[
         Path,
-        typer.Option(help="Directory to write base_game.json and dlc.json into"),
+        typer.Option(help="Directory to read/write base_game.json and dlc.json"),
     ] = Path("squares"),
 ) -> None:
-    """Rebuild squares_dir/base_game.json and squares_dir/dlc.json from every match in
-    json_dir: every distinct goal square text seen, split by the game type it belongs to
-    and tagged with a short id.
+    """Build or grow the consolidated goal-square reference (issue #76).
 
-    Wholly regenerated each run from the current match history -- not something to
-    hand-edit and expect preserved across a re-run. A game with no resolved game_type
-    contributes nothing, since there's no pool to file its squares under.
+    Given no video_id, rebuilds squares_dir/base_game.json and squares_dir/dlc.json from
+    every match in json_dir: every distinct goal square text seen, split by the game type
+    it belongs to and tagged with a short id. Wholly regenerated each run from the current
+    match history -- not something to hand-edit and expect preserved across a re-run.
+
+    Given a video_id, instead reconciles just that one match against the reference
+    already on disk: a square whose OCR'd text is close to one the reference already
+    knows is corrected to match it (and the match's JSON is rewritten), while a square
+    the reference has never seen is added to it -- the same end effect on the reference
+    that including this match in a from-scratch run above would have had. A game with no
+    resolved game_type contributes nothing either way, since there's no pool to file (or
+    check) its squares against. Every newly added square is listed under whichever
+    base_game.json/dlc.json it landed in, so it's clear at a glance what just grew the
+    reference.
     """
+    if video_id is not None:
+        path = _match_path(json_dir, video_id)
+        extraction = read_video(path)
+        known_squares = read_squares(squares_dir)
+
+        changes = consolidate_match_squares(extraction, known_squares)
+        if not changes:
+            typer.echo(f"{video_id}: no changes")
+            return
+
+        for change in changes:
+            scope = f"game {change.game_index} [{change.row},{change.col}]"
+            if change.is_new:
+                typer.echo(f"{scope}: {change.original_text!r} -- new, added to reference")
+            else:
+                typer.echo(
+                    f"{scope}: {change.original_text!r} -> {change.resolved_text!r} "
+                    f"({change.ratio:.0%})"
+                )
+
+        fixed = sum(not change.is_new for change in changes)
+        added = sum(change.is_new for change in changes)
+        if fixed:
+            write_video(json_dir, extraction, if_exists="replace")
+        if added:
+            for game_squares in known_squares.values():
+                validate_squares(game_squares)
+
+            added_by_type: dict[GameType, list] = {}
+            for change in changes:
+                if change.is_new:
+                    added_by_type.setdefault(change.game_type, []).append(change)
+
+            paths = write_squares(squares_dir, known_squares)
+            typer.echo()
+            for game_type, written_path in paths.items():
+                new_for_type = added_by_type.get(game_type, [])
+                suffix = f" (+{len(new_for_type)} new)" if new_for_type else ""
+                typer.echo(f"{written_path}: {len(known_squares[game_type])} square(s){suffix}")
+                for change in new_for_type:
+                    typer.echo(f"  + {change.resolved_text!r}")
+
+        typer.echo(f"\n{video_id}: {fixed} square(s) fixed, {added} square(s) added")
+        return
+
     extractions = _read_matches(json_dir)
     if not extractions:
         typer.echo(f"No matches found in {json_dir}")
@@ -663,59 +728,6 @@ def square_consolidate(
     paths = write_squares(squares_dir, squares)
     for game_type, path in paths.items():
         typer.echo(f"{path}: {len(squares[game_type])} square(s)")
-
-
-@square_app.command("fix")
-def square_fix(
-    video_id: Annotated[str, typer.Argument(help="video_id to fix, as printed by `match list`")],
-    json_dir: Annotated[
-        Path, typer.Option(help="Directory of JSON files written by `extract`")
-    ] = Path("matches"),
-    squares_dir: Annotated[
-        Path,
-        typer.Option(
-            help="Directory holding base_game.json/dlc.json, as written by `square consolidate`"
-        ),
-    ] = Path("squares"),
-) -> None:
-    """Correct OCR misreads in one match's goal-square text against the consolidated
-    reference built by `square consolidate` (issue #76).
-
-    Every square not already an exact match in its game's reference pool is fuzzy-matched
-    against it; a close enough match replaces the OCR'd text and the corrected match is
-    written back to json_dir. A square nothing in the reference comes close to is left
-    untouched and reported anyway, so a contributor knows to look at it rather than
-    finding out silently later -- guessing wrong here would corrupt a hand-reviewable
-    file.
-    """
-    path = _match_path(json_dir, video_id)
-    extraction = read_video(path)
-    known_squares = read_squares(squares_dir)
-    if not any(known_squares.values()):
-        typer.echo(
-            f"No consolidated squares found in {squares_dir} -- run `square consolidate` first"
-        )
-        raise typer.Exit(1)
-
-    fixes = fix_square_texts(extraction, known_squares)
-    resolved = [fix for fix in fixes if fix.resolved]
-    unresolved = [fix for fix in fixes if not fix.resolved]
-
-    for fix in fixes:
-        scope = f"game {fix.game_index} [{fix.row},{fix.col}]"
-        if fix.resolved:
-            typer.echo(f"{scope}: {fix.original_text!r} -> {fix.matched_text!r} ({fix.ratio:.0%})")
-        else:
-            typer.echo(f"{scope}: {fix.original_text!r} -- no close match, left as-is")
-
-    if not resolved:
-        typer.echo(f"\n{video_id}: no fixes applied")
-        return
-
-    write_video(json_dir, extraction, if_exists="replace")
-    typer.echo(f"\n{video_id}: {len(resolved)} square(s) fixed in {path}")
-    if unresolved:
-        typer.echo(f"{len(unresolved)} square(s) left unresolved")
 
 
 def main() -> None:
