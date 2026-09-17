@@ -7,7 +7,7 @@ escaped JSON string.
 
 Unlike a match file, a player file mixes fields `player consolidate` wholly regenerates
 every run (slug, display_name, the win/loss records, all_matches, top squares) with a
-few it never sets at all (twitch_url, avatar, bio) and one it sets once and never touches
+few it never sets at all (twitch, avatar, bio) and one it sets once and never touches
 again (id) -- read_players is what lets a re-run recover those three from the file
 already on disk instead of overwriting them with nothing (see
 pipeline.consolidate.consolidate_players's `existing` parameter and cli.app.
@@ -15,6 +15,7 @@ player_consolidate).
 """
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -54,7 +55,7 @@ def _profile_to_dict(profile: PlayerProfile) -> dict:
         "id": profile.id,
         "slug": profile.slug,
         "display_name": profile.display_name,
-        "twitch_url": profile.twitch_url,
+        "twitch": profile.twitch,
         "avatar": profile.avatar,
         "bio": profile.bio,
         "season_records": {
@@ -81,7 +82,7 @@ def write_player(players_dir: str | Path, profile: PlayerProfile) -> Path:
     creating players_dir if it doesn't exist yet. Unconditionally overwrites, the same as
     write_squares -- every regenerated field is wholly replaced by this run's
     consolidate_players output; only the caller's use of read_players beforehand (see
-    consolidate_players's `existing` parameter) is what carries id/twitch_url/avatar/bio
+    consolidate_players's `existing` parameter) is what carries id/twitch/avatar/bio
     forward across that replacement.
 
     Field order in the written file follows models.PlayerProfile's own declaration order
@@ -109,12 +110,23 @@ def _dict_to_square_marks(entry: dict | str) -> SquareMarks:
     return SquareMarks(**entry)
 
 
+def _twitch_handle(data: dict) -> str | None:
+    """The `twitch` field, or -- for a file written before the field held just the
+    handle -- the handle recovered from a legacy `twitch_url` full URL (e.g.
+    "https://www.twitch.tv/blanxz" -> "blanxz"), so a handle already filled in by hand
+    under the old field name isn't silently dropped by this rename."""
+    if "twitch" in data:
+        return data["twitch"]
+    legacy_url = data.get("twitch_url")
+    return urlparse(legacy_url).path.strip("/") or None if legacy_url else None
+
+
 def _dict_to_profile(data: dict) -> PlayerProfile:
     return PlayerProfile(
         id=data["id"],
         slug=data["slug"],
         display_name=data["display_name"],
-        twitch_url=data.get("twitch_url"),
+        twitch=_twitch_handle(data),
         avatar=data.get("avatar"),
         bio=data.get("bio"),
         season_records={

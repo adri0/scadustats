@@ -9,7 +9,7 @@ def _profile(**overrides) -> PlayerProfile:
         id=1,
         slug="alice",
         display_name="alice",
-        twitch_url="https://twitch.tv/alice",
+        twitch="alice",
         avatar="alice.png",
         bio="hand-written bio",
         season_records={"6": MatchRecord(wins=2, losses=1, draws=1)},
@@ -51,12 +51,12 @@ def test_read_player_round_trips_every_field(tmp_path):
 
 
 def test_read_player_round_trips_manual_fields_left_blank(tmp_path):
-    profile = _profile(twitch_url=None, avatar=None, bio=None)
+    profile = _profile(twitch=None, avatar=None, bio=None)
     path = write_player(tmp_path, profile)
 
     result = read_player(path)
 
-    assert result.twitch_url is None
+    assert result.twitch is None
     assert result.avatar is None
     assert result.bio is None
 
@@ -100,6 +100,29 @@ def test_read_player_treats_a_plain_text_top_square_as_an_unknown_mark_count(tmp
     result = read_player(path)
 
     assert result.top_squares_base_game == [SquareMarks(text="Kill Wormface", marks=0)]
+
+
+def test_read_player_recovers_a_handle_from_a_legacy_twitch_url(tmp_path):
+    """A file written before `twitch` held just the handle has a `twitch_url` full URL
+    instead -- a handle already filled in by hand under the old field name shouldn't be
+    silently dropped by the rename."""
+    path = write_player(tmp_path, _profile(twitch=None))
+    data = yaml.safe_load(path.read_text())
+    del data["twitch"]
+    data["twitch_url"] = "https://www.twitch.tv/blanxz"
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+
+    assert read_player(path).twitch == "blanxz"
+
+
+def test_read_player_treats_a_blank_legacy_twitch_url_as_no_handle(tmp_path):
+    path = write_player(tmp_path, _profile(twitch=None))
+    data = yaml.safe_load(path.read_text())
+    del data["twitch"]
+    data["twitch_url"] = None
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+
+    assert read_player(path).twitch is None
 
 
 def test_read_players_keys_by_slug(tmp_path):

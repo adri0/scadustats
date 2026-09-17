@@ -764,7 +764,7 @@ def player_consolidate(
     slug/display_name and every tallied field are wholly regenerated from the current
     match history each run -- not something to hand-edit and expect preserved across a
     re-run. id is assigned once, the first time a player is seen, and kept stable after
-    that; twitch_url/avatar/bio are never set by this command at all -- fill those in by
+    that; twitch/avatar/bio are never set by this command at all -- fill those in by
     hand in the player's YAML file, and both they and id survive every later re-run.
     """
     extractions = _read_matches(data_dir)

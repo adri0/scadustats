@@ -322,8 +322,8 @@ class PlayerProfile:
     top_squares_base_game/top_squares_dlc are wholly regenerated from match history on
     every `player consolidate` run, the same as pipeline.consolidate.consolidate_squares'
     output -- none of them is meant to be hand-edited and expected to survive a re-run.
-    id/twitch_url/avatar/bio are the exception: id is assigned once, the first time a
-    player is seen, and kept stable across every later re-run, and twitch_url/avatar/bio
+    id/twitch/avatar/bio are the exception: id is assigned once, the first time a
+    player is seen, and kept stable across every later re-run, and twitch/avatar/bio
     are never set by the tool at all -- they're filled in by hand and preserved the same
     way (see storage.player_export.read_players).
     """
@@ -337,7 +337,9 @@ class PlayerProfile:
     # The exact spelling seen most often across this player's matches -- see
     # consolidate_players.
     display_name: str
-    twitch_url: str | None = None
+    # Just the handle (e.g. "twistiet"), not the full https://twitch.tv/... URL -- filled
+    # in by hand, like avatar/bio below.
+    twitch: str | None = None
     avatar: str | None = None
     bio: str | None = None
     season_records: dict[str, MatchRecord] = field(default_factory=dict)

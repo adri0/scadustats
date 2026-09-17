@@ -561,7 +561,7 @@ def test_consolidate_players_preserves_manual_fields_from_existing_profile():
             id=7,
             slug="alice",
             display_name="alice",
-            twitch_url="https://twitch.tv/alice",
+            twitch="alice",
             avatar="alice.png",
             bio="hand-written bio",
         )
@@ -571,7 +571,7 @@ def test_consolidate_players_preserves_manual_fields_from_existing_profile():
     profiles = consolidate_players([extraction], existing=existing)
 
     assert profiles["alice"].id == 7
-    assert profiles["alice"].twitch_url == "https://twitch.tv/alice"
+    assert profiles["alice"].twitch == "alice"
     assert profiles["alice"].avatar == "alice.png"
     assert profiles["alice"].bio == "hand-written bio"
 

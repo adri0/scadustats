@@ -1346,7 +1346,7 @@ def test_player_consolidate_preserves_hand_filled_fields_across_a_rerun(tmp_path
     write_video(data_dir, _sample_extraction())
     write_player(
         players_dir,
-        PlayerProfile(id=42, slug="alice", display_name="alice", twitch_url="https://twitch.tv/alice"),
+        PlayerProfile(id=42, slug="alice", display_name="alice", twitch="alice"),
     )
 
     result = CliRunner().invoke(
@@ -1356,7 +1356,7 @@ def test_player_consolidate_preserves_hand_filled_fields_across_a_rerun(tmp_path
     assert result.exit_code == 0, result.output
     updated = read_player(player_path(players_dir, "alice"))
     assert updated.id == 42
-    assert updated.twitch_url == "https://twitch.tv/alice"
+    assert updated.twitch == "alice"
 
 
 def test_player_consolidate_reflects_current_match_history(tmp_path):

@@ -390,7 +390,7 @@ def consolidate_players(
 
     `existing` (storage.player_export.read_players' output) carries forward the one thing
     that can't be recomputed from match history -- id -- plus the fields the tool never
-    fills in at all (twitch_url/avatar/bio); a slug not already in `existing` is a new
+    fills in at all (twitch/avatar/bio); a slug not already in `existing` is a new
     player, assigned the next id after whatever's already in use (1 if `existing` is
     empty). Everything else here is wholly regenerated from `extractions` every call, the
     same as consolidate_squares.
@@ -467,10 +467,10 @@ def consolidate_players(
         prior = existing.get(slug)
         if prior is not None:
             player_id = prior.id
-            twitch_url, avatar, bio = prior.twitch_url, prior.avatar, prior.bio
+            twitch, avatar, bio = prior.twitch, prior.avatar, prior.bio
         else:
             player_id, next_id = next_id, next_id + 1
-            twitch_url = avatar = bio = None
+            twitch = avatar = bio = None
 
         ordered_matches = sorted(all_matches[slug], key=lambda pair: pair[0], reverse=True)
 
@@ -478,7 +478,7 @@ def consolidate_players(
             id=player_id,
             slug=slug,
             display_name=name_votes[slug].most_common(1)[0][0],
-            twitch_url=twitch_url,
+            twitch=twitch,
             avatar=avatar,
             bio=bio,
             season_records=season_records.get(slug, {}),
