@@ -293,7 +293,9 @@ def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
     squares_dir/dlc.json back into the Square lists they were serialized from. A missing
     file -- squares_dir hasn't had `square consolidate` run against it yet -- contributes
     an empty list for that game type rather than raising, the same "ships empty" tolerance
-    squares.json used to have (issue #75).
+    squares.json used to have (issue #75). This is also what
+    pipeline.consolidate.consolidate_match_squares uses to match a match's own OCR'd
+    square_texts against (issue #76).
     """
     squares: dict[GameType, list[Square]] = {}
     for game_type in GameType:

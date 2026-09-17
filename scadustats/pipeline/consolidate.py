@@ -5,11 +5,19 @@ from already-extracted matches (see storage.json_export) -- the source data for
 (`square consolidate`), not something the extraction pipeline itself calls; pipeline.
 squares.py reads its output back (via storage.json_export.read_squares) as
 extract_video's fallback for inferring a game's type.
+
+consolidate_match_squares runs that same reference the other direction, scoped to one
+already-extracted match (`square consolidate <video_id>`, issue #76): it corrects that
+match's own OCR'd square_texts against whatever the reference already knows, and grows
+the reference with whatever it doesn't -- the same end effect on squares/ that including
+this match in a from-scratch consolidate_squares run would have had.
 """
 
+import difflib
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass
 
 from scadustats.models import GameType, Square, VideoExtraction
 
@@ -166,3 +174,147 @@ def validate_squares(squares: list[Square]) -> None:
     duplicate_texts = sorted(text for text, count in text_counts.items() if count > 1)
     if duplicate_texts:
         raise ValueError(f"duplicate square text(s): {', '.join(duplicate_texts)}")
+
+
+# Below this, a candidate is treated as a genuinely different square rather than an OCR
+# misread of one already in the reference -- see consolidate_match_squares. Calibrated
+# against real OCR failures logged in issue #76 (a dropped/swapped letter, a stray
+# leading token, a missing apostrophe: "Kilt 3 Friendly NPCs..." vs. "Kill 3 Friendly
+# NPCs...", 0.976), which all land well above this, and against two real, *distinct*
+# squares that happen to share most of their wording ("Kill a Crystalian" vs. "Kill a
+# Crucible Knight", 0.513), which lands well below it.
+_FUZZY_MATCH_CUTOFF = 0.85
+
+_NUMBER_RE = re.compile(r"\d+")
+
+
+@dataclass
+class SquareTextChange:
+    """One cell of a match's square_texts that consolidate_match_squares looked at
+    because its text wasn't already an exact match in its game's reference pool.
+
+    A FIX (is_new=False) corrects an OCR misread against an existing reference entry --
+    resolved_text is that entry's text, and ratio records how close the match was. An ADD
+    (is_new=True, ratio=None) is a square the reference had never seen before, appended to
+    it rather than silently dropped -- resolved_text is just original_text unchanged.
+
+    game_type is carried alongside game_index/row/col rather than left for a caller to
+    re-derive from the match -- a CLI reporting which squares.json file an ADD landed in
+    (issue #76) needs exactly this and nothing else about the game."""
+
+    game_index: int
+    # 1-based, matching GameEvent.row/col and the squares DB table -- see CLAUDE.md.
+    row: int
+    col: int
+    original_text: str
+    resolved_text: str
+    is_new: bool
+    ratio: float | None
+    game_type: GameType
+
+
+def _best_match(text: str, candidates: list[str]) -> tuple[str, float] | None:
+    """The candidate text closest to `text`, or None if nothing clears
+    _FUZZY_MATCH_CUTOFF -- meaning `text` should be treated as its own, new square rather
+    than a misread of one of these candidates.
+
+    A candidate whose goal-count digits ("Kill 3 ...") disagree with text's own is never
+    considered, however similar the surrounding wording is -- "Kill 3 Friendly NPCs" and
+    "Kill 5 Friendly NPCs" can both be real, distinct squares, and a wrong digit is
+    exactly the kind of high-similarity-looking mismatch text similarity alone can't tell
+    apart from an OCR typo. If text has digits and no candidate shares them, there's
+    nothing safe to match against, full stop -- unlike a stray letter, silently changing
+    a goal's count is the one class of "fix" worth refusing outright.
+    """
+    numbers = _NUMBER_RE.findall(text)
+    pool = [c for c in candidates if _NUMBER_RE.findall(c) == numbers] if numbers else candidates
+    if not pool:
+        return None
+
+    matches = difflib.get_close_matches(text, pool, n=1, cutoff=_FUZZY_MATCH_CUTOFF)
+    if not matches:
+        return None
+    match = matches[0]
+    return match, difflib.SequenceMatcher(None, text, match).ratio()
+
+
+def consolidate_match_squares(
+    extraction: VideoExtraction, known_squares: dict[GameType, list[Square]]
+) -> list[SquareTextChange]:
+    """Reconciles one already-extracted match's own square_texts against the
+    consolidated reference (known_squares, storage.json_export.read_squares' output) --
+    the video_id-scoped form of `square consolidate` (issue #76), as opposed to
+    consolidate_squares' from-scratch rebuild across every match.
+
+    A cell whose text is already an exact match in its game's pool needs nothing and
+    isn't reported. Anything else is one of two things: an OCR misread of a square the
+    reference already knows (fuzzy-matched via _best_match and corrected in place on
+    `extraction`, mutating game.square_texts -- the same object the caller goes on to
+    write back with json_export.write_video), or a square the reference has never seen,
+    appended to `known_squares` (mutated in place, the same object the caller goes on to
+    write back with json_export.write_squares) with a freshly assigned id -- the same
+    _slugify/_unique_id scheme consolidate_squares itself uses, so a squares file grown
+    one match at a time this way ids its entries exactly as a from-scratch
+    consolidate_squares run would. That's also why a genuinely new square is added at all
+    rather than left unresolved the way an unmatched cell used to be: doing so gives this
+    one-match path the same end effect on the reference that including this match in a
+    full consolidate run would have had.
+
+    A game with no resolved game_type is skipped entirely, like consolidate_squares
+    itself -- there's no pool to check or add its squares to.
+    """
+    changes: list[SquareTextChange] = []
+    used_ids = {
+        game_type: {square.id for square in squares} for game_type, squares in known_squares.items()
+    }
+
+    for game in extraction.games:
+        if game.game_type is None:
+            continue
+        pool = known_squares.setdefault(game.game_type, [])
+        used = used_ids.setdefault(game.game_type, set())
+        candidates = [square.text for square in pool]
+        candidate_set = set(candidates)
+
+        for row_index, row in enumerate(game.square_texts):
+            for col_index, text in enumerate(row):
+                if not text or text in candidate_set:
+                    continue
+
+                match = _best_match(text, candidates)
+                if match is not None:
+                    matched_text, ratio = match
+                    game.square_texts[row_index][col_index] = matched_text
+                    changes.append(
+                        SquareTextChange(
+                            game_index=game.game_index,
+                            row=row_index + 1,
+                            col=col_index + 1,
+                            original_text=text,
+                            resolved_text=matched_text,
+                            is_new=False,
+                            ratio=ratio,
+                            game_type=game.game_type,
+                        )
+                    )
+                    continue
+
+                square_id = _unique_id(_slugify(text), used)
+                used.add(square_id)
+                pool.append(Square(id=square_id, text=text, game_type=game.game_type))
+                candidates.append(text)
+                candidate_set.add(text)
+                changes.append(
+                    SquareTextChange(
+                        game_index=game.game_index,
+                        row=row_index + 1,
+                        col=col_index + 1,
+                        original_text=text,
+                        resolved_text=text,
+                        is_new=True,
+                        ratio=None,
+                        game_type=game.game_type,
+                    )
+                )
+
+    return changes

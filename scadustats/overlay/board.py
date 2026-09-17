@@ -12,10 +12,10 @@ from scadustats.overlay import layout, ocr
 
 # Tesseract's PSM 6 reads square text as multiple lines wrapped to the cell width; only
 # letters, digits, spaces, apostrophes (e.g. "Rennala's"), periods (e.g. "Mt. Gelmir"),
-# parentheses (e.g. "(Volcano Manor)"), and "+" (e.g. "+0 Weapon Only") are meaningful
-# goal text, so anything else (line breaks, stray punctuation from OCR noise) is stripped
-# rather than kept as literal output.
-_NON_ALPHANUMERIC_SPACE = re.compile(r"[^A-Za-z0-9 '.()+]+")
+# parentheses (e.g. "(Volcano Manor)"), "+" (e.g. "+0 Weapon Only"), double-quotes, "/",
+# square brackets, ":", ";", "-", and "," are meaningful goal text, so anything else (line
+# breaks, stray punctuation from OCR noise) is stripped rather than kept as literal output.
+_NON_ALPHANUMERIC_SPACE = re.compile(r'[^A-Za-z0-9 \'.()+"/\[\]:;,-]+')
 
 
 def _sanitize_square_text(text: str) -> str:
