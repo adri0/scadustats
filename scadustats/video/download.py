@@ -35,14 +35,14 @@ def download_video(
     url: str,
     output_dir: str | Path = "downloads",
     timeout: float | None = None,
-    cookies_file: str | Path | None = None,
+    cookies: str | Path | None = None,
 ) -> DownloadResult:
     """Download the best video-only (no audio) stream up to 720p.
 
     `timeout` (seconds) bounds the yt-dlp subprocess; by default there is none,
     since real match videos can legitimately take a long time to download.
 
-    `cookies_file`, when given, is passed through as yt-dlp's `--cookies` (a
+    `cookies`, when given, is passed through as yt-dlp's `--cookies` (a
     Netscape-format cookies.txt, e.g. exported from a browser) -- YouTube sometimes
     throttles/bot-detects anonymous requests, and authenticating this way is yt-dlp's
     own documented workaround rather than something this project reimplements.
@@ -61,7 +61,7 @@ def download_video(
 
     outtmpl = str(output_dir / "%(id)s.%(ext)s")
     with tempfile.NamedTemporaryFile(mode="r+") as info_file:
-        cookies_args = ["--cookies", str(cookies_file)] if cookies_file else []
+        cookies_args = ["--cookies", str(cookies)] if cookies else []
         subprocess.run(
             [
                 "yt-dlp",

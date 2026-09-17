@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ejs = [
-    "yt-dlp-ejs",
+    "yt-dlp-ejs", # Potentially necessary if YT download fails
 ]
 
 [project.scripts]

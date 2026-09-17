@@ -78,7 +78,7 @@ def test_download_video_returns_none_published_date_when_yt_dlp_has_none(tmp_pat
     assert result.published_at is None
 
 
-def test_download_video_passes_cookies_file_to_yt_dlp(tmp_path, monkeypatch):
+def test_download_video_passes_cookies_to_yt_dlp(tmp_path, monkeypatch):
     _install_fake_yt_dlp(
         tmp_path,
         monkeypatch,
@@ -94,10 +94,10 @@ def test_download_video_passes_cookies_file_to_yt_dlp(tmp_path, monkeypatch):
             assert f.read() == "fake cookie jar"
         """,
     )
-    cookies_file = tmp_path / "cookies.txt"
-    cookies_file.write_text("fake cookie jar")
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("fake cookie jar")
 
-    result = download_video(VIDEO_URL, output_dir=tmp_path / "out", cookies_file=cookies_file)
+    result = download_video(VIDEO_URL, output_dir=tmp_path / "out", cookies=cookies)
 
     assert result.path == tmp_path / "out" / "fake.mp4"
 

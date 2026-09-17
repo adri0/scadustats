@@ -164,7 +164,7 @@ def download(
         Path,
         typer.Option("-o", "--output-dir", help="Directory to save the video to"),
     ] = Path("downloads"),
-    cookies_file: Annotated[
+    cookies: Annotated[
         Path | None,
         typer.Option(
             help="Netscape-format cookies.txt (e.g. exported from a browser) to pass "
@@ -173,7 +173,7 @@ def download(
     ] = None,
 ) -> None:
     """Download a YouTube video."""
-    result = download_video(url, output_dir=output_dir, cookies_file=cookies_file)
+    result = download_video(url, output_dir=output_dir, cookies=cookies)
     print(result.path)
 
 
@@ -237,7 +237,7 @@ def extract(
             "either way)"
         ),
     ] = False,
-    cookies_file: Annotated[
+    cookies: Annotated[
         Path | None,
         typer.Option(
             help="Netscape-format cookies.txt (e.g. exported from a browser) to pass "
@@ -301,7 +301,7 @@ def extract(
             video_url = video_path_or_url
         typer.echo(f"Downloading {video_path_or_url}...")
         download_result = download_video(
-            video_path_or_url, output_dir=download_dir, cookies_file=cookies_file
+            video_path_or_url, output_dir=download_dir, cookies=cookies
         )
         video_path = download_result.path
         published_at = download_result.published_at

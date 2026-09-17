@@ -393,7 +393,7 @@ def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies_file=None: DownloadResult(
+        lambda url, output_dir, cookies=None: DownloadResult(
             path=downloaded, published_at=None
         ),
     )
@@ -421,7 +421,7 @@ def test_extract_keeps_downloaded_video_on_success_with_keep_video_flag(tmp_path
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies_file=None: DownloadResult(
+        lambda url, output_dir, cookies=None: DownloadResult(
             path=downloaded, published_at=None
         ),
     )
@@ -452,7 +452,7 @@ def test_extract_keeps_downloaded_video_on_failure_with_keep_video_flag_without_
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies_file=None: DownloadResult(
+        lambda url, output_dir, cookies=None: DownloadResult(
             path=downloaded, published_at=None
         ),
     )
@@ -507,7 +507,7 @@ def test_extract_deletes_downloaded_video_when_extraction_fails_and_confirmed(
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies_file=None: DownloadResult(
+        lambda url, output_dir, cookies=None: DownloadResult(
             path=downloaded, published_at=None
         ),
     )
@@ -534,7 +534,7 @@ def test_extract_keeps_downloaded_video_when_extraction_fails_and_declined(tmp_p
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies_file=None: DownloadResult(
+        lambda url, output_dir, cookies=None: DownloadResult(
             path=downloaded, published_at=None
         ),
     )
@@ -570,7 +570,7 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies_file=None: DownloadResult(
+        lambda url, output_dir, cookies=None: DownloadResult(
             path=downloaded, published_at=None
         ),
     )
@@ -660,7 +660,7 @@ def test_extract_passes_the_downloaded_published_date_through_to_extract_video(
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies_file=None: DownloadResult(
+        lambda url, output_dir, cookies=None: DownloadResult(
             path=downloaded, published_at=datetime.date(2026, 2, 20)
         ),
     )
