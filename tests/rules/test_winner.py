@@ -101,10 +101,9 @@ def test_no_winner_mid_game():
     assert determine_winner(board) == (None, WinType.NONE, None)
 
 
-def test_majority_winner_when_all_lines_blocked():
-    # A red cell plus one blue permutation cell (touching every row/column, and the
-    # center cell covering both diagonals) in every line, so no line can still be
-    # completed by one color; red holds more squares overall (20 vs 5).
+def test_majority_winner_when_unbeatable():
+    # Red holds 20 of 25 squares -- blue couldn't catch up even by claiming every one of
+    # the remaining 5, so the majority is already settled.
     board = _board(
         [R, B, R, R, R],
         [B, R, R, R, R],
@@ -118,9 +117,13 @@ def test_majority_winner_when_all_lines_blocked():
     assert determine_winner(board) == (CellColor.RED, WinType.MAJORITY, None)
 
 
-def test_tie_when_blocked_and_equal():
-    # Every line still has both colors present (blocked), with an equal 12/12 split
-    # and one square left unclaimed (25 is odd, so an exact split needs one gap).
+def test_no_winner_when_a_line_is_blocked_but_the_majority_could_still_flip():
+    # Every line already holds both colors, but the 12/12 split still has one square
+    # unclaimed (25 is odd, so an exact split needs one gap) -- whichever color claims
+    # it takes an unbeatable 13/12 majority, so the result isn't settled yet even though
+    # no line can still be completed by either color. Blocking every line used to be
+    # treated as "the majority is decided" (see winner._majority_settled), which is a
+    # different -- and looser -- question than whether the count itself is unbeatable.
     board = _board(
         [B, B, U, R, R],
         [B, R, R, R, R],
@@ -130,7 +133,27 @@ def test_tie_when_blocked_and_equal():
     )
     assert winning_line(board) is None
     assert majority_winner(board) is None
-    assert determine_winner(board) == (None, WinType.TIE, None)
+    assert determine_winner(board) == (None, WinType.NONE, None)
+
+
+def test_majority_settles_the_instant_it_becomes_unbeatable_even_with_an_open_line():
+    # Row 4 is blue-or-unclaimed -- still structurally completable by blue -- but blue
+    # already holds 13 of 25 squares, an unbeatable majority no matter what happens to
+    # the remaining unclaimed cells (including that row). This is the real-match case
+    # (2026-07-25-TwistieT-vs-Grey) that motivated dropping the "every line blocked"
+    # gate: a goal square nobody ever attempted stays unclaimed for the rest of the
+    # game, so a line resting on it looks permanently "open" even though the game is
+    # over and majority has already been won.
+    board = _board(
+        [R, B, U, B, R],
+        [R, R, U, B, B],
+        [U, U, B, R, B],
+        [B, B, B, U, B],
+        [U, B, R, B, B],
+    )
+    assert winning_line(board) is None
+    assert majority_winner(board) is CellColor.BLUE
+    assert determine_winner(board) == (CellColor.BLUE, WinType.MAJORITY, None)
 
 
 @pytest.mark.parametrize(
