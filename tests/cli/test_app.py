@@ -228,16 +228,7 @@ def _sample_game() -> GameResult:
     )
 
 
-def test_prompt_game_type_returns_supplied_option(monkeypatch):
-    def _fail_prompt(*args, **kwargs):
-        raise AssertionError("typer.prompt should not be called when game_type_opt is given")
-
-    monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fail_prompt)
-
-    assert _prompt_game_type(_sample_game(), GameType.DLC) is GameType.DLC
-
-
-def test_prompt_game_type_prompts_when_not_supplied(monkeypatch):
+def test_prompt_game_type_prompts(monkeypatch):
     prompts = []
 
     def _fake_prompt(text, **kwargs):
@@ -246,7 +237,7 @@ def test_prompt_game_type_prompts_when_not_supplied(monkeypatch):
 
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fake_prompt)
 
-    result = _prompt_game_type(_sample_game(), None)
+    result = _prompt_game_type(_sample_game())
 
     assert result is GameType.DLC
     assert len(prompts) == 1
@@ -260,7 +251,7 @@ def test_prompt_game_type_reprompts_on_invalid_input(monkeypatch):
     echoed = []
     monkeypatch.setattr("scadustats.cli.app.typer.echo", echoed.append)
 
-    result = _prompt_game_type(_sample_game(), None)
+    result = _prompt_game_type(_sample_game())
 
     assert result is GameType.BASE
     assert any("Invalid game type" in msg for msg in echoed)
@@ -296,8 +287,6 @@ _EXTRACT_ARGS = [
     "6",
     "--match-type",
     "round_robin",
-    "--game-type",
-    "base",
 ]
 
 
@@ -630,8 +619,6 @@ def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_pa
             str(json_dir),
             "--match-type",
             "round_robin",
-            "--game-type",
-            "base",
         ],
         # Blank lines accept whatever default each prompt offers -- match date, season,
         # video URL, in that order.
