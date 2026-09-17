@@ -4,7 +4,7 @@ import logging
 import pytest
 
 from scadustats.models import GameResult, GameType, MatchType, Square, VideoExtraction, WinType
-from scadustats.pipeline.consolidate import consolidate_squares, validate_squares
+from scadustats.pipeline.consolidate import consolidate_squares, fix_square_texts, validate_squares
 
 
 def _board(*texts: str) -> list[list[str]]:
@@ -145,3 +145,130 @@ def test_validate_squares_raises_on_duplicate_text():
 
     with pytest.raises(ValueError, match="duplicate square text"):
         validate_squares(squares)
+
+
+def _known(*texts: str, game_type: GameType = GameType.BASE) -> dict[GameType, list[Square]]:
+    others = GameType.DLC if game_type is GameType.BASE else GameType.BASE
+    return {
+        game_type: [Square(id=f"id_{i}", text=t, game_type=game_type) for i, t in enumerate(texts)],
+        others: [],
+    }
+
+
+def test_fix_square_texts_corrects_a_dropped_letter():
+    extraction = _extraction(
+        _game(GameType.BASE, "Kill Tree Sentinel (imgrave) with a +0 Weapon Only")
+    )
+    known = _known("Kill Tree Sentinel (Limgrave) with a +0 Weapon Only")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert len(fixes) == 1
+    assert fixes[0].matched_text == "Kill Tree Sentinel (Limgrave) with a +0 Weapon Only"
+    assert extraction.games[0].square_texts[0][0] == (
+        "Kill Tree Sentinel (Limgrave) with a +0 Weapon Only"
+    )
+
+
+def test_fix_square_texts_corrects_a_stray_leading_token():
+    extraction = _extraction(_game(GameType.BASE, "x Kill Borealis"))
+    known = _known("Kill Borealis")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes[0].matched_text == "Kill Borealis"
+
+
+def test_fix_square_texts_corrects_a_missing_apostrophe():
+    extraction = _extraction(_game(GameType.BASE, "Restore Rykard s Great Rune"))
+    known = _known("Restore Rykard's Great Rune")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes[0].matched_text == "Restore Rykard's Great Rune"
+
+
+def test_fix_square_texts_corrects_a_letter_swap():
+    extraction = _extraction(
+        _game(GameType.BASE, "Kilt 3 Friendly NPCs (No Hermit Merchants)")
+    )
+    known = _known("Kill 3 Friendly NPCs (No Hermit Merchants)")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes[0].matched_text == "Kill 3 Friendly NPCs (No Hermit Merchants)"
+
+
+def test_fix_square_texts_corrects_a_missing_space():
+    extraction = _extraction(_game(GameType.BASE, "Killa Death Knight"))
+    known = _known("Kill a Death Knight")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes[0].matched_text == "Kill a Death Knight"
+
+
+def test_fix_square_texts_leaves_an_exact_match_unreported():
+    extraction = _extraction(_game(GameType.BASE, "Kill Wormface"))
+    known = _known("Kill Wormface")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes == []
+
+
+def test_fix_square_texts_refuses_to_change_a_goal_count():
+    """"Kill 3 Friendly NPCs" and "Kill 5 Friendly NPCs" can both be real, distinct
+    squares -- a wrong digit shouldn't be "fixed" just because the rest of the wording is
+    a close textual match."""
+    extraction = _extraction(_game(GameType.BASE, "Kill 3 Friendly NPCs (No Hermit Merchants)"))
+    known = _known("Kill 5 Friendly NPCs (No Hermit Merchants)")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes[0].matched_text is None
+    assert not fixes[0].resolved
+    assert extraction.games[0].square_texts[0][0] == "Kill 3 Friendly NPCs (No Hermit Merchants)"
+
+
+def test_fix_square_texts_reports_but_does_not_touch_an_unmatched_square():
+    extraction = _extraction(_game(GameType.BASE, "Some completely unrelated goal text"))
+    known = _known("Kill Wormface")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert len(fixes) == 1
+    assert fixes[0].original_text == "Some completely unrelated goal text"
+    assert fixes[0].matched_text is None
+    assert extraction.games[0].square_texts[0][0] == "Some completely unrelated goal text"
+
+
+def test_fix_square_texts_skips_games_with_no_resolved_game_type():
+    extraction = _extraction(_game(None, "x Kill Borealis"))
+    known = _known("Kill Borealis")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes == []
+    assert extraction.games[0].square_texts[0][0] == "x Kill Borealis"
+
+
+def test_fix_square_texts_skips_blank_cells():
+    extraction = _extraction(_game(GameType.BASE, "Kill Wormface"))
+    known = _known("Kill Wormface", "Kill Borealis")
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes == []
+
+
+def test_fix_square_texts_only_matches_within_the_games_own_game_type_pool():
+    """A BASE game's squares are never checked against the DLC pool (or vice versa) --
+    a board's squares are drawn from one pool, not a mix (see squares.infer_game_type)."""
+    extraction = _extraction(_game(GameType.BASE, "x Kill Borealis"))
+    known = _known("Kill Borealis", game_type=GameType.DLC)
+
+    fixes = fix_square_texts(extraction, known)
+
+    assert fixes == []
+    assert extraction.games[0].square_texts[0][0] == "x Kill Borealis"

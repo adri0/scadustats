@@ -12,11 +12,11 @@ import typer
 
 from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import GameResult, GameType, MatchMetadata, MatchType, VideoExtraction
-from scadustats.pipeline.consolidate import consolidate_squares, validate_squares
+from scadustats.pipeline.consolidate import consolidate_squares, fix_square_texts, validate_squares
 from scadustats.pipeline.extract import estimate_sample_count, extract_video
 from scadustats.rules.validation import validate_extraction
 from scadustats.storage.db import load_json_dir
-from scadustats.storage.json_export import read_video, write_squares
+from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
 from scadustats.video.download import download_video
 
 # no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
@@ -663,6 +663,59 @@ def square_consolidate(
     paths = write_squares(squares_dir, squares)
     for game_type, path in paths.items():
         typer.echo(f"{path}: {len(squares[game_type])} square(s)")
+
+
+@square_app.command("fix")
+def square_fix(
+    video_id: Annotated[str, typer.Argument(help="video_id to fix, as printed by `match list`")],
+    json_dir: Annotated[
+        Path, typer.Option(help="Directory of JSON files written by `extract`")
+    ] = Path("matches"),
+    squares_dir: Annotated[
+        Path,
+        typer.Option(
+            help="Directory holding base_game.json/dlc.json, as written by `square consolidate`"
+        ),
+    ] = Path("squares"),
+) -> None:
+    """Correct OCR misreads in one match's goal-square text against the consolidated
+    reference built by `square consolidate` (issue #76).
+
+    Every square not already an exact match in its game's reference pool is fuzzy-matched
+    against it; a close enough match replaces the OCR'd text and the corrected match is
+    written back to json_dir. A square nothing in the reference comes close to is left
+    untouched and reported anyway, so a contributor knows to look at it rather than
+    finding out silently later -- guessing wrong here would corrupt a hand-reviewable
+    file.
+    """
+    path = _match_path(json_dir, video_id)
+    extraction = read_video(path)
+    known_squares = read_squares(squares_dir)
+    if not any(known_squares.values()):
+        typer.echo(
+            f"No consolidated squares found in {squares_dir} -- run `square consolidate` first"
+        )
+        raise typer.Exit(1)
+
+    fixes = fix_square_texts(extraction, known_squares)
+    resolved = [fix for fix in fixes if fix.resolved]
+    unresolved = [fix for fix in fixes if not fix.resolved]
+
+    for fix in fixes:
+        scope = f"game {fix.game_index} [{fix.row},{fix.col}]"
+        if fix.resolved:
+            typer.echo(f"{scope}: {fix.original_text!r} -> {fix.matched_text!r} ({fix.ratio:.0%})")
+        else:
+            typer.echo(f"{scope}: {fix.original_text!r} -- no close match, left as-is")
+
+    if not resolved:
+        typer.echo(f"\n{video_id}: no fixes applied")
+        return
+
+    write_video(json_dir, extraction, if_exists="replace")
+    typer.echo(f"\n{video_id}: {len(resolved)} square(s) fixed in {path}")
+    if unresolved:
+        typer.echo(f"{len(unresolved)} square(s) left unresolved")
 
 
 def main() -> None:

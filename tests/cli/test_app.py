@@ -20,12 +20,13 @@ from scadustats.models import (
     GameType,
     MatchMetadata,
     MatchType,
+    Square,
     VideoExtraction,
     WinLine,
     WinType,
 )
 from scadustats.pipeline.extract import ExtractionSummary
-from scadustats.storage.json_export import write_video
+from scadustats.storage.json_export import read_video, write_squares, write_video
 from scadustats.video.download import DownloadResult
 
 
@@ -1132,6 +1133,7 @@ def test_no_square_subcommand_prints_the_group_command_list():
 
     assert "Commands" in result.output
     assert "consolidate" in result.output
+    assert "fix" in result.output
     assert "Missing command" not in result.output
 
 
@@ -1174,3 +1176,113 @@ def test_square_consolidate_reports_when_directory_has_no_matches(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "No matches found" in result.output
+
+
+def test_square_fix_corrects_a_misread_square_and_rewrites_the_file(tmp_path):
+    json_dir = tmp_path / "matches"
+    squares_dir = tmp_path / "squares"
+    game = _match_sample_game()
+    game.square_texts[0][0] = "Kilt 3 Friendly NPCs (No Hermit Merchants)"
+    extraction = _sample_extraction(games=[game])
+    write_video(json_dir, extraction)
+    write_squares(
+        squares_dir,
+        {
+            GameType.BASE: [
+                Square(
+                    id="npcs_3",
+                    text="Kill 3 Friendly NPCs (No Hermit Merchants)",
+                    game_type=GameType.BASE,
+                )
+            ],
+            GameType.DLC: [],
+        },
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "square",
+            "fix",
+            extraction.video_id,
+            "--json-dir",
+            str(json_dir),
+            "--squares-dir",
+            str(squares_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "1 square(s) fixed" in result.output
+    [path] = list(json_dir.rglob(f"{extraction.video_id}.json"))
+    fixed = read_video(path)
+    assert fixed.games[0].square_texts[0][0] == "Kill 3 Friendly NPCs (No Hermit Merchants)"
+
+
+def test_square_fix_leaves_an_unmatched_square_untouched(tmp_path):
+    json_dir = tmp_path / "matches"
+    squares_dir = tmp_path / "squares"
+    game = _match_sample_game()
+    game.square_texts[0][0] = "Some completely unrelated goal text"
+    extraction = _sample_extraction(games=[game])
+    write_video(json_dir, extraction)
+    write_squares(
+        squares_dir,
+        {
+            GameType.BASE: [
+                Square(id="wormface", text="Kill Wormface", game_type=GameType.BASE)
+            ],
+            GameType.DLC: [],
+        },
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "square",
+            "fix",
+            extraction.video_id,
+            "--json-dir",
+            str(json_dir),
+            "--squares-dir",
+            str(squares_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no close match" in result.output
+    assert "no fixes applied" in result.output
+    [path] = list(json_dir.rglob(f"{extraction.video_id}.json"))
+    unchanged = read_video(path)
+    assert unchanged.games[0].square_texts[0][0] == "Some completely unrelated goal text"
+
+
+def test_square_fix_errors_when_no_consolidated_squares_found(tmp_path):
+    json_dir = tmp_path / "matches"
+    extraction = _sample_extraction()
+    write_video(json_dir, extraction)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "square",
+            "fix",
+            extraction.video_id,
+            "--json-dir",
+            str(json_dir),
+            "--squares-dir",
+            str(tmp_path / "squares"),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "square consolidate" in result.output
+
+
+def test_square_fix_errors_on_unknown_video_id(tmp_path):
+    result = CliRunner().invoke(
+        app, ["square", "fix", "nonexistent", "--json-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code != 0
+    assert "nonexistent" in result.output

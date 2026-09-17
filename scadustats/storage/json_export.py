@@ -277,3 +277,26 @@ def write_squares(
         path.write_text(body + "\n")
         written[game_type] = path
     return written
+
+
+def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
+    """Inverse of write_squares: reads the consolidated goal-square reference back from
+    squares_dir, keyed by GameType -- e.g. for pipeline.consolidate.fix_square_texts to
+    match a match's own OCR'd square_texts against. A game type whose file doesn't exist
+    yet (squares_dir predates `square consolidate` ever having run, or ran with no games
+    of that type in the match history) reads back as an empty list rather than a
+    FileNotFoundError, the same tolerance write_squares' own unconditional-overwrite
+    already assumes callers can rely on this reference being incomplete.
+    """
+    squares: dict[GameType, list[Square]] = {}
+    for game_type in GameType:
+        path = squares_path(squares_dir, game_type)
+        if not path.exists():
+            squares[game_type] = []
+            continue
+        data = json.loads(path.read_text())
+        squares[game_type] = [
+            Square(id=entry["id"], text=entry["text"], game_type=GameType(entry["game_type"]))
+            for entry in data
+        ]
+    return squares

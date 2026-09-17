@@ -17,6 +17,7 @@ from scadustats.models import (
     WinType,
 )
 from scadustats.storage.json_export import (
+    read_squares,
     read_video,
     squares_path,
     video_path,
@@ -565,3 +566,23 @@ def test_write_squares_sorts_each_file_by_id(tmp_path):
 
     data = json.loads(paths[GameType.BASE].read_text())
     assert [entry["id"] for entry in data] == ["apple", "zebra"]
+
+
+def test_read_squares_is_the_inverse_of_write_squares(tmp_path):
+    squares = {
+        GameType.BASE: [Square(id="wormface", text="Kill Wormface", game_type=GameType.BASE)],
+        GameType.DLC: [
+            Square(id="hearts_2", text="Acquire 2 Dragon Hearts", game_type=GameType.DLC)
+        ],
+    }
+    write_squares(tmp_path, squares)
+
+    read_back = read_squares(tmp_path)
+
+    assert read_back == squares
+
+
+def test_read_squares_treats_a_missing_file_as_an_empty_list(tmp_path):
+    read_back = read_squares(tmp_path)
+
+    assert read_back == {GameType.BASE: [], GameType.DLC: []}

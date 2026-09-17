@@ -5,11 +5,18 @@ a one-shot bootstrap/refresh run on demand (`square consolidate`), not something
 extraction pipeline itself calls; it's a different, newer reference shape (per-square id,
 split by game type) than pipeline/squares.py's squares.json, and doesn't feed back into
 it.
+
+fix_square_texts runs the same reference the other direction (`square fix`, issue #76):
+given one already-extracted match, it corrects that match's own OCR'd square_texts
+against the reference, treating it as source of truth for the exact text once a game's
+squares have been consolidated into it at least once before.
 """
 
+import difflib
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass
 
 from scadustats.models import GameType, Square, VideoExtraction
 
@@ -166,3 +173,110 @@ def validate_squares(squares: list[Square]) -> None:
     duplicate_texts = sorted(text for text, count in text_counts.items() if count > 1)
     if duplicate_texts:
         raise ValueError(f"duplicate square text(s): {', '.join(duplicate_texts)}")
+
+
+# Below this, no candidate is offered as a fix -- see fix_square_texts. Calibrated
+# against real OCR failures logged in issue #76 (a dropped/swapped letter, a stray
+# leading token, a missing apostrophe: "Kilt 3 Friendly NPCs..." vs. "Kill 3 Friendly
+# NPCs...", 0.976), which all land well above this, and against two real, *distinct*
+# squares that happen to share most of their wording ("Kill a Crystalian" vs. "Kill a
+# Crucible Knight", 0.513), which lands well below it.
+_FUZZY_MATCH_CUTOFF = 0.85
+
+_NUMBER_RE = re.compile(r"\d+")
+
+
+@dataclass
+class SquareTextFix:
+    """One cell of a match's square_texts that fix_square_texts looked at because its
+    text wasn't already an exact match in the consolidated reference.
+
+    matched_text/ratio are None when no reference entry was a close enough match to act
+    on -- the cell is reported but left untouched, since a wrong guess here would corrupt
+    a hand-reviewable JSON file (see fix_square_texts)."""
+
+    game_index: int
+    # 1-based, matching GameEvent.row/col and the squares DB table -- see CLAUDE.md.
+    row: int
+    col: int
+    original_text: str
+    matched_text: str | None
+    ratio: float | None
+
+    @property
+    def resolved(self) -> bool:
+        return self.matched_text is not None
+
+
+def _best_match(text: str, candidates: list[str]) -> tuple[str, float] | None:
+    """The candidate text closest to `text`, or None if nothing clears
+    _FUZZY_MATCH_CUTOFF.
+
+    A candidate whose goal-count digits ("Kill 3 ...") disagree with text's own is never
+    considered, however similar the surrounding wording is -- "Kill 3 Friendly NPCs" and
+    "Kill 5 Friendly NPCs" can both be real, distinct squares, and a wrong digit is
+    exactly the kind of high-similarity-looking mismatch text similarity alone can't tell
+    apart from an OCR typo. If text has digits and no candidate shares them, there's
+    nothing safe to match against, full stop -- unlike a stray letter, silently changing
+    a goal's count is the one class of "fix" worth refusing outright.
+    """
+    numbers = _NUMBER_RE.findall(text)
+    pool = [c for c in candidates if _NUMBER_RE.findall(c) == numbers] if numbers else candidates
+    if not pool:
+        return None
+
+    matches = difflib.get_close_matches(text, pool, n=1, cutoff=_FUZZY_MATCH_CUTOFF)
+    if not matches:
+        return None
+    match = matches[0]
+    return match, difflib.SequenceMatcher(None, text, match).ratio()
+
+
+def fix_square_texts(
+    extraction: VideoExtraction, known_squares: dict[GameType, list[Square]]
+) -> list[SquareTextFix]:
+    """Corrects OCR misreads in `extraction`'s own square_texts against `known_squares`
+    (storage.json_export.read_squares' output, the reference pipeline.consolidate itself
+    builds) -- issue #76. A cell whose text is already an exact match in its game's pool
+    is left alone and not reported at all; anything else is fuzzy-matched against that
+    same pool (see _best_match) and, on a close enough hit, corrected in place on the
+    passed-in `extraction` (mutating game.square_texts, the same object the caller will
+    go on to write back with json_export.write_video).
+
+    A game with no resolved game_type is skipped entirely -- like consolidate_squares
+    itself, there's no pool to check its squares against. Every other cell is reported,
+    resolved or not, so a caller can tell a contributor about a cell nothing in the
+    reference came close to, rather than silently leaving a bad OCR read in place with no
+    record that it was even looked at.
+    """
+    fixes: list[SquareTextFix] = []
+    for game in extraction.games:
+        if game.game_type is None:
+            continue
+        candidates = [square.text for square in known_squares.get(game.game_type, [])]
+        if not candidates:
+            continue
+        candidate_set = set(candidates)
+
+        for row_index, row in enumerate(game.square_texts):
+            for col_index, text in enumerate(row):
+                if not text or text in candidate_set:
+                    continue
+
+                match = _best_match(text, candidates)
+                matched_text, ratio = match if match else (None, None)
+                if matched_text is not None:
+                    game.square_texts[row_index][col_index] = matched_text
+
+                fixes.append(
+                    SquareTextFix(
+                        game_index=game.game_index,
+                        row=row_index + 1,
+                        col=col_index + 1,
+                        original_text=text,
+                        matched_text=matched_text,
+                        ratio=ratio,
+                    )
+                )
+
+    return fixes
