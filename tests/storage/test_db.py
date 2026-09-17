@@ -584,12 +584,12 @@ def test_write_extraction_allows_missing_source_path_and_video_info(tmp_path):
 
 
 def test_load_json_dir_writes_all_games_from_one_video_file(tmp_path):
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     db_path = tmp_path / "test.duckdb"
     extraction = _sample_extraction(games=[_sample_game(1), _sample_game(2)])
-    write_video(json_dir, extraction)
+    write_video(data_dir, extraction)
 
-    video_ids = load_json_dir(db_path, json_dir)
+    video_ids = load_json_dir(db_path, data_dir)
 
     assert video_ids == [extraction.video_id]
     con = duckdb.connect(str(db_path))
@@ -613,10 +613,10 @@ def test_load_json_dir_writes_all_games_from_one_video_file(tmp_path):
 
 
 def test_load_json_dir_if_exists_error_raises_on_duplicate(tmp_path):
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     db_path = tmp_path / "test.duckdb"
-    write_video(json_dir, _sample_extraction())
+    write_video(data_dir, _sample_extraction())
 
-    load_json_dir(db_path, json_dir)
+    load_json_dir(db_path, data_dir)
     with pytest.raises(ValueError):
-        load_json_dir(db_path, json_dir, if_exists="error")
+        load_json_dir(db_path, data_dir, if_exists="error")

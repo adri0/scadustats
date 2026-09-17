@@ -1,8 +1,8 @@
-import json
 import logging
 
-from scadustats.models import GameType
+from scadustats.models import GameType, Square
 from scadustats.pipeline.squares import infer_game_type, load_known_squares
+from scadustats.storage.json_export import write_squares
 
 
 def _board(*texts: str) -> list[list[str]]:
@@ -45,17 +45,22 @@ def test_infer_game_type_majority_vote_on_conflicting_matches(caplog):
     assert any("more than one game type" in r.message for r in caplog.records)
 
 
-def test_load_known_squares_parses_json_file(tmp_path):
-    path = tmp_path / "squares.json"
-    path.write_text(json.dumps({"Kill Wormface": "base", "Some DLC goal": "dlc"}))
+def test_load_known_squares_flattens_both_game_types(tmp_path):
+    write_squares(
+        tmp_path,
+        {
+            GameType.BASE: [Square(id="wormface", text="Kill Wormface", game_type=GameType.BASE)],
+            GameType.DLC: [Square(id="dlc_goal", text="Some DLC goal", game_type=GameType.DLC)],
+        },
+    )
 
-    known = load_known_squares(path)
+    known = load_known_squares(tmp_path)
 
     assert known == {"Kill Wormface": GameType.BASE, "Some DLC goal": GameType.DLC}
 
 
-def test_load_known_squares_handles_empty_file(tmp_path):
-    path = tmp_path / "squares.json"
-    path.write_text("{}")
-
-    assert load_known_squares(path) == {}
+def test_load_known_squares_handles_missing_files(tmp_path):
+    """A data_dir/squares that's never had `square consolidate` run against it (a fresh
+    checkout, or one that's never extracted anything) ships the same "empty reference"
+    behavior squares.json used to -- see issue #75."""
+    assert load_known_squares(tmp_path / "squares") == {}

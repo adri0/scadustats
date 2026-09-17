@@ -1,10 +1,10 @@
 """Builds a per-game-type reference of every goal square seen across a match history,
 from already-extracted matches (see storage.json_export) -- the source data for
-squares/base_game.json and squares/dlc.json (storage.json_export.write_squares). This is
-a one-shot bootstrap/refresh run on demand (`square consolidate`), not something the
-extraction pipeline itself calls; it's a different, newer reference shape (per-square id,
-split by game type) than pipeline/squares.py's squares.json, and doesn't feed back into
-it.
+<data_dir>/squares/base_game.json and <data_dir>/squares/dlc.json
+(storage.json_export.write_squares). This is a one-shot bootstrap/refresh run on demand
+(`square consolidate`), not something the extraction pipeline itself calls; pipeline.
+squares.py reads its output back (via storage.json_export.read_squares) as
+extract_video's fallback for inferring a game's type.
 """
 
 import logging

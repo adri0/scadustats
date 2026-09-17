@@ -123,35 +123,40 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
     }
 
 
-def video_path(json_dir: str | Path, season: str, video_id: str) -> Path:
+def video_path(data_dir: str | Path, season: str, video_id: str) -> Path:
     """The path write_video writes (or would write) a video's extraction to --
-    `<json_dir>/season-<season>/<video_id>.json`. Shared with extract.py's duplicate
-    check, so both agree on where a given (season, video_id) lives without either
-    hand-rolling the layout: files are grouped one directory per season, rather than flat
-    across every season a tournament has run, since json_dir otherwise only grows across
-    seasons and a season is a natural, already-recorded grouping to browse it by. The
-    `season-` prefix keeps the directory name unambiguous now that season is free text
-    (see models.MatchMetadata.season) -- a bare season value could otherwise collide with
-    another entry under json_dir, or (for a purely numeric season) look like something
-    else entirely when browsing the directory tree.
+    `<data_dir>/matches/season-<season>/<video_id>.json`. Shared with extract.py's
+    duplicate check, so both agree on where a given (season, video_id) lives without
+    either hand-rolling the layout: files are grouped one directory per season, rather
+    than flat across every season a tournament has run, since the matches folder
+    otherwise only grows across seasons and a season is a natural, already-recorded
+    grouping to browse it by. The `season-` prefix keeps the directory name unambiguous
+    now that season is free text (see models.MatchMetadata.season) -- a bare season value
+    could otherwise collide with another entry under the matches folder, or (for a purely
+    numeric season) look like something else entirely when browsing the directory tree.
+
+    The `matches` subfolder under data_dir (issue #73) is what makes data_dir a root a
+    contributor can also point other entities at -- e.g. `<data_dir>/squares/` (see
+    pipeline.consolidate/pipeline.squares) -- rather than a single flat directory that
+    only ever held match JSON.
     """
-    return Path(json_dir) / f"season-{season}" / f"{video_id}.json"
+    return Path(data_dir) / "matches" / f"season-{season}" / f"{video_id}.json"
 
 
 def write_video(
-    json_dir: str | Path,
+    data_dir: str | Path,
     extraction: VideoExtraction,
     if_exists: str = "replace",
 ) -> Path:
     """Write one video's full extraction (every game it contains) to
-    `<json_dir>/season-<season>/<video_id>.json` (see video_path), creating any missing
-    directories. Returns the path written.
+    `<data_dir>/matches/season-<season>/<video_id>.json` (see video_path), creating any
+    missing directories. Returns the path written.
 
     if_exists="error" raises FileExistsError if the target file already exists.
     Any other value (including "append") overwrites unconditionally -- there's nothing
     meaningful to append into a single already-complete video's extraction file.
     """
-    path = video_path(json_dir, extraction.season, extraction.video_id)
+    path = video_path(data_dir, extraction.season, extraction.video_id)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if if_exists == "error" and path.exists():
@@ -277,3 +282,24 @@ def write_squares(
         path.write_text(body + "\n")
         written[game_type] = path
     return written
+
+
+def _dict_to_square(data: dict) -> Square:
+    return Square(id=data["id"], text=data["text"], game_type=GameType(data["game_type"]))
+
+
+def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
+    """Inverse of write_squares: reads squares_dir/base_game.json and
+    squares_dir/dlc.json back into the Square lists they were serialized from. A missing
+    file -- squares_dir hasn't had `square consolidate` run against it yet -- contributes
+    an empty list for that game type rather than raising, the same "ships empty" tolerance
+    squares.json used to have (issue #75).
+    """
+    squares: dict[GameType, list[Square]] = {}
+    for game_type in GameType:
+        try:
+            data = json.loads(squares_path(squares_dir, game_type).read_text())
+        except FileNotFoundError:
+            data = []
+        squares[game_type] = [_dict_to_square(entry) for entry in data]
+    return squares

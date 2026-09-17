@@ -276,22 +276,27 @@ def write_extraction(
 
 def load_json_dir(
     db_path: str | Path,
-    json_dir: str | Path,
+    data_dir: str | Path,
     if_exists: str = "replace",
 ) -> list[str]:
     """Reflects every `*.json` video file (as written by json_export.write_video, one
-    per season subdirectory -- see json_export.video_path) under json_dir into the
-    DuckDB at db_path -- the separate, optional process that turns extracted JSON into
-    database rows. extract_video itself never touches the database; this is the only
-    path that does. Returns the video_ids written, in filename order -- sorted by
-    filename alone, not the full path, since a season subdirectory's name (free text,
+    per season subdirectory -- see json_export.video_path) under `<data_dir>/matches`
+    into the DuckDB at db_path -- the separate, optional process that turns extracted
+    JSON into database rows. extract_video itself never touches the database; this is
+    the only path that does. Returns the video_ids written, in filename order -- sorted
+    by filename alone, not the full path, since a season subdirectory's name (free text,
     not necessarily a sortable number) doesn't sort chronologically against another
     season's.
+
+    Walks `<data_dir>/matches` specifically, not data_dir itself -- data_dir can also
+    hold other entities (e.g. `<data_dir>/squares/`, see pipeline.squares/pipeline.consolidate,
+    issue #73), and read_video would raise trying to parse one of those as a video
+    extraction.
     """
-    json_dir = Path(json_dir)
+    matches_dir = Path(data_dir) / "matches"
     video_ids = []
 
-    for path in sorted(json_dir.rglob("*.json"), key=lambda p: p.name):
+    for path in sorted(matches_dir.rglob("*.json"), key=lambda p: p.name):
         extraction = json_export.read_video(path)
         write_extraction(db_path, extraction, if_exists=if_exists)
         video_ids.append(extraction.video_id)

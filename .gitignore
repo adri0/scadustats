@@ -12,8 +12,7 @@ downloads/
 .vscode
 *.duckdb
 calibration.png
-matches/
-squares/
+data/
 youtube_cookies.txt
 .envrc
 .claude

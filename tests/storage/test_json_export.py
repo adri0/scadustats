@@ -17,6 +17,7 @@ from scadustats.models import (
     WinType,
 )
 from scadustats.storage.json_export import (
+    read_squares,
     read_video,
     squares_path,
     video_path,
@@ -421,8 +422,11 @@ def test_write_video_creates_json_dir_if_missing(tmp_path):
 def test_write_video_groups_matches_under_a_season_subdirectory(tmp_path):
     path = write_video(tmp_path, _sample_extraction(season="Off-Season Cup"))
 
-    assert path == tmp_path / "season-Off-Season Cup" / "2026-03-05-alice-vs-bob.json"
-    assert path.parent.parent == tmp_path
+    assert (
+        path
+        == tmp_path / "matches" / "season-Off-Season Cup" / "2026-03-05-alice-vs-bob.json"
+    )
+    assert path.parent.parent == tmp_path / "matches"
 
 
 def test_write_video_puts_different_seasons_in_different_subdirectories(tmp_path):
@@ -565,3 +569,23 @@ def test_write_squares_sorts_each_file_by_id(tmp_path):
 
     data = json.loads(paths[GameType.BASE].read_text())
     assert [entry["id"] for entry in data] == ["apple", "zebra"]
+
+
+def test_read_squares_is_the_inverse_of_write_squares(tmp_path):
+    squares = {
+        GameType.BASE: [Square(id="wormface", text="Kill Wormface", game_type=GameType.BASE)],
+        GameType.DLC: [
+            Square(id="hearts_2", text="Acquire 2 Dragon Hearts", game_type=GameType.DLC)
+        ],
+    }
+    write_squares(tmp_path, squares)
+
+    assert read_squares(tmp_path) == squares
+
+
+def test_read_squares_treats_a_missing_file_as_an_empty_list(tmp_path):
+    """A squares_dir that's never had `square consolidate` run against it (or has only
+    ever produced one of the two files) reads back as an empty list for whichever game
+    type is missing, not a FileNotFoundError -- the same "ships empty" tolerance
+    squares.json used to have (issue #75)."""
+    assert read_squares(tmp_path) == {GameType.BASE: [], GameType.DLC: []}
