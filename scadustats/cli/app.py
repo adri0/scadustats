@@ -164,9 +164,16 @@ def download(
         Path,
         typer.Option("-o", "--output-dir", help="Directory to save the video to"),
     ] = Path("downloads"),
+    cookies: Annotated[
+        Path | None,
+        typer.Option(
+            help="Netscape-format cookies.txt (e.g. exported from a browser) to pass "
+            "to yt-dlp, for videos that need an authenticated/logged-in request"
+        ),
+    ] = None,
 ) -> None:
     """Download a YouTube video."""
-    result = download_video(url, output_dir=output_dir)
+    result = download_video(url, output_dir=output_dir, cookies=cookies)
     print(result.path)
 
 
@@ -230,6 +237,13 @@ def extract(
             "either way)"
         ),
     ] = False,
+    cookies: Annotated[
+        Path | None,
+        typer.Option(
+            help="Netscape-format cookies.txt (e.g. exported from a browser) to pass "
+            "to yt-dlp when video_path_or_url is a URL (ignored for a local file)"
+        ),
+    ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into JSON files in json_dir.
 
@@ -286,7 +300,9 @@ def extract(
         if video_url is None:
             video_url = video_path_or_url
         typer.echo(f"Downloading {video_path_or_url}...")
-        download_result = download_video(video_path_or_url, output_dir=download_dir)
+        download_result = download_video(
+            video_path_or_url, output_dir=download_dir, cookies=cookies
+        )
         video_path = download_result.path
         published_at = download_result.published_at
         downloaded_path = video_path

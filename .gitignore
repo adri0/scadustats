@@ -13,3 +13,6 @@ downloads/
 *.duckdb
 calibration.png
 matches/
+youtube_cookies.txt
+.envrc
+.claude

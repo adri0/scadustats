@@ -35,11 +35,17 @@ def download_video(
     url: str,
     output_dir: str | Path = "downloads",
     timeout: float | None = None,
+    cookies: str | Path | None = None,
 ) -> DownloadResult:
     """Download the best video-only (no audio) stream up to 720p.
 
     `timeout` (seconds) bounds the yt-dlp subprocess; by default there is none,
     since real match videos can legitimately take a long time to download.
+
+    `cookies`, when given, is passed through as yt-dlp's `--cookies` (a
+    Netscape-format cookies.txt, e.g. exported from a browser) -- YouTube sometimes
+    throttles/bot-detects anonymous requests, and authenticating this way is yt-dlp's
+    own documented workaround rather than something this project reimplements.
 
     stdout/stderr are left inherited rather than captured, so yt-dlp's own progress
     bar prints directly to the terminal as it would from a plain CLI invocation. That
@@ -55,6 +61,7 @@ def download_video(
 
     outtmpl = str(output_dir / "%(id)s.%(ext)s")
     with tempfile.NamedTemporaryFile(mode="r+") as info_file:
+        cookies_args = ["--cookies", str(cookies)] if cookies else []
         subprocess.run(
             [
                 "yt-dlp",
@@ -62,6 +69,7 @@ def download_video(
                 _FORMAT,
                 "-o",
                 outtmpl,
+                *cookies_args,
                 "--print-to-file",
                 f"after_move:%(filepath)s{_FIELD_SEPARATOR}%(upload_date)s",
                 info_file.name,
