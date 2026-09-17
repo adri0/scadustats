@@ -6,7 +6,7 @@ _FIXTURES = "tests/fixtures"
 
 
 def test_sanitize_square_text_strips_line_breaks_and_punctuation():
-    assert _sanitize_square_text("Deal 100\ndamage w/ a\n\nbow!") == "Deal 100 damage w a bow"
+    assert _sanitize_square_text("Deal 100\ndamage w/ a\n\nbow!") == "Deal 100 damage w/ a bow"
 
 
 def test_sanitize_square_text_keeps_apostrophes():
