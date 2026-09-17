@@ -136,9 +136,9 @@ def video_path(data_dir: str | Path, season: str, video_id: str) -> Path:
     numeric season) look like something else entirely when browsing the directory tree.
 
     The `matches` subfolder under data_dir (issue #73) is what makes data_dir a root a
-    contributor can also point other entities at -- e.g. squares.squares_path's
-    `<data_dir>/squares/` -- rather than a single flat directory that only ever held
-    match JSON.
+    contributor can also point other entities at -- e.g. `<data_dir>/squares/` (see
+    pipeline.consolidate/pipeline.squares) -- rather than a single flat directory that
+    only ever held match JSON.
     """
     return Path(data_dir) / "matches" / f"season-{season}" / f"{video_id}.json"
 
@@ -282,3 +282,24 @@ def write_squares(
         path.write_text(body + "\n")
         written[game_type] = path
     return written
+
+
+def _dict_to_square(data: dict) -> Square:
+    return Square(id=data["id"], text=data["text"], game_type=GameType(data["game_type"]))
+
+
+def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
+    """Inverse of write_squares: reads squares_dir/base_game.json and
+    squares_dir/dlc.json back into the Square lists they were serialized from. A missing
+    file -- squares_dir hasn't had `square consolidate` run against it yet -- contributes
+    an empty list for that game type rather than raising, the same "ships empty" tolerance
+    squares.json used to have (issue #75).
+    """
+    squares: dict[GameType, list[Square]] = {}
+    for game_type in GameType:
+        try:
+            data = json.loads(squares_path(squares_dir, game_type).read_text())
+        except FileNotFoundError:
+            data = []
+        squares[game_type] = [_dict_to_square(entry) for entry in data]
+    return squares

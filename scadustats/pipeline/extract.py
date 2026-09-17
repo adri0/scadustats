@@ -434,7 +434,7 @@ def extract_video(
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     if known_squares is None:
-        known_squares = squares.load_known_squares(squares.squares_path(data_dir))
+        known_squares = squares.load_known_squares(Path(data_dir) / "squares")
     # The whole broadcast's length, recorded alongside the games -- a match's games only
     # cover part of it (intros, between-game recaps and post-game are all in there too),
     # so this can't be derived from the game segments after the fact. Non-positive means

@@ -22,7 +22,7 @@ scadustats square consolidate [--data-dir data]
 
 Run `scadustats` (or `scadustats match`) with no command to see this list with full help for each command.
 
-`extract` reads the bingo-board overlay from a match video and writes one JSON file per video (all its games, players, commentators, match date, and video link included) under `<data_dir>/matches` — it never touches a database. `video_path_or_url` can be a local file, or a youtube.com/youtu.be URL to download and extract in one step (deleted afterward on success; kept, on request, if extraction fails). Each game is also classified as `base` or `dlc`, primarily by reading the overlay's own "BASE GAME"/"DLC" subtitle, falling back to matching its goal squares against `<data_dir>/squares/squares.json`, a growing reference of previously seen squares; when neither resolves it, an interactive prompt asks per game.
+`extract` reads the bingo-board overlay from a match video and writes one JSON file per video (all its games, players, commentators, match date, and video link included) under `<data_dir>/matches` — it never touches a database. `video_path_or_url` can be a local file, or a youtube.com/youtu.be URL to download and extract in one step (deleted afterward on success; kept, on request, if extraction fails). Each game is also classified as `base` or `dlc`, primarily by reading the overlay's own "BASE GAME"/"DLC" subtitle, falling back to matching its goal squares against `<data_dir>/squares/base_game.json`/`dlc.json` (see `square consolidate` below), a reference of previously seen squares; when neither resolves it, an interactive prompt asks per game.
 
 The `match` sub-commands are read-only lookups over what's already been extracted, straight from the JSON files (no database needed).
 

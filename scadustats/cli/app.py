@@ -143,7 +143,7 @@ def _prompt_game_type(game: GameResult) -> GameType:
 
     There's deliberately no flag to answer this once for every game in the video (there
     used to be, --game-type) -- a video is expected to hold more than one game, and each
-    game's type is its own read off that portion of the footage (or squares.json
+    game's type is its own read off that portion of the footage (or the known-squares
     inference), not a property of the video as a whole; a real match's first two games
     are base-then-DLC (see validation.py), so a single answer would be wrong as often as
     it was right.
@@ -208,7 +208,7 @@ def extract(
         typer.Option(
             help="Data directory -- matches are written as one human-reviewable JSON "
             "file per video under <data_dir>/matches, and the base-game/DLC squares "
-            "reference is read from <data_dir>/squares/squares.json"
+            "reference is read from <data_dir>/squares/base_game.json and dlc.json"
         ),
     ] = Path("data"),
     match_date: Annotated[
@@ -435,7 +435,7 @@ def load_db(
 def _matches_dir(data_dir: Path) -> Path:
     """`<data_dir>/matches` -- where json_export.video_path/write_video keep match
     files, as opposed to any other entity data_dir may hold (e.g.
-    `<data_dir>/squares/squares.json`, see pipeline.squares.squares_path, issue #73)."""
+    `<data_dir>/squares/`, see pipeline.squares/pipeline.consolidate, issue #73)."""
     return Path(data_dir) / "matches"
 
 
@@ -472,8 +472,8 @@ def _read_matches(data_dir: Path) -> list[VideoExtraction]:
 
     Searches every season subdirectory (see json_export.video_path) under
     <data_dir>/matches, not data_dir itself -- data_dir can also hold other entities
-    (e.g. <data_dir>/squares/squares.json, issue #73), which aren't match files and
-    shouldn't be read as one. Sorted by filename alone rather than the full path: a
+    (e.g. <data_dir>/squares/, issue #73), which aren't match files and shouldn't be
+    read as one. Sorted by filename alone rather than the full path: a
     filename is "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>" (see
     extract._video_id), so filename order already is chronological order, whereas a
     season subdirectory's name (free text, not necessarily a sortable number) would not

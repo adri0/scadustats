@@ -289,9 +289,9 @@ def load_json_dir(
     season's.
 
     Walks `<data_dir>/matches` specifically, not data_dir itself -- data_dir can also
-    hold other entities (e.g. `<data_dir>/squares/squares.json`, see
-    pipeline.squares.squares_path, issue #73), and read_video would raise trying to parse
-    one of those as a video extraction.
+    hold other entities (e.g. `<data_dir>/squares/`, see pipeline.squares/pipeline.consolidate,
+    issue #73), and read_video would raise trying to parse one of those as a video
+    extraction.
     """
     matches_dir = Path(data_dir) / "matches"
     video_ids = []

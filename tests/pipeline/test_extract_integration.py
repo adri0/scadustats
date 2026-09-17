@@ -48,8 +48,9 @@ def test_extract_video_end_to_end(tmp_path):
         match_metadata=match_metadata,
         data_dir=data_dir,
         on_progress=on_progress,
-        # squares.json ships empty (see squares.py), so inference always fails here --
-        # supply a fixed answer rather than relying on interactive prompting in a test.
+        # data_dir/squares ships empty until `square consolidate` has run (see
+        # squares.py), so inference always fails here -- supply a fixed answer rather
+        # than relying on interactive prompting in a test.
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
