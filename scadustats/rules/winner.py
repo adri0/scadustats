@@ -65,17 +65,27 @@ def winning_line(board: Board) -> tuple[CellColor, WinLine] | None:
     return None
 
 
-def _all_lines_blocked(board: Board) -> bool:
-    """True once every line contains both colors (or an unclaimed cell alongside a color
-    that the other player has already touched elsewhere), i.e. no line can still be
-    completed by a single color."""
-    for coords in LINES.values():
-        colors = {board[r][c] for r, c in coords}
-        if colors <= {CellColor.UNCLAIMED, CellColor.RED}:
-            return False
-        if colors <= {CellColor.UNCLAIMED, CellColor.BLUE}:
-            return False
-    return True
+def _majority_settled(board: Board) -> bool:
+    """True once no distribution of the board's still-unclaimed cells could change which
+    color -- if either -- holds the majority: the leading color's tally already beats
+    whatever the trailing color could reach by claiming every remaining cell, or there
+    are no remaining cells left to claim.
+
+    This used to instead require every *line* to already hold both colors (i.e. that no
+    line could still be completed by one color), on the theory that a majority result
+    only means anything once line wins are structurally impossible. That's a stronger --
+    and, it turns out, wrong -- condition: on a real match
+    (2026-07-25-TwistieT-vs-Grey), one goal square went unattempted by both players for
+    the whole game, leaving one row all-blue-or-unclaimed right up to the game's own end.
+    That row was never actually going to be completed -- the game had already ended --
+    but the old check couldn't tell "nobody will ever claim this" apart from "this could
+    still be claimed," so it withheld the majority verdict indefinitely even though
+    blue's other claims already made the outcome mathematically unbeatable. Counting the
+    unclaimed cells directly sidesteps the question of which lines they sit on."""
+    red = sum(cell is CellColor.RED for row in board for cell in row)
+    blue = sum(cell is CellColor.BLUE for row in board for cell in row)
+    unclaimed = sum(len(row) for row in board) - red - blue
+    return unclaimed == 0 or abs(red - blue) > unclaimed
 
 
 def majority_winner(board: Board) -> CellColor | None:
@@ -92,7 +102,7 @@ def determine_winner(board: Board) -> tuple[CellColor | None, WinType, WinLine |
     if (line_win := winning_line(board)) is not None:
         color, win_line = line_win
         return color, WinType.LINE, win_line
-    if _all_lines_blocked(board):
+    if _majority_settled(board):
         winner = majority_winner(board)
         if winner is not None:
             return winner, WinType.MAJORITY, None

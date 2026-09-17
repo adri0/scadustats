@@ -95,10 +95,10 @@ class EventType(Enum):
     GAME_END mark whole-game moments and so carry no row/col/color. GAME_START is the
     stopwatch turning from the pre-game countdown into the ascending game clock.
     GAME_END is the moment the game's recorded result (a completed line, or a majority
-    once every line is blocked -- see rules.winner.determine_winner) first became locked
-    in for the rest of the game, timestamped at the settling MARK event itself (see
-    extract._detect_game_end) -- a TIE or an undetermined game has no line/majority to
-    settle on, so those have no GAME_END event at all."""
+    once it's mathematically unbeatable -- see rules.winner.determine_winner) first
+    became locked in for the rest of the game, timestamped at the settling MARK event
+    itself (see extract._detect_game_end) -- a TIE or an undetermined game has no
+    line/majority to settle on, so those have no GAME_END event at all."""
 
     MARK = "mark"
     UNMARK = "unmark"
