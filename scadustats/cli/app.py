@@ -12,10 +12,11 @@ import typer
 
 from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import GameResult, GameType, MatchMetadata, MatchType, VideoExtraction
+from scadustats.pipeline.consolidate import consolidate_squares, validate_squares
 from scadustats.pipeline.extract import estimate_sample_count, extract_video
 from scadustats.rules.validation import validate_extraction
 from scadustats.storage.db import load_json_dir
-from scadustats.storage.json_export import read_video
+from scadustats.storage.json_export import read_video, write_squares
 from scadustats.video.download import download_video
 
 # no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
@@ -623,6 +624,45 @@ def match_show(
     typer.echo()
     typer.echo(typer.style("validation", bold=True))
     _echo_validation(extraction)
+
+
+square_app = typer.Typer(
+    help="Build the consolidated goal-square reference from extracted matches.",
+    no_args_is_help=True,
+)
+app.add_typer(square_app, name="square")
+
+
+@square_app.command("consolidate")
+def square_consolidate(
+    json_dir: Annotated[
+        Path, typer.Option(help="Directory of JSON files written by `extract`")
+    ] = Path("matches"),
+    squares_dir: Annotated[
+        Path,
+        typer.Option(help="Directory to write base_game.json and dlc.json into"),
+    ] = Path("squares"),
+) -> None:
+    """Rebuild squares_dir/base_game.json and squares_dir/dlc.json from every match in
+    json_dir: every distinct goal square text seen, split by the game type it belongs to
+    and tagged with a short id.
+
+    Wholly regenerated each run from the current match history -- not something to
+    hand-edit and expect preserved across a re-run. A game with no resolved game_type
+    contributes nothing, since there's no pool to file its squares under.
+    """
+    extractions = _read_matches(json_dir)
+    if not extractions:
+        typer.echo(f"No matches found in {json_dir}")
+        return
+
+    squares = consolidate_squares(extractions)
+    for game_squares in squares.values():
+        validate_squares(game_squares)
+
+    paths = write_squares(squares_dir, squares)
+    for game_type, path in paths.items():
+        typer.echo(f"{path}: {len(squares[game_type])} square(s)")
 
 
 def main() -> None:

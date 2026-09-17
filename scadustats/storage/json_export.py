@@ -15,10 +15,17 @@ from scadustats.models import (
     GameResult,
     GameType,
     MatchType,
+    Square,
     VideoExtraction,
     WinLine,
     WinType,
 )
+
+# File a game type's consolidated squares reference is written to, keyed by GameType --
+# see pipeline.consolidate.consolidate_squares and write_squares below. "base_game.json"
+# rather than "base.json" so the filename reads unambiguously on its own, next to
+# "dlc.json", in a directory listing.
+_SQUARES_FILENAMES = {GameType.BASE: "base_game.json", GameType.DLC: "dlc.json"}
 
 
 def _format_hms(total_seconds: int) -> str:
@@ -233,3 +240,40 @@ def read_video(path: str | Path) -> VideoExtraction:
         # source_path existed still reads back cleanly, as "unknown".
         source_path=metadata.get("source_path"),
     )
+
+
+def squares_path(squares_dir: str | Path, game_type: GameType) -> Path:
+    """The path write_squares writes (or would write) one game type's consolidated
+    squares reference to -- `<squares_dir>/base_game.json` or `<squares_dir>/dlc.json`.
+    """
+    return Path(squares_dir) / _SQUARES_FILENAMES[game_type]
+
+
+def _square_to_dict(square: Square) -> dict:
+    return {"id": square.id, "text": square.text, "game_type": square.game_type.value}
+
+
+def write_squares(
+    squares_dir: str | Path, squares: dict[GameType, list[Square]]
+) -> dict[GameType, Path]:
+    """Write pipeline.consolidate.consolidate_squares' output as one JSON file per game
+    type (see squares_path), creating squares_dir if it doesn't exist yet. Each square is
+    written sorted by id, for the same diffability reason consolidate_squares itself
+    sorts by text -- id already reads close to alphabetical-by-text since it's derived
+    from the text, so this doesn't reorder the list in any surprising way.
+
+    Unconditionally overwrites, unlike write_video: this reference is wholly regenerated
+    from the current match history every run, not incrementally appended to, so there's
+    no prior version worth asking about before replacing. Returns the path written per
+    game type.
+    """
+    Path(squares_dir).mkdir(parents=True, exist_ok=True)
+
+    written = {}
+    for game_type, game_squares in squares.items():
+        path = squares_path(squares_dir, game_type)
+        ordered = sorted(game_squares, key=lambda square: square.id)
+        body = json.dumps([_square_to_dict(square) for square in ordered], indent=2)
+        path.write_text(body + "\n")
+        written[game_type] = path
+    return written
