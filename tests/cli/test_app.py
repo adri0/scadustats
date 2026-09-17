@@ -590,9 +590,9 @@ def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_pa
     defaults instead of asking from scratch -- see _find_existing_match."""
     local = tmp_path / "local.mp4"
     local.write_bytes(b"fake video")
-    json_dir = tmp_path / "matches"
+    data_dir = tmp_path / "data"
     write_video(
-        json_dir,
+        data_dir,
         _sample_extraction(
             video_url="https://youtu.be/abc123",
             source_path=str(local),
@@ -616,8 +616,8 @@ def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_pa
         [
             "extract",
             str(local),
-            "--json-dir",
-            str(json_dir),
+            "--data-dir",
+            str(data_dir),
             "--match-type",
             "round_robin",
         ],
@@ -788,7 +788,7 @@ def test_list_matches_prints_a_row_per_video_under_a_header(tmp_path):
     write_video(tmp_path, _sample_extraction())
     write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
 
-    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "list", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
@@ -805,7 +805,7 @@ def test_list_matches_aligns_its_columns(tmp_path):
     write_video(tmp_path, _sample_extraction())
     write_video(tmp_path, _sample_extraction(video_id="2026-01-01-a-vs-b"))
 
-    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "list", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     header, *rows = result.output.splitlines()[:3]
@@ -815,9 +815,9 @@ def test_list_matches_aligns_its_columns(tmp_path):
 
 def test_list_matches_skips_unparseable_files_with_a_warning(tmp_path):
     write_video(tmp_path, _sample_extraction())
-    (tmp_path / "old-format.json").write_text('{"game_id": "x"}')
+    (tmp_path / "matches" / "old-format.json").write_text('{"game_id": "x"}')
 
-    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "list", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "2026-03-05-alice-vs-bob" in result.output
@@ -825,7 +825,7 @@ def test_list_matches_skips_unparseable_files_with_a_warning(tmp_path):
 
 
 def test_list_matches_reports_when_directory_has_no_matches(tmp_path):
-    result = CliRunner().invoke(app, ["match", "list", "--json-dir", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "list", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "No matches found" in result.output
@@ -835,7 +835,7 @@ def test_show_match_prints_metadata_and_per_game_breakdown(tmp_path):
     write_video(tmp_path, _sample_extraction())
 
     result = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -867,7 +867,7 @@ def test_show_match_draws_the_final_board_with_the_winning_line_marked(tmp_path)
     write_video(tmp_path, _sample_extraction(games=[game]))
 
     result = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -883,7 +883,7 @@ def test_show_match_reports_a_draw_and_an_undetermined_result(tmp_path):
     write_video(tmp_path, _sample_extraction(games=drawn))
 
     result = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -893,7 +893,7 @@ def test_show_match_reports_a_draw_and_an_undetermined_result(tmp_path):
     write_video(tmp_path, _sample_extraction(games=undecided))
 
     result = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -906,7 +906,7 @@ def test_show_match_names_no_line_for_a_majority_win(tmp_path):
     write_video(tmp_path, _sample_extraction(games=[game]))
 
     result = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -917,11 +917,11 @@ def test_show_match_lists_events_only_when_asked(tmp_path):
     write_video(tmp_path, _sample_extraction())
 
     without = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
     with_events = CliRunner().invoke(
         app,
-        ["match", "show", "2026-03-05-alice-vs-bob", "--events", "--json-dir", str(tmp_path)],
+        ["match", "show", "2026-03-05-alice-vs-bob", "--events", "--data-dir", str(tmp_path)],
     )
 
     assert without.exit_code == 0, without.output
@@ -940,7 +940,7 @@ def test_show_match_headers_are_colorized_when_color_is_supported(tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["match", "show", "2026-03-05-alice-vs-bob", "--events", "--json-dir", str(tmp_path)],
+        ["match", "show", "2026-03-05-alice-vs-bob", "--events", "--data-dir", str(tmp_path)],
         color=True,
     )
 
@@ -953,7 +953,7 @@ def test_show_match_reports_a_clean_match_as_valid(tmp_path):
     write_video(tmp_path, _valid_match_extraction())
 
     result = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -965,7 +965,7 @@ def test_show_match_lists_validation_issues_for_an_invalid_match(tmp_path):
     write_video(tmp_path, _sample_extraction())
 
     result = CliRunner().invoke(
-        app, ["match", "show", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     # Unlike `match validate`, a bad result here isn't a CLI failure -- `show` always
@@ -1021,7 +1021,7 @@ def test_validate_match_reports_a_clean_match_as_ok(tmp_path):
     write_video(tmp_path, _valid_match_extraction())
 
     result = CliRunner().invoke(
-        app, ["match", "validate", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "validate", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -1032,7 +1032,7 @@ def test_validate_match_lists_issues_and_exits_nonzero(tmp_path):
     write_video(tmp_path, _sample_extraction())
 
     result = CliRunner().invoke(
-        app, ["match", "validate", "2026-03-05-alice-vs-bob", "--json-dir", str(tmp_path)]
+        app, ["match", "validate", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 1
@@ -1052,7 +1052,7 @@ def test_validate_output_is_colorized_when_color_is_supported(tmp_path):
     write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
 
     result = CliRunner().invoke(
-        app, ["match", "validate", "--json-dir", str(tmp_path)], color=True
+        app, ["match", "validate", "--data-dir", str(tmp_path)], color=True
     )
 
     assert "\x1b[32m" in result.output  # green -- the clean match's "ok"
@@ -1063,7 +1063,7 @@ def test_validate_checks_every_match_in_the_directory_by_default(tmp_path):
     write_video(tmp_path, _valid_match_extraction())
     write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
 
-    result = CliRunner().invoke(app, ["match", "validate", "--json-dir", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 1
     assert "2026-03-05-alice-vs-bob: ok" in result.output
@@ -1073,9 +1073,9 @@ def test_validate_checks_every_match_in_the_directory_by_default(tmp_path):
 
 def test_validate_skips_unparseable_files_with_a_warning(tmp_path):
     write_video(tmp_path, _valid_match_extraction())
-    (tmp_path / "old-format.json").write_text('{"game_id": "x"}')
+    (tmp_path / "matches" / "old-format.json").write_text('{"game_id": "x"}')
 
-    result = CliRunner().invoke(app, ["match", "validate", "--json-dir", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "Skipping old-format.json" in result.output
@@ -1083,7 +1083,7 @@ def test_validate_skips_unparseable_files_with_a_warning(tmp_path):
 
 
 def test_validate_reports_when_directory_has_no_matches(tmp_path):
-    result = CliRunner().invoke(app, ["match", "validate", "--json-dir", str(tmp_path)])
+    result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "No matches found" in result.output
@@ -1091,7 +1091,7 @@ def test_validate_reports_when_directory_has_no_matches(tmp_path):
 
 def test_validate_errors_on_unknown_video_id(tmp_path):
     result = CliRunner().invoke(
-        app, ["match", "validate", "nonexistent", "--json-dir", str(tmp_path)]
+        app, ["match", "validate", "nonexistent", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code != 0
@@ -1100,7 +1100,7 @@ def test_validate_errors_on_unknown_video_id(tmp_path):
 
 def test_show_match_errors_on_unknown_video_id(tmp_path):
     result = CliRunner().invoke(
-        app, ["match", "show", "nonexistent", "--json-dir", str(tmp_path)]
+        app, ["match", "show", "nonexistent", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code != 0
@@ -1137,10 +1137,9 @@ def test_no_square_subcommand_prints_the_group_command_list():
 
 
 def test_square_consolidate_writes_a_file_per_game_type(tmp_path):
-    json_dir = tmp_path / "matches"
-    squares_dir = tmp_path / "squares"
+    data_dir = tmp_path / "data"
     write_video(
-        json_dir,
+        data_dir,
         _sample_extraction(
             games=[
                 _match_sample_game(game_type=GameType.BASE),
@@ -1154,14 +1153,13 @@ def test_square_consolidate_writes_a_file_per_game_type(tmp_path):
         [
             "square",
             "consolidate",
-            "--json-dir",
-            str(json_dir),
-            "--squares-dir",
-            str(squares_dir),
+            "--data-dir",
+            str(data_dir),
         ],
     )
 
     assert result.exit_code == 0, result.output
+    squares_dir = data_dir / "squares"
     assert (squares_dir / "base_game.json").exists()
     assert (squares_dir / "dlc.json").exists()
     assert "base_game.json" in result.output
@@ -1170,7 +1168,7 @@ def test_square_consolidate_writes_a_file_per_game_type(tmp_path):
 
 def test_square_consolidate_reports_when_directory_has_no_matches(tmp_path):
     result = CliRunner().invoke(
-        app, ["square", "consolidate", "--json-dir", str(tmp_path)]
+        app, ["square", "consolidate", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code == 0, result.output
@@ -1195,8 +1193,8 @@ def _known_for_grid(
 
 
 def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
-    json_dir = tmp_path / "matches"
-    squares_dir = tmp_path / "squares"
+    data_dir = tmp_path / "data"
+    squares_dir = data_dir / "squares"
     game = _match_sample_game()
     known = _known_for_grid(game.square_texts)
     game.square_texts[0][0] = "Kilt 3 Friendly NPCs (No Hermit Merchants)"
@@ -1204,7 +1202,7 @@ def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
         id="npcs_3", text="Kill 3 Friendly NPCs (No Hermit Merchants)", game_type=GameType.BASE
     )
     extraction = _sample_extraction(games=[game])
-    write_video(json_dir, extraction)
+    write_video(data_dir, extraction)
     write_squares(squares_dir, known)
 
     result = CliRunner().invoke(
@@ -1213,10 +1211,8 @@ def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
             "square",
             "consolidate",
             extraction.video_id,
-            "--json-dir",
-            str(json_dir),
-            "--squares-dir",
-            str(squares_dir),
+            "--data-dir",
+            str(data_dir),
         ],
     )
 
@@ -1225,19 +1221,19 @@ def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
     # Nothing was added, so no reference file is rewritten and no "new" listing prints.
     assert "new" not in result.output
     assert str(squares_dir) not in result.output
-    [path] = list(json_dir.rglob(f"{extraction.video_id}.json"))
+    [path] = list((data_dir / "matches").rglob(f"{extraction.video_id}.json"))
     fixed = read_video(path)
     assert fixed.games[0].square_texts[0][0] == "Kill 3 Friendly NPCs (No Hermit Merchants)"
 
 
 def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_reference(tmp_path):
-    json_dir = tmp_path / "matches"
-    squares_dir = tmp_path / "squares"
+    data_dir = tmp_path / "data"
+    squares_dir = data_dir / "squares"
     game = _match_sample_game()
     known = _known_for_grid(game.square_texts)
     game.square_texts[0][0] = "Some completely unrelated goal text"
     extraction = _sample_extraction(games=[game])
-    write_video(json_dir, extraction)
+    write_video(data_dir, extraction)
     write_squares(squares_dir, known)
 
     result = CliRunner().invoke(
@@ -1246,10 +1242,8 @@ def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_refe
             "square",
             "consolidate",
             extraction.video_id,
-            "--json-dir",
-            str(json_dir),
-            "--squares-dir",
-            str(squares_dir),
+            "--data-dir",
+            str(data_dir),
         ],
     )
 
@@ -1263,7 +1257,7 @@ def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_refe
     assert "+ 'Some completely unrelated goal text'" in result.output
     # unfixed -- there was nothing close enough in the reference to correct it against --
     # so the match's own JSON is untouched, only the reference gained a new entry.
-    [path] = list(json_dir.rglob(f"{extraction.video_id}.json"))
+    [path] = list((data_dir / "matches").rglob(f"{extraction.video_id}.json"))
     unchanged = read_video(path)
     assert unchanged.games[0].square_texts[0][0] == "Some completely unrelated goal text"
     updated = read_squares(squares_dir)
@@ -1271,10 +1265,10 @@ def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_refe
 
 
 def test_square_consolidate_with_a_video_id_reports_no_changes(tmp_path):
-    json_dir = tmp_path / "matches"
-    squares_dir = tmp_path / "squares"
+    data_dir = tmp_path / "data"
+    squares_dir = data_dir / "squares"
     extraction = _sample_extraction()
-    write_video(json_dir, extraction)
+    write_video(data_dir, extraction)
     write_squares(
         squares_dir,
         {
@@ -1293,10 +1287,8 @@ def test_square_consolidate_with_a_video_id_reports_no_changes(tmp_path):
             "square",
             "consolidate",
             extraction.video_id,
-            "--json-dir",
-            str(json_dir),
-            "--squares-dir",
-            str(squares_dir),
+            "--data-dir",
+            str(data_dir),
         ],
     )
 
@@ -1306,7 +1298,7 @@ def test_square_consolidate_with_a_video_id_reports_no_changes(tmp_path):
 
 def test_square_consolidate_errors_on_unknown_video_id(tmp_path):
     result = CliRunner().invoke(
-        app, ["square", "consolidate", "nonexistent", "--json-dir", str(tmp_path)]
+        app, ["square", "consolidate", "nonexistent", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code != 0

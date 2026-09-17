@@ -12,17 +12,17 @@ Extract statistics from Elden Ring "Bingo Brawlers" match videos.
 
 ```
 scadustats download <youtube-url> [-o downloads]
-scadustats extract <video_path_or_url> [--json-dir matches] [--if-exists replace|append|error]
-scadustats load-db <json_dir> [--db scadustats.duckdb] [--if-exists replace|append|error]
-scadustats match list [--json-dir matches]
-scadustats match show <video_id> [--events] [--json-dir matches]
-scadustats match validate [video_id] [--json-dir matches]
-scadustats square consolidate [--json-dir matches] [--squares-dir squares]
+scadustats extract <video_path_or_url> [--data-dir data] [--if-exists replace|append|error]
+scadustats load-db [data_dir] [--db scadustats.duckdb] [--if-exists replace|append|error]
+scadustats match list [--data-dir data]
+scadustats match show <video_id> [--events] [--data-dir data]
+scadustats match validate [video_id] [--data-dir data]
+scadustats square consolidate [--data-dir data]
 ```
 
 Run `scadustats` (or `scadustats match`) with no command to see this list with full help for each command.
 
-`extract` reads the bingo-board overlay from a match video and writes one JSON file per video (all its games, players, commentators, match date, and video link included) — it never touches a database. `video_path_or_url` can be a local file, or a youtube.com/youtu.be URL to download and extract in one step (deleted afterward on success; kept, on request, if extraction fails). Each game is also classified as `base` or `dlc`, primarily by reading the overlay's own "BASE GAME"/"DLC" subtitle, falling back to matching its goal squares against `scadustats/pipeline/squares.json`, a growing reference of previously seen squares; when neither resolves it, an interactive prompt asks per game.
+`extract` reads the bingo-board overlay from a match video and writes one JSON file per video (all its games, players, commentators, match date, and video link included) under `<data_dir>/matches` — it never touches a database. `video_path_or_url` can be a local file, or a youtube.com/youtu.be URL to download and extract in one step (deleted afterward on success; kept, on request, if extraction fails). Each game is also classified as `base` or `dlc`, primarily by reading the overlay's own "BASE GAME"/"DLC" subtitle, falling back to matching its goal squares against `<data_dir>/squares/base_game.json`/`dlc.json` (see `square consolidate` below), a reference of previously seen squares; when neither resolves it, an interactive prompt asks per game.
 
 The `match` sub-commands are read-only lookups over what's already been extracted, straight from the JSON files (no database needed).
 
@@ -32,4 +32,4 @@ The `match` sub-commands are read-only lookups over what's already been extracte
 
 `load-db` is a separate, optional step: it reflects those JSON files into a DuckDB database file. Run it whenever you want the JSON's current contents (including any manual corrections) written into the DB.
 
-`square consolidate` rebuilds `squares_dir/base_game.json` and `squares_dir/dlc.json` from every match in `json_dir`: every distinct goal square text seen, split by the game type it belongs to and tagged with a short, unique id, e.g. `{"id": "tunnels_3", "text": "Complete 3 Tunnels or Precipices", "game_type": "base"}`. Wholly regenerated each run from the current match history, not incrementally appended to.
+`square consolidate` rebuilds `<data_dir>/squares/base_game.json` and `<data_dir>/squares/dlc.json` from every match under `data_dir`: every distinct goal square text seen, split by the game type it belongs to and tagged with a short, unique id, e.g. `{"id": "tunnels_3", "text": "Complete 3 Tunnels or Precipices", "game_type": "base"}`. Wholly regenerated each run from the current match history, not incrementally appended to.
