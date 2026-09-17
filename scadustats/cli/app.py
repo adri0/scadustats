@@ -135,16 +135,18 @@ def _prompt_video_url(default: str | None = None) -> str | None:
         typer.echo(f"{raw!r} doesn't look like a youtube.com/youtu.be URL")
 
 
-def _prompt_game_type(game: GameResult, game_type_opt: GameType | None) -> GameType:
-    """Answers extract_video's on_missing_game_type callback: game_type_opt (--game-type)
-    is used for every game that needs it, if given, so the common case (a whole match is
-    one type) doesn't mean answering the same question once per game. Otherwise prompts,
-    per game, since squares.py couldn't infer it (see extract.py) -- no default, same
-    reasoning as match date: guessing wrong here would silently mislabel real data.
-    """
-    if game_type_opt is not None:
-        return game_type_opt
+def _prompt_game_type(game: GameResult) -> GameType:
+    """Answers extract_video's on_missing_game_type callback: prompts, per game, since
+    squares.py couldn't infer it (see extract.py) -- no default, same reasoning as match
+    date: guessing wrong here would silently mislabel real data.
 
+    There's deliberately no flag to answer this once for every game in the video (there
+    used to be, --game-type) -- a video is expected to hold more than one game, and each
+    game's type is its own read off that portion of the footage (or squares.json
+    inference), not a property of the video as a whole; a real match's first two games
+    are base-then-DLC (see validation.py), so a single answer would be wrong as often as
+    it was right.
+    """
     choices = [t.value for t in GameType]
     while True:
         raw = typer.prompt(
@@ -221,13 +223,6 @@ def extract(
     video_url: Annotated[
         str | None,
         typer.Option(help="Source video URL, for provenance (prompted if omitted; may be empty)"),
-    ] = None,
-    game_type: Annotated[
-        GameType | None,
-        typer.Option(
-            help="base or dlc, used for every game whose type can't be inferred from its "
-            "squares (prompted per such game if omitted)"
-        ),
     ] = None,
     keep_video: Annotated[
         bool,
@@ -354,7 +349,7 @@ def extract(
                 # progress_lock is free and this can't race its prompts on the terminal.
                 with progress_lock:
                     typer.echo()
-                    return _prompt_game_type(game, game_type)
+                    return _prompt_game_type(game)
 
             def on_duplicate(path: Path) -> bool:
                 # Same timing guarantee as on_missing_game_type above -- this only runs
