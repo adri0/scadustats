@@ -178,6 +178,19 @@ class GameResult:
 
 
 @dataclass
+class Square:
+    """One goal square in the consolidated, per-game-type reference built by
+    pipeline.consolidate from previously extracted matches (see
+    storage.json_export.write_squares) -- distinct from GameResult.square_texts, which is
+    just the raw OCR text read off one game's board, with no id or cross-match dedup.
+    """
+
+    id: str
+    text: str
+    game_type: GameType
+
+
+@dataclass
 class VideoExtraction:
     """Everything extracted from one video, and the unit `json_export`/`db` persist:
     one video is one match, and a match can contain several games (GameResult), but
