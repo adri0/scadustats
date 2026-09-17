@@ -275,3 +275,80 @@ class VideoExtraction:
         `videos.num_games`) for a reader's/query's convenience, but a hand-edited file
         that adds or drops a game is re-counted on read, not believed."""
         return len(self.games)
+
+
+@dataclass
+class MatchRecord:
+    """Wins, losses and draws for one season's worth of a player's matches (see
+    PlayerProfile.season_records). A draw is a real *match* outcome -- a round robin
+    match can end 1-1, see MatchWinner.DRAW -- unlike for a single game, where a tie can
+    no longer even occur on a 5x5 board (see winner._majority_settled's note on
+    WinType.TIE), so this carries a draws count that WinLoss (used for the game-level
+    tallies below) doesn't need."""
+
+    wins: int = 0
+    losses: int = 0
+    draws: int = 0
+
+
+@dataclass
+class WinLoss:
+    """Wins and losses for one bucket of a player's individual games (see
+    PlayerProfile.game_record/game_type_records) -- no draws field, since a single game
+    can't end in one, unlike a match (see MatchRecord)."""
+
+    wins: int = 0
+    losses: int = 0
+
+
+@dataclass
+class SquareMarks:
+    """One square text and how many times a player has personally marked it (see
+    PlayerProfile.top_squares_base_game/top_squares_dlc) -- the count travels with the
+    text rather than being left for a reader to re-derive, since it's the very thing that
+    ranked this square into the top 5 in the first place."""
+
+    text: str
+    marks: int
+
+
+@dataclass
+class PlayerProfile:
+    """One player's consolidated profile, built by pipeline.consolidate.consolidate_players
+    from every match they appear in and persisted as one YAML file per player (see
+    storage.player_export, issue #72).
+
+    slug/display_name/season_records/game_record/game_type_records/all_matches/
+    top_squares_base_game/top_squares_dlc are wholly regenerated from match history on
+    every `player consolidate` run, the same as pipeline.consolidate.consolidate_squares'
+    output -- none of them is meant to be hand-edited and expected to survive a re-run.
+    id/twitch/avatar/bio are the exception: id is assigned once, the first time a
+    player is seen, and kept stable across every later re-run, and twitch/avatar/bio
+    are never set by the tool at all -- they're filled in by hand and preserved the same
+    way (see storage.player_export.read_players).
+    """
+
+    id: int
+    # Lowercase, underscores as separator -- e.g. "twistiet" -- derived from display_name
+    # and what two OCR'd readings of the same player's name are considered equal under
+    # (see pipeline.consolidate._slugify_name). Also the file's own basename (see
+    # storage.player_export.player_path).
+    slug: str
+    # The exact spelling seen most often across this player's matches -- see
+    # consolidate_players.
+    display_name: str
+    # Just the handle (e.g. "twistiet"), not the full https://twitch.tv/... URL -- filled
+    # in by hand, like avatar/bio below.
+    twitch: str | None = None
+    avatar: str | None = None
+    bio: str | None = None
+    season_records: dict[str, MatchRecord] = field(default_factory=dict)
+    game_record: WinLoss = field(default_factory=WinLoss)
+    game_type_records: dict[GameType, WinLoss] = field(default_factory=dict)
+    # video_ids the player appears in, ordered by match_date descending (most recent
+    # first) -- see consolidate_players.
+    all_matches: list[str] = field(default_factory=list)
+    # The 5 squares this player has personally marked most often, per game type, each
+    # with its mark count -- see consolidate_players.
+    top_squares_base_game: list[SquareMarks] = field(default_factory=list)
+    top_squares_dlc: list[SquareMarks] = field(default_factory=list)

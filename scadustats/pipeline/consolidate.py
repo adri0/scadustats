@@ -11,6 +11,10 @@ already-extracted match (`square consolidate <video_id>`, issue #76): it correct
 match's own OCR'd square_texts against whatever the reference already knows, and grows
 the reference with whatever it doesn't -- the same end effect on squares/ that including
 this match in a from-scratch consolidate_squares run would have had.
+
+consolidate_players (issue #72) builds the analogous per-player reference -- one
+consolidated profile per player, covering every match they've appeared in -- for
+`player consolidate` (see storage.player_export).
 """
 
 import difflib
@@ -18,8 +22,20 @@ import logging
 import re
 from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 
-from scadustats.models import GameType, Square, VideoExtraction
+from scadustats.models import (
+    CellColor,
+    EventType,
+    GameType,
+    MatchRecord,
+    MatchWinner,
+    PlayerProfile,
+    Square,
+    SquareMarks,
+    VideoExtraction,
+    WinLoss,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -318,3 +334,160 @@ def consolidate_match_squares(
                 )
 
     return changes
+
+
+_NAME_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify_name(name: str) -> str:
+    """A player's display name, lowercased with any run of non-alphanumeric characters
+    (spaces, punctuation) collapsed to a single underscore and stripped from either end
+    -- e.g. "TwistieT" -> "twistiet", "Star0 Chris" -> "star0_chris". This is the identity
+    two OCR'd name readings are considered "the same player" under (see
+    consolidate_players): a casing/spacing difference between two readings of the same
+    overlay is common, but two different players sharing a slug isn't expected in
+    practice.
+    """
+    return _NAME_SLUG_RE.sub("_", name.strip().lower()).strip("_")
+
+
+def _event_square_text(square_texts: list[list[str]], row: int | None, col: int | None) -> str:
+    """The goal text at one event's square, or "" when there isn't one -- the same lookup
+    as storage.json_export._event_square_text/cli.display._square_text, duplicated here
+    for the same reason those two already are rather than shared: it's a couple of lines,
+    and none of these three modules should import each other just for it.
+    """
+    if row is None or col is None:
+        return ""
+    try:
+        # row/col are 1-based (see models.GameEvent); square_texts is a plain 0-based grid.
+        return square_texts[row - 1][col - 1]
+    except IndexError:
+        return ""
+
+
+def _top_squares(counts: Counter[str], limit: int = 5) -> list[SquareMarks]:
+    """The `limit` most-marked texts in `counts`, each paired with its mark count, ranked
+    by count descending and then alphabetically -- the same tie-break consolidate_squares'
+    own sort relies on for a stable, diffable file, rather than Counter.most_common's
+    insertion-order tie-break."""
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [SquareMarks(text=text, marks=count) for text, count in ranked[:limit]]
+
+
+def consolidate_players(
+    extractions: list[VideoExtraction],
+    existing: dict[str, PlayerProfile] | None = None,
+) -> dict[str, PlayerProfile]:
+    """Every player's consolidated profile (see models.PlayerProfile) across
+    `extractions`, keyed by slug (see _slugify_name) -- the source data for `player
+    consolidate` (storage.player_export.write_player, issue #72).
+
+    Two OCR'd name strings that slugify the same are treated as the same player, and
+    display_name is that player's most commonly seen exact spelling across every match
+    they appear in -- the same majority-vote shape overlay.commentators.
+    majority_commentator_names uses for its own static, per-broadcast text reads.
+
+    `existing` (storage.player_export.read_players' output) carries forward the one thing
+    that can't be recomputed from match history -- id -- plus the fields the tool never
+    fills in at all (twitch/avatar/bio); a slug not already in `existing` is a new
+    player, assigned the next id after whatever's already in use (1 if `existing` is
+    empty). Everything else here is wholly regenerated from `extractions` every call, the
+    same as consolidate_squares.
+
+    A match whose winner can't be named (VideoExtraction.winner is None -- see its own
+    docstring) contributes nothing to season_records, and a game with no winner_color
+    contributes nothing to game_record/game_type_records/the top-squares tallies -- in
+    both cases there's no result yet to attribute to either player, so guessing one would
+    be inventing data the same way VideoExtraction.winner itself declines to.
+    """
+    existing = existing or {}
+    next_id = max((profile.id for profile in existing.values()), default=0) + 1
+
+    name_votes: dict[str, Counter[str]] = {}
+    season_records: dict[str, dict[str, MatchRecord]] = {}
+    game_records: dict[str, WinLoss] = {}
+    game_type_records: dict[str, dict[GameType, WinLoss]] = {}
+    all_matches: dict[str, list[tuple[date, str]]] = {}
+    square_marks: dict[str, dict[GameType, Counter[str]]] = {}
+
+    for extraction in extractions:
+        for color, name in (
+            (CellColor.RED, extraction.player_red_name),
+            (CellColor.BLUE, extraction.player_blue_name),
+        ):
+            if not name:
+                continue
+            slug = _slugify_name(name)
+            name_votes.setdefault(slug, Counter())[name] += 1
+            all_matches.setdefault(slug, []).append((extraction.match_date, extraction.video_id))
+
+            if extraction.winner is not None:
+                record = season_records.setdefault(slug, {}).setdefault(
+                    extraction.season, MatchRecord()
+                )
+                if extraction.winner is MatchWinner.DRAW:
+                    record.draws += 1
+                elif (extraction.winner is MatchWinner.RED and color is CellColor.RED) or (
+                    extraction.winner is MatchWinner.BLUE and color is CellColor.BLUE
+                ):
+                    record.wins += 1
+                else:
+                    record.losses += 1
+
+            for game in extraction.games:
+                if game.winner_color is None:
+                    continue
+                won = game.winner_color is color
+
+                overall = game_records.setdefault(slug, WinLoss())
+                if won:
+                    overall.wins += 1
+                else:
+                    overall.losses += 1
+
+                if game.game_type is not None:
+                    by_type = game_type_records.setdefault(slug, {}).setdefault(
+                        game.game_type, WinLoss()
+                    )
+                    if won:
+                        by_type.wins += 1
+                    else:
+                        by_type.losses += 1
+
+                    marks = square_marks.setdefault(slug, {}).setdefault(game.game_type, Counter())
+                    for event in game.events:
+                        if event.event_type is EventType.MARK and event.color is color:
+                            text = _event_square_text(game.square_texts, event.row, event.col)
+                            if text:
+                                marks[text] += 1
+
+    profiles: dict[str, PlayerProfile] = {}
+    for slug in sorted(name_votes):
+        prior = existing.get(slug)
+        if prior is not None:
+            player_id = prior.id
+            twitch, avatar, bio = prior.twitch, prior.avatar, prior.bio
+        else:
+            player_id, next_id = next_id, next_id + 1
+            twitch = avatar = bio = None
+
+        ordered_matches = sorted(all_matches[slug], key=lambda pair: pair[0], reverse=True)
+
+        profiles[slug] = PlayerProfile(
+            id=player_id,
+            slug=slug,
+            display_name=name_votes[slug].most_common(1)[0][0],
+            twitch=twitch,
+            avatar=avatar,
+            bio=bio,
+            season_records=season_records.get(slug, {}),
+            game_record=game_records.get(slug, WinLoss()),
+            game_type_records=game_type_records.get(slug, {}),
+            all_matches=[video_id for _, video_id in ordered_matches],
+            top_squares_base_game=_top_squares(
+                square_marks.get(slug, {}).get(GameType.BASE, Counter())
+            ),
+            top_squares_dlc=_top_squares(square_marks.get(slug, {}).get(GameType.DLC, Counter())),
+        )
+    return profiles

@@ -20,6 +20,7 @@ from scadustats.models import (
     GameType,
     MatchMetadata,
     MatchType,
+    PlayerProfile,
     Square,
     VideoExtraction,
     WinLine,
@@ -27,6 +28,7 @@ from scadustats.models import (
 )
 from scadustats.pipeline.extract import ExtractionSummary
 from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
+from scadustats.storage.player_export import player_path, read_player, read_players, write_player
 from scadustats.video.download import DownloadResult
 
 
@@ -1303,3 +1305,66 @@ def test_square_consolidate_errors_on_unknown_video_id(tmp_path):
 
     assert result.exit_code != 0
     assert "nonexistent" in result.output
+
+
+def test_no_player_subcommand_prints_the_group_command_list():
+    result = CliRunner().invoke(app, ["player"])
+
+    assert "Commands" in result.output
+    assert "consolidate" in result.output
+    assert "Missing command" not in result.output
+
+
+def test_player_consolidate_writes_a_file_per_player(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction())
+
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    players_dir = data_dir / "players"
+    assert (players_dir / "alice.yaml").exists()
+    assert (players_dir / "bob.yaml").exists()
+    assert str(players_dir / "alice.yaml") in result.output
+    assert str(players_dir / "bob.yaml") in result.output
+
+
+def test_player_consolidate_reports_when_directory_has_no_matches(tmp_path):
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "--data-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "No matches found" in result.output
+
+
+def test_player_consolidate_preserves_hand_filled_fields_across_a_rerun(tmp_path):
+    data_dir = tmp_path / "data"
+    players_dir = data_dir / "players"
+    write_video(data_dir, _sample_extraction())
+    write_player(
+        players_dir,
+        PlayerProfile(id=42, slug="alice", display_name="alice", twitch="alice"),
+    )
+
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    updated = read_player(player_path(players_dir, "alice"))
+    assert updated.id == 42
+    assert updated.twitch == "alice"
+
+
+def test_player_consolidate_reflects_current_match_history(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction())
+
+    CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
+
+    players = read_players(data_dir / "players")
+    assert players["alice"].all_matches == ["2026-03-05-alice-vs-bob"]
+    assert players["alice"].game_record.wins == 1

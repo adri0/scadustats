@@ -14,6 +14,7 @@ from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import GameResult, GameType, MatchMetadata, MatchType, VideoExtraction
 from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
+    consolidate_players,
     consolidate_squares,
     validate_squares,
 )
@@ -21,6 +22,7 @@ from scadustats.pipeline.extract import estimate_sample_count, extract_video
 from scadustats.rules.validation import validate_extraction
 from scadustats.storage.db import load_json_dir
 from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
+from scadustats.storage.player_export import read_players, write_player
 from scadustats.video.download import download_video
 
 # no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
@@ -739,6 +741,44 @@ def square_consolidate(
     paths = write_squares(squares_dir, squares)
     for game_type, path in paths.items():
         typer.echo(f"{path}: {len(squares[game_type])} square(s)")
+
+
+player_app = typer.Typer(
+    help="Build consolidated player profiles from extracted matches.",
+    no_args_is_help=True,
+)
+app.add_typer(player_app, name="player")
+
+
+@player_app.command("consolidate")
+def player_consolidate(
+    data_dir: Annotated[
+        Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
+) -> None:
+    """Rebuild <data_dir>/players/<slug>.yaml from every match under data_dir: one file
+    per player, with their win/loss record (per season, and overall/per game type for
+    individual games), every match they've played (most recent first), and their 5
+    most-claimed squares per game type.
+
+    slug/display_name and every tallied field are wholly regenerated from the current
+    match history each run -- not something to hand-edit and expect preserved across a
+    re-run. id is assigned once, the first time a player is seen, and kept stable after
+    that; twitch/avatar/bio are never set by this command at all -- fill those in by
+    hand in the player's YAML file, and both they and id survive every later re-run.
+    """
+    extractions = _read_matches(data_dir)
+    if not extractions:
+        typer.echo(f"No matches found in {_matches_dir(data_dir)}")
+        return
+
+    players_dir = Path(data_dir) / "players"
+    profiles = consolidate_players(extractions, existing=read_players(players_dir))
+
+    for slug in sorted(profiles):
+        profile = profiles[slug]
+        path = write_player(players_dir, profile)
+        typer.echo(f"{path}: {len(profile.all_matches)} match(es)")
 
 
 def main() -> None:
