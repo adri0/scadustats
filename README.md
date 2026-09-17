@@ -6,6 +6,7 @@ Extract statistics from Elden Ring "Bingo Brawlers" match videos.
 
 - `ffmpeg` must be installed on the system (e.g. `brew install ffmpeg`) — required by yt-dlp to merge downloaded video/audio streams.
 - `tesseract` must be installed on the system (e.g. `brew install tesseract`) — required by `pytesseract` to OCR goal text, player names, commentator names, the game label, and the timer during extraction.
+- If `download`/`extract` fails with a `DownloadError` mentioning that YouTube requires sign-in/authentication, pass a cookies file with `--cookies` (a Netscape-format `cookies.txt`, e.g. exported from a browser) — see [yt-dlp's guide to exporting YouTube cookies](https://github.com/yt-dlp/yt-dlp/wiki/extractors#exporting-youtube-cookies). Installing the optional `ejs` extra (`uv sync --extra ejs`, or `pip install scadustats[ejs]`), which pulls in [`yt-dlp-ejs`](https://github.com/yt-dlp/yt-dlp-ejs), can also help resolve this class of failure.
 
 ## Usage
 

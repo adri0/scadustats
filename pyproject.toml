@@ -21,6 +21,11 @@ dependencies = [
     "typer>=0.27.2",
 ]
 
+[project.optional-dependencies]
+ejs = [
+    "yt-dlp-ejs",
+]
+
 [project.scripts]
 scadustats = "scadustats.cli.app:main"
 
