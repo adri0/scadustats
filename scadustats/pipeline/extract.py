@@ -418,7 +418,7 @@ def extract_video(
     video_path: str | Path,
     *,
     match_metadata: MatchMetadata | Future[MatchMetadata],
-    json_dir: str | Path = "matches",
+    data_dir: str | Path = "data",
     if_exists: str | None = None,
     sample_rate_hz: float = 1.0,
     on_progress: Callable[[], None] | None = None,
@@ -434,7 +434,7 @@ def extract_video(
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     if known_squares is None:
-        known_squares = squares.load_known_squares()
+        known_squares = squares.load_known_squares(squares.squares_path(data_dir))
     # The whole broadcast's length, recorded alongside the games -- a match's games only
     # cover part of it (intros, between-game recaps and post-game are all in there too),
     # so this can't be derived from the game segments after the fact. Non-positive means
@@ -550,7 +550,7 @@ def extract_video(
     # json_export.write_video below, which already knows how to raise or overwrite
     # unconditionally for those.
     if if_exists is None:
-        target_path = json_export.video_path(json_dir, extraction.season, video_id)
+        target_path = json_export.video_path(data_dir, extraction.season, video_id)
         if target_path.exists():
             if on_duplicate is None:
                 raise ValueError(
@@ -563,7 +563,7 @@ def extract_video(
                 )
         if_exists = "replace"
 
-    json_export.write_video(json_dir, extraction, if_exists=if_exists)
+    json_export.write_video(data_dir, extraction, if_exists=if_exists)
 
     return ExtractionSummary(
         video_id=video_id,

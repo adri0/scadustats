@@ -199,15 +199,17 @@ def extract(
         IfExists | None,
         typer.Option(
             help="Behavior when this exact match (same players and match date) was "
-            "already extracted into json_dir -- omitted asks interactively"
+            "already extracted into data_dir -- omitted asks interactively"
         ),
     ] = None,
-    json_dir: Annotated[
+    data_dir: Annotated[
         Path,
         typer.Option(
-            help="Directory to write one human-reviewable JSON file per game into"
+            help="Data directory -- matches are written as one human-reviewable JSON "
+            "file per video under <data_dir>/matches, and the base-game/DLC squares "
+            "reference is read from <data_dir>/squares/squares.json"
         ),
-    ] = Path("matches"),
+    ] = Path("data"),
     match_date: Annotated[
         str | None,
         typer.Option(help="Match date, YYYY-MM-DD (prompted if omitted)"),
@@ -240,7 +242,7 @@ def extract(
         ),
     ] = None,
 ) -> None:
-    """Extract bingo board stats from a match video into JSON files in json_dir.
+    """Extract bingo board stats from a match video into JSON files under data_dir.
 
     video_path_or_url may be a local file (as before) or a youtube.com/youtu.be URL --
     given a URL, the video is downloaded first, then extracted, then deleted (unless
@@ -248,11 +250,11 @@ def extract(
     keep it).
 
     A match is identified by its players and match date (see video_id in the JSON) --
-    if this exact match already has a JSON extraction in json_dir, you're asked whether
-    to replace it, unless --if-exists was given to decide that upfront.
+    if this exact match already has a JSON extraction under data_dir, you're asked
+    whether to replace it, unless --if-exists was given to decide that upfront.
 
     If video_path_or_url matches the video_url or local source path of a match already
-    extracted into json_dir, its match_date/season/video_url are offered as defaults at
+    extracted under data_dir, its match_date/season/video_url are offered as defaults at
     the prompts instead of the usual from-scratch ones -- handy when re-extracting the
     same source after a calibration fix.
 
@@ -280,7 +282,7 @@ def extract(
     # prompt_for_metadata on the background thread below, so its own JSON-parsing warnings
     # (see _read_matches) don't get interleaved with the progress bar the way a prompt
     # would need progress_lock to avoid.
-    existing_match = _find_existing_match(json_dir, video_path_or_url)
+    existing_match = _find_existing_match(data_dir, video_path_or_url)
 
     # video_path_or_url doubles as the source of the --video-url provenance field when
     # it's itself a YouTube URL and --video-url wasn't separately given -- the two are
@@ -367,7 +369,7 @@ def extract(
                 )
                 summary = extract_video(
                     video_path,
-                    json_dir=json_dir,
+                    data_dir=data_dir,
                     if_exists=if_exists.value if if_exists is not None else None,
                     match_metadata=metadata_future,
                     on_progress=on_progress,
@@ -409,9 +411,9 @@ def extract(
 
 @app.command("load-db")
 def load_db(
-    json_dir: Annotated[
-        Path, typer.Argument(help="Directory of JSON files written by `extract`")
-    ],
+    data_dir: Annotated[
+        Path, typer.Argument(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
     db: Annotated[
         Path, typer.Option(help="DuckDB database file path")
     ] = Path("scadustats.duckdb"),
@@ -425,23 +427,31 @@ def load_db(
     Separate from, and optional after, `extract` -- run this whenever you want the
     JSON's current contents (including any manual corrections) written into the DB.
     """
-    video_ids = load_json_dir(db, json_dir, if_exists=if_exists.value)
+    video_ids = load_json_dir(db, data_dir, if_exists=if_exists.value)
     print(f"Loaded {len(video_ids)} video(s) into {db}")
 
 
-def _match_path(json_dir: Path, video_id: str) -> Path:
+def _matches_dir(data_dir: Path) -> Path:
+    """`<data_dir>/matches` -- where json_export.video_path/write_video keep match
+    files, as opposed to any other entity data_dir may hold (e.g.
+    `<data_dir>/squares/squares.json`, see pipeline.squares.squares_path, issue #73)."""
+    return Path(data_dir) / "matches"
+
+
+def _match_path(data_dir: Path, video_id: str) -> Path:
     """The JSON file one video_id names, as a CLI error rather than a traceback when
     it isn't there -- a mistyped id is a user mistake, not a bug.
 
     video_id alone doesn't say which season subdirectory the file lives under (see
-    json_export.video_path), so this searches json_dir for it rather than building the
-    path directly -- a video_id is unique across the whole match history, so at most one
-    match is ever expected.
+    json_export.video_path), so this searches <data_dir>/matches for it rather than
+    building the path directly -- a video_id is unique across the whole match history,
+    so at most one match is ever expected.
     """
-    matches = sorted(Path(json_dir).rglob(f"{video_id}.json"))
+    matches = sorted(_matches_dir(data_dir).rglob(f"{video_id}.json"))
     if not matches:
         raise typer.BadParameter(
-            f"no match file for {video_id!r} under {json_dir}", param_hint="video_id"
+            f"no match file for {video_id!r} under {_matches_dir(data_dir)}",
+            param_hint="video_id",
         )
     return matches[0]
 
@@ -452,22 +462,24 @@ match_app = typer.Typer(
 app.add_typer(match_app, name="match")
 
 
-def _read_matches(json_dir: Path) -> list[VideoExtraction]:
-    """Every match in json_dir, oldest first. A file that doesn't parse as a
-    current-format extraction (e.g. one of the pre-existing one-file-per-game files
+def _read_matches(data_dir: Path) -> list[VideoExtraction]:
+    """Every match under <data_dir>/matches, oldest first. A file that doesn't parse as
+    a current-format extraction (e.g. one of the pre-existing one-file-per-game files
     predating the one-file-per-video format) is skipped with a warning on stderr rather
     than aborting the whole run -- shared by `match list` and `match validate`, which
     both walk the directory and both want that tolerance.
 
-    Searches every season subdirectory (see json_export.video_path), not just json_dir
-    itself. Sorted by filename alone rather than the full path: a filename is
-    "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>" (see
+    Searches every season subdirectory (see json_export.video_path) under
+    <data_dir>/matches, not data_dir itself -- data_dir can also hold other entities
+    (e.g. <data_dir>/squares/squares.json, issue #73), which aren't match files and
+    shouldn't be read as one. Sorted by filename alone rather than the full path: a
+    filename is "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>" (see
     extract._video_id), so filename order already is chronological order, whereas a
     season subdirectory's name (free text, not necessarily a sortable number) would not
     sort that way against another season's.
     """
     extractions = []
-    for path in sorted(Path(json_dir).rglob("*.json"), key=lambda p: p.name):
+    for path in sorted(_matches_dir(data_dir).rglob("*.json"), key=lambda p: p.name):
         try:
             extractions.append(read_video(path))
         except (KeyError, ValueError) as exc:
@@ -475,7 +487,7 @@ def _read_matches(json_dir: Path) -> list[VideoExtraction]:
     return extractions
 
 
-def _find_existing_match(json_dir: Path, link: str) -> VideoExtraction | None:
+def _find_existing_match(data_dir: Path, link: str) -> VideoExtraction | None:
     """The previously-extracted match, if any, that came from the same source link as
     this `extract` run's video_path_or_url -- a YouTube URL is matched against that
     match's video_url, a local path against its source_path (see
@@ -487,7 +499,7 @@ def _find_existing_match(json_dir: Path, link: str) -> VideoExtraction | None:
     match list/validate already tolerate it, rather than failing this lookup outright.
     """
     field = "video_url" if _is_youtube_url(link) else "source_path"
-    for extraction in _read_matches(json_dir):
+    for extraction in _read_matches(data_dir):
         if getattr(extraction, field) == link:
             return extraction
     return None
@@ -495,20 +507,20 @@ def _find_existing_match(json_dir: Path, link: str) -> VideoExtraction | None:
 
 @match_app.command("list")
 def match_list(
-    json_dir: Annotated[
-        Path, typer.Option(help="Directory of JSON files written by `extract`")
-    ] = Path("matches"),
+    data_dir: Annotated[
+        Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
 ) -> None:
-    """List every match extracted into json_dir as a table: who played, the format, how
-    many games, and how the match ended.
+    """List every match extracted under data_dir as a table: who played, the format,
+    how many games, and how the match ended.
 
     Reads the JSON files directly rather than a database -- the JSON is this project's
     source of truth (see CLAUDE.md), so this works whether or not `load-db` has ever
     been run.
     """
-    extractions = _read_matches(json_dir)
+    extractions = _read_matches(data_dir)
     if not extractions:
-        typer.echo(f"No matches found in {json_dir}")
+        typer.echo(f"No matches found in {_matches_dir(data_dir)}")
         return
 
     for line in render_match_table(extractions):
@@ -550,12 +562,12 @@ def match_validate(
         str | None,
         typer.Argument(
             help="video_id to validate, as printed by `match list` (omitted validates "
-            "every match in json_dir)"
+            "every match under data_dir)"
         ),
     ] = None,
-    json_dir: Annotated[
-        Path, typer.Option(help="Directory of JSON files written by `extract`")
-    ] = Path("matches"),
+    data_dir: Annotated[
+        Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
 ) -> None:
     """Check extracted matches against the tournament's own rules and report what
     doesn't add up.
@@ -569,11 +581,11 @@ def match_validate(
     file, or under CliRunner in tests), so this doesn't need its own --no-color flag.
     """
     if video_id is not None:
-        extractions = [read_video(_match_path(json_dir, video_id))]
+        extractions = [read_video(_match_path(data_dir, video_id))]
     else:
-        extractions = _read_matches(json_dir)
+        extractions = _read_matches(data_dir)
         if not extractions:
-            typer.echo(f"No matches found in {json_dir}")
+            typer.echo(f"No matches found in {_matches_dir(data_dir)}")
             return
 
     checked = 0
@@ -604,9 +616,9 @@ def match_show(
             "goal text of each square they touched",
         ),
     ] = False,
-    json_dir: Annotated[
-        Path, typer.Option(help="Directory of JSON files written by `extract`")
-    ] = Path("matches"),
+    data_dir: Annotated[
+        Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
 ) -> None:
     """Print one match in full: its details, then per game the recorded result, how the
     squares ended up split, and the final board (with the winning line marked) -- then,
@@ -617,7 +629,7 @@ def match_show(
     support is visible right next to it -- the validation result at the end is what
     states that in so many words.
     """
-    extraction = read_video(_match_path(json_dir, video_id))
+    extraction = read_video(_match_path(data_dir, video_id))
     for line in render_match(extraction, events=events):
         typer.echo(line)
     typer.echo()

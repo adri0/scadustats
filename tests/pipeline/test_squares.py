@@ -2,7 +2,7 @@ import json
 import logging
 
 from scadustats.models import GameType
-from scadustats.pipeline.squares import infer_game_type, load_known_squares
+from scadustats.pipeline.squares import infer_game_type, load_known_squares, squares_path
 
 
 def _board(*texts: str) -> list[list[str]]:
@@ -59,3 +59,14 @@ def test_load_known_squares_handles_empty_file(tmp_path):
     path.write_text("{}")
 
     assert load_known_squares(path) == {}
+
+
+def test_load_known_squares_handles_missing_file(tmp_path):
+    """A data_dir that's never had squares added to it (or never run extract at all)
+    ships the same "empty reference" behavior the file itself used to when committed
+    empty -- see issue #73."""
+    assert load_known_squares(tmp_path / "squares.json") == {}
+
+
+def test_squares_path_is_under_data_dir_squares_subfolder(tmp_path):
+    assert squares_path(tmp_path) == tmp_path / "squares" / "squares.json"

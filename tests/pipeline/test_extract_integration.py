@@ -32,7 +32,7 @@ _GAME_BOUNDARY_CLIP_PATH = "tests/fixtures/clip_game_boundary.mp4"
 
 
 def test_extract_video_end_to_end(tmp_path):
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
@@ -46,7 +46,7 @@ def test_extract_video_end_to_end(tmp_path):
     summary = extract_video(
         _CLIP_PATH,
         match_metadata=match_metadata,
-        json_dir=json_dir,
+        data_dir=data_dir,
         on_progress=on_progress,
         # squares.json ships empty (see squares.py), so inference always fails here --
         # supply a fixed answer rather than relying on interactive prompting in a test.
@@ -63,7 +63,7 @@ def test_extract_video_end_to_end(tmp_path):
     # (an estimate, not exact -- see its docstring) within a sample or two.
     assert progress_calls == pytest.approx(estimate_sample_count(_CLIP_PATH), abs=2)
 
-    json_path = video_path(json_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.video_id)
     assert json_path.exists()
     video_data = json.loads(json_path.read_text())
     assert video_data["player_red_name"] == "blanxz"
@@ -81,7 +81,7 @@ def test_extract_video_end_to_end(tmp_path):
     # extract_video itself never touches a database -- load_json_dir is the separate,
     # optional step that reflects the JSON it wrote into DuckDB.
     db_path = tmp_path / "extract.duckdb"
-    video_ids = load_json_dir(db_path, json_dir)
+    video_ids = load_json_dir(db_path, data_dir)
     assert video_ids == [summary.video_id]
 
     con = duckdb.connect(str(db_path))
@@ -123,7 +123,7 @@ def test_extract_video_records_the_supplied_published_date(tmp_path):
     """published_at is read off the same yt-dlp call that downloaded the video (see
     video.download.DownloadResult), not fetched by extract_video itself -- the caller
     (cli/app.py) passes it straight through."""
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5),
         season="6",
@@ -134,12 +134,12 @@ def test_extract_video_records_the_supplied_published_date(tmp_path):
     summary = extract_video(
         _CLIP_PATH,
         match_metadata=match_metadata,
-        json_dir=json_dir,
+        data_dir=data_dir,
         on_missing_game_type=lambda game: GameType.BASE,
         published_at=datetime.date(2026, 2, 20),
     )
 
-    json_path = video_path(json_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.video_id)
     assert json.loads(json_path.read_text())["metadata"]["published_at"] == "2026-02-20"
 
 
@@ -147,7 +147,7 @@ def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
     """A locally-supplied video (this fixture, always) has no download to read a
     published date off, so a caller that doesn't pass one gets None recorded --
     including when video_url happens to be set from a separate --video-url prompt."""
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5),
         season="6",
@@ -158,11 +158,11 @@ def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
     summary = extract_video(
         _CLIP_PATH,
         match_metadata=match_metadata,
-        json_dir=json_dir,
+        data_dir=data_dir,
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    json_path = video_path(json_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.video_id)
     assert json.loads(json_path.read_text())["metadata"]["published_at"] is None
 
 
@@ -171,7 +171,7 @@ def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
     was supplied directly (this fixture, always) or downloaded from a URL first -- see
     cli.app.extract, which resolves either case to the same on-disk path before calling
     extract_video."""
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
@@ -179,11 +179,11 @@ def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
     summary = extract_video(
         _CLIP_PATH,
         match_metadata=match_metadata,
-        json_dir=json_dir,
+        data_dir=data_dir,
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    json_path = video_path(json_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.video_id)
     assert json.loads(json_path.read_text())["metadata"]["source_path"] == _CLIP_PATH
 
 
@@ -197,7 +197,7 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
         match_metadata=MatchMetadata(
             match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.ROUND_ROBIN
         ),
-        json_dir=tmp_path / "json",
+        data_dir=tmp_path / "json",
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
@@ -220,7 +220,7 @@ def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
         match_metadata=MatchMetadata(
             match_date=datetime.date(2026, 9, 1), season="6", match_type=MatchType.ROUND_ROBIN
         ),
-        json_dir=tmp_path / "json",
+        data_dir=tmp_path / "json",
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
@@ -241,23 +241,23 @@ def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
     assert not any(e["event_type"] == "game_end" for e in game_2_events)
 
 
-def _extract_once(json_dir, **kwargs):
+def _extract_once(data_dir, **kwargs):
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
     return extract_video(
         _CLIP_PATH,
         match_metadata=match_metadata,
-        json_dir=json_dir,
+        data_dir=data_dir,
         on_missing_game_type=lambda game: GameType.BASE,
         **kwargs,
     )
 
 
 def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
-    json_dir = tmp_path / "json"
-    first = _extract_once(json_dir)
-    json_path = video_path(json_dir, "6", first.video_id)
+    data_dir = tmp_path / "json"
+    first = _extract_once(data_dir)
+    json_path = video_path(data_dir, "6", first.video_id)
     # Corrupt the on-disk file so a second, successful write is unambiguously detectable.
     json_path.write_text("{}")
 
@@ -267,7 +267,7 @@ def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
         asked_paths.append(path)
         return True
 
-    second = _extract_once(json_dir, on_duplicate=on_duplicate)
+    second = _extract_once(data_dir, on_duplicate=on_duplicate)
 
     assert asked_paths == [json_path]
     assert not second.skipped
@@ -275,29 +275,29 @@ def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
 
 
 def test_extract_video_skips_write_on_duplicate_when_declined(tmp_path):
-    json_dir = tmp_path / "json"
-    first = _extract_once(json_dir)
-    json_path = video_path(json_dir, "6", first.video_id)
+    data_dir = tmp_path / "json"
+    first = _extract_once(data_dir)
+    json_path = video_path(data_dir, "6", first.video_id)
     json_path.write_text("{}")  # would prove a write happened, if one did
 
-    second = _extract_once(json_dir, on_duplicate=lambda path: False)
+    second = _extract_once(data_dir, on_duplicate=lambda path: False)
 
     assert second.skipped
     assert json_path.read_text() == "{}"
 
 
 def test_extract_video_raises_on_duplicate_without_a_way_to_ask(tmp_path):
-    json_dir = tmp_path / "json"
-    _extract_once(json_dir)
+    data_dir = tmp_path / "json"
+    _extract_once(data_dir)
 
     with pytest.raises(ValueError, match="already exists"):
-        _extract_once(json_dir)
+        _extract_once(data_dir)
 
 
 def test_extract_video_resolves_match_metadata_future(tmp_path):
     """A Future is how the CLI hands in match metadata that's still being prompted for
     interactively -- extract_video should resolve it itself before persisting."""
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
@@ -306,12 +306,12 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
 
     summary = extract_video(
         _CLIP_PATH,
-        json_dir=json_dir,
+        data_dir=data_dir,
         match_metadata=metadata_future,
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    json_path = video_path(json_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.video_id)
     video_data = json.loads(json_path.read_text())
     assert video_data["match_date"] == "2026-03-05"
     assert video_data["season"] == "6"
@@ -321,7 +321,7 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
 def test_extract_video_infers_game_type_from_known_squares(tmp_path):
     """No on_missing_game_type is given here -- if inference from known_squares
     succeeds, the callback should never be needed."""
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
@@ -329,11 +329,11 @@ def test_extract_video_infers_game_type_from_known_squares(tmp_path):
     summary = extract_video(
         _CLIP_PATH,
         match_metadata=match_metadata,
-        json_dir=json_dir,
+        data_dir=data_dir,
         known_squares={"Kill Wormface": GameType.BASE},
     )
 
-    video_data = json.loads(video_path(json_dir, "6", summary.video_id).read_text())
+    video_data = json.loads(video_path(data_dir, "6", summary.video_id).read_text())
     assert video_data["games"][0]["game_type"] == "base"
 
 
@@ -348,7 +348,7 @@ def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip,
     """Neither known_squares nor on_missing_game_type is given here -- on footage whose
     quality preserves the "BASE GAME"/"DLC" subtitle, reading it off the overlay should
     resolve game_type on its own, with no reference file and nobody to prompt."""
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
@@ -356,11 +356,11 @@ def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip,
     summary = extract_video(
         clip,
         match_metadata=match_metadata,
-        json_dir=json_dir,
+        data_dir=data_dir,
         known_squares={},
     )
 
-    video_data = json.loads(video_path(json_dir, "6", summary.video_id).read_text())
+    video_data = json.loads(video_path(data_dir, "6", summary.video_id).read_text())
     assert [game["game_type"] for game in video_data["games"]] == [expected]
 
 
@@ -370,7 +370,7 @@ def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):
     # nothing left to resolve game type from. The clip_base_game/clip_dlc_game fixtures
     # are deliberately higher-quality and would resolve instead, which is what
     # test_extract_video_reads_game_type_from_the_overlay_subtitle covers.
-    json_dir = tmp_path / "json"
+    data_dir = tmp_path / "json"
     match_metadata = MatchMetadata(
         match_date=datetime.date(2026, 3, 5), season="6", match_type=MatchType.ROUND_ROBIN
     )
@@ -379,7 +379,7 @@ def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):
         extract_video(
             _CLIP_PATH,
             match_metadata=match_metadata,
-            json_dir=json_dir,
+            data_dir=data_dir,
             known_squares={},
         )
 

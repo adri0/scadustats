@@ -414,8 +414,11 @@ def test_write_video_creates_json_dir_if_missing(tmp_path):
 def test_write_video_groups_matches_under_a_season_subdirectory(tmp_path):
     path = write_video(tmp_path, _sample_extraction(season="Off-Season Cup"))
 
-    assert path == tmp_path / "season-Off-Season Cup" / "2026-03-05-alice-vs-bob.json"
-    assert path.parent.parent == tmp_path
+    assert (
+        path
+        == tmp_path / "matches" / "season-Off-Season Cup" / "2026-03-05-alice-vs-bob.json"
+    )
+    assert path.parent.parent == tmp_path / "matches"
 
 
 def test_write_video_puts_different_seasons_in_different_subdirectories(tmp_path):
