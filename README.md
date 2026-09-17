@@ -17,6 +17,7 @@ scadustats load-db [data_dir] [--db scadustats.duckdb] [--if-exists replace|appe
 scadustats match list [--data-dir data]
 scadustats match show <video_id> [--events] [--data-dir data]
 scadustats match validate [video_id] [--data-dir data]
+scadustats square consolidate [--data-dir data]
 ```
 
 Run `scadustats` (or `scadustats match`) with no command to see this list with full help for each command.
@@ -30,3 +31,5 @@ The `match` sub-commands are read-only lookups over what's already been extracte
 - `validate` checks matches against the tournament's own rules — game counts and order, a winner the board actually supports, one game-start per game, nothing claimed after a line was completed — printing every issue it finds and exiting non-zero if there were any. A reported issue means an extraction mistake probably slipped through and that file needs a look; with no `video_id` given, it checks every match in the directory.
 
 `load-db` is a separate, optional step: it reflects those JSON files into a DuckDB database file. Run it whenever you want the JSON's current contents (including any manual corrections) written into the DB.
+
+`square consolidate` rebuilds `<data_dir>/squares/base_game.json` and `<data_dir>/squares/dlc.json` from every match under `data_dir`: every distinct goal square text seen, split by the game type it belongs to and tagged with a short, unique id, e.g. `{"id": "tunnels_3", "text": "Complete 3 Tunnels or Precipices", "game_type": "base"}`. Wholly regenerated each run from the current match history, not incrementally appended to.

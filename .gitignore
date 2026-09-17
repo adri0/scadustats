@@ -13,6 +13,8 @@ downloads/
 *.duckdb
 calibration.png
 data/matches/
+data/squares/base_game.json
+data/squares/dlc.json
 youtube_cookies.txt
 .envrc
 .claude

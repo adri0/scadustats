@@ -11,11 +11,18 @@ from scadustats.models import (
     GameType,
     MatchType,
     MatchWinner,
+    Square,
     VideoExtraction,
     WinLine,
     WinType,
 )
-from scadustats.storage.json_export import read_video, video_path, write_video
+from scadustats.storage.json_export import (
+    read_video,
+    squares_path,
+    video_path,
+    write_squares,
+    write_video,
+)
 
 
 def _sample_game(game_index: int = 1) -> GameResult:
@@ -510,3 +517,54 @@ def test_read_video_round_trips_game_start_event_and_no_url(tmp_path):
     read_back = read_video(path)
 
     assert read_back == extraction
+
+
+def test_squares_path_names_a_file_per_game_type(tmp_path):
+    assert squares_path(tmp_path, GameType.BASE) == tmp_path / "base_game.json"
+    assert squares_path(tmp_path, GameType.DLC) == tmp_path / "dlc.json"
+
+
+def test_write_squares_writes_one_file_per_game_type(tmp_path):
+    squares = {
+        GameType.BASE: [Square(id="wormface", text="Kill Wormface", game_type=GameType.BASE)],
+        GameType.DLC: [
+            Square(id="hearts_2", text="Acquire 2 Dragon Hearts", game_type=GameType.DLC)
+        ],
+    }
+
+    paths = write_squares(tmp_path, squares)
+
+    assert paths == {
+        GameType.BASE: tmp_path / "base_game.json",
+        GameType.DLC: tmp_path / "dlc.json",
+    }
+    base_data = json.loads(paths[GameType.BASE].read_text())
+    assert base_data == [{"id": "wormface", "text": "Kill Wormface", "game_type": "base"}]
+    dlc_data = json.loads(paths[GameType.DLC].read_text())
+    assert dlc_data == [
+        {"id": "hearts_2", "text": "Acquire 2 Dragon Hearts", "game_type": "dlc"}
+    ]
+
+
+def test_write_squares_creates_the_directory(tmp_path):
+    squares_dir = tmp_path / "squares"
+    squares = {GameType.BASE: [], GameType.DLC: []}
+
+    write_squares(squares_dir, squares)
+
+    assert squares_dir.is_dir()
+
+
+def test_write_squares_sorts_each_file_by_id(tmp_path):
+    squares = {
+        GameType.BASE: [
+            Square(id="zebra", text="Zebra goal", game_type=GameType.BASE),
+            Square(id="apple", text="Apple goal", game_type=GameType.BASE),
+        ],
+        GameType.DLC: [],
+    }
+
+    paths = write_squares(tmp_path, squares)
+
+    data = json.loads(paths[GameType.BASE].read_text())
+    assert [entry["id"] for entry in data] == ["apple", "zebra"]

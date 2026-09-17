@@ -1112,7 +1112,7 @@ def test_no_command_prints_the_command_list():
     result = CliRunner().invoke(app, [])
 
     assert "Commands" in result.output
-    for command in ("download", "extract", "load-db", "match"):
+    for command in ("download", "extract", "load-db", "match", "square"):
         assert command in result.output
     assert "Missing command" not in result.output
 
@@ -1125,3 +1125,50 @@ def test_no_subcommand_prints_the_group_command_list():
     for command in ("list", "show", "validate"):
         assert command in result.output
     assert "Missing command" not in result.output
+
+
+def test_no_square_subcommand_prints_the_group_command_list():
+    result = CliRunner().invoke(app, ["square"])
+
+    assert "Commands" in result.output
+    assert "consolidate" in result.output
+    assert "Missing command" not in result.output
+
+
+def test_square_consolidate_writes_a_file_per_game_type(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(
+        data_dir,
+        _sample_extraction(
+            games=[
+                _match_sample_game(game_type=GameType.BASE),
+                _match_sample_game(game_index=2, game_type=GameType.DLC),
+            ]
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "square",
+            "consolidate",
+            "--data-dir",
+            str(data_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    squares_dir = data_dir / "squares"
+    assert (squares_dir / "base_game.json").exists()
+    assert (squares_dir / "dlc.json").exists()
+    assert "base_game.json" in result.output
+    assert "dlc.json" in result.output
+
+
+def test_square_consolidate_reports_when_directory_has_no_matches(tmp_path):
+    result = CliRunner().invoke(
+        app, ["square", "consolidate", "--data-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "No matches found" in result.output
