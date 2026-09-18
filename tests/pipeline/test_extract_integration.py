@@ -105,8 +105,7 @@ def test_extract_video_end_to_end(tmp_path):
         assert game_type == "base"
 
         player_red_name, player_blue_name, duration_s = con.execute(
-            "SELECT player_red_name, player_blue_name, duration_s FROM videos "
-            "WHERE video_id = ?",
+            "SELECT player_red_name, player_blue_name, duration_s FROM videos WHERE video_id = ?",
             [summary.video_id],
         ).fetchone()
         assert (player_red_name, player_blue_name) == ("blanxz", "SeriousChallenges")
@@ -188,6 +187,7 @@ def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
     assert json.loads(json_path.read_text())["metadata"]["source_path"] == _CLIP_PATH
 
 
+@pytest.mark.integration
 def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
     # Regression test for "only the first game of a video is extracted": this clip is
     # trimmed around a real game boundary -- game 1 finished with a claimed board, then
@@ -211,6 +211,7 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
     assert games[0]["end_video_ts_s"] < games[1]["start_video_ts_s"]
 
 
+@pytest.mark.integration
 def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
     """clip_game_boundary.mp4's game 1 ends on a genuine row win (row 2, red) -- the
     GAME_END event should land at the same timestamp as the mark that completes it. Game
@@ -255,6 +256,7 @@ def _extract_once(data_dir, **kwargs):
     )
 
 
+@pytest.mark.integration
 def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
     data_dir = tmp_path / "json"
     first = _extract_once(data_dir)
@@ -275,6 +277,7 @@ def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
     assert json.loads(json_path.read_text())["video_id"] == second.video_id
 
 
+@pytest.mark.integration
 def test_extract_video_skips_write_on_duplicate_when_declined(tmp_path):
     data_dir = tmp_path / "json"
     first = _extract_once(data_dir)
@@ -287,6 +290,7 @@ def test_extract_video_skips_write_on_duplicate_when_declined(tmp_path):
     assert json_path.read_text() == "{}"
 
 
+@pytest.mark.integration
 def test_extract_video_raises_on_duplicate_without_a_way_to_ask(tmp_path):
     data_dir = tmp_path / "json"
     _extract_once(data_dir)

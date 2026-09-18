@@ -20,6 +20,7 @@ from scadustats.models import (
     GameType,
     MatchMetadata,
     MatchType,
+    PlayerProfile,
     Square,
     VideoExtraction,
     WinLine,
@@ -27,6 +28,7 @@ from scadustats.models import (
 )
 from scadustats.pipeline.extract import ExtractionSummary
 from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
+from scadustats.storage.player_export import player_path, read_player, read_players, write_player
 from scadustats.video.download import DownloadResult
 
 
@@ -375,6 +377,53 @@ def test_extract_if_exists_flag_skips_the_duplicate_prompt(tmp_path, monkeypatch
 
     assert result.exit_code == 0, result.output
     assert captured["if_exists"] == "replace"
+
+
+def test_extract_prints_validation_report_on_success(tmp_path, monkeypatch):
+    """extract's success report should always include the same validation section as
+    `match show` (issue #83) -- not just when a contributor separately runs `match
+    validate`/`match show` afterward."""
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+
+    def _fake_extract_video(video_path, **kwargs):
+        return ExtractionSummary(
+            video_id="v1",
+            num_games=1,
+            num_claims=0,
+            extraction=_valid_match_extraction(),
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(app, ["extract", str(local), *_EXTRACT_ARGS])
+
+    assert result.exit_code == 0, result.output
+    assert "validation\n" in result.output
+    assert "2026-03-05-alice-vs-bob: ok" in result.output
+
+
+def test_extract_prints_validation_issues_on_success(tmp_path, monkeypatch):
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+
+    def _fake_extract_video(video_path, **kwargs):
+        return ExtractionSummary(
+            video_id="v1",
+            num_games=1,
+            num_claims=0,
+            extraction=_sample_extraction(),
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(app, ["extract", str(local), *_EXTRACT_ARGS])
+
+    assert result.exit_code == 0, result.output
+    assert "[game_count]" in result.output
+    assert "[winner_board_mismatch]" in result.output
 
 
 def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
@@ -1303,3 +1352,66 @@ def test_square_consolidate_errors_on_unknown_video_id(tmp_path):
 
     assert result.exit_code != 0
     assert "nonexistent" in result.output
+
+
+def test_no_player_subcommand_prints_the_group_command_list():
+    result = CliRunner().invoke(app, ["player"])
+
+    assert "Commands" in result.output
+    assert "consolidate" in result.output
+    assert "Missing command" not in result.output
+
+
+def test_player_consolidate_writes_a_file_per_player(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction())
+
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    players_dir = data_dir / "players"
+    assert (players_dir / "alice.yaml").exists()
+    assert (players_dir / "bob.yaml").exists()
+    assert str(players_dir / "alice.yaml") in result.output
+    assert str(players_dir / "bob.yaml") in result.output
+
+
+def test_player_consolidate_reports_when_directory_has_no_matches(tmp_path):
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "--data-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "No matches found" in result.output
+
+
+def test_player_consolidate_preserves_hand_filled_fields_across_a_rerun(tmp_path):
+    data_dir = tmp_path / "data"
+    players_dir = data_dir / "players"
+    write_video(data_dir, _sample_extraction())
+    write_player(
+        players_dir,
+        PlayerProfile(id=42, slug="alice", display_name="alice", twitch="alice"),
+    )
+
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    updated = read_player(player_path(players_dir, "alice"))
+    assert updated.id == 42
+    assert updated.twitch == "alice"
+
+
+def test_player_consolidate_reflects_current_match_history(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction())
+
+    CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
+
+    players = read_players(data_dir / "players")
+    assert players["alice"].all_matches == ["2026-03-05-alice-vs-bob"]
+    assert players["alice"].game_record.wins == 1
