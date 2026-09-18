@@ -398,6 +398,9 @@ def extract(
         else:
             for line in render_match(summary.extraction):
                 typer.echo(line)
+            typer.echo()
+            typer.echo(typer.style("validation", bold=True))
+            _echo_validation(summary.extraction)
     except Exception:
         if (
             downloaded_path is not None
