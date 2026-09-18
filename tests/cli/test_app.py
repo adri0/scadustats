@@ -379,6 +379,53 @@ def test_extract_if_exists_flag_skips_the_duplicate_prompt(tmp_path, monkeypatch
     assert captured["if_exists"] == "replace"
 
 
+def test_extract_prints_validation_report_on_success(tmp_path, monkeypatch):
+    """extract's success report should always include the same validation section as
+    `match show` (issue #83) -- not just when a contributor separately runs `match
+    validate`/`match show` afterward."""
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+
+    def _fake_extract_video(video_path, **kwargs):
+        return ExtractionSummary(
+            video_id="v1",
+            num_games=1,
+            num_claims=0,
+            extraction=_valid_match_extraction(),
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(app, ["extract", str(local), *_EXTRACT_ARGS])
+
+    assert result.exit_code == 0, result.output
+    assert "validation\n" in result.output
+    assert "2026-03-05-alice-vs-bob: ok" in result.output
+
+
+def test_extract_prints_validation_issues_on_success(tmp_path, monkeypatch):
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+
+    def _fake_extract_video(video_path, **kwargs):
+        return ExtractionSummary(
+            video_id="v1",
+            num_games=1,
+            num_claims=0,
+            extraction=_sample_extraction(),
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(app, ["extract", str(local), *_EXTRACT_ARGS])
+
+    assert result.exit_code == 0, result.output
+    assert "[game_count]" in result.output
+    assert "[winner_board_mismatch]" in result.output
+
+
 def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
     downloaded = tmp_path / "abc123.mp4"
     downloaded.write_bytes(b"fake video")
