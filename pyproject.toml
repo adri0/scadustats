@@ -16,7 +16,8 @@ dependencies = [
     "yt-dlp>=2026.8",
     "opencv-python>=4.10",
     "numpy>=2.0",
-    "pytesseract>=0.3.13",
+    "tesserocr>=2.7",
+    "pillow>=10.0",
     "duckdb>=1.1",
     "typer>=0.27.2",
 ]

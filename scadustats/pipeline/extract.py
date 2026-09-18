@@ -42,12 +42,13 @@ logger = logging.getLogger(__name__)
 # board.cell_square_texts_majority).
 _SQUARE_TEXT_FRAME_COUNT = 10
 
-# Profiling showed OCR (pytesseract shelling out to the tesseract binary) is 80-90% of
-# extraction's wall time, dominated by the per-sample timer read -- each call has a fixed
-# ~70ms process-spawn/IPC cost regardless of crop size. tesseract runs as a subprocess, so
-# the calling thread releases the GIL while waiting on it; running several concurrently
-# overlaps that wait instead of serializing it. Capped well below "one per sample" so a
-# long video doesn't queue thousands of frames/tesseract processes at once.
+# Profiling showed OCR is 80-90% of extraction's wall time, dominated by the per-sample
+# timer read. ocr.py binds Tesseract's C++ engine in-process via tesserocr rather than
+# shelling out per call (see CLAUDE.md), so concurrency here now overlaps a much smaller
+# per-call cost -- tesserocr's Cython layer only releases the GIL for part of its work,
+# not the full wait a subprocess gave for free, so this is a smaller win than it used to
+# be, but still a net positive with no accuracy cost. Capped well below "one per sample"
+# so a long video doesn't queue thousands of decoded frames in memory at once.
 _OCR_WORKERS = min(8, os.cpu_count() or 4)
 
 # Largest one-sample rise the game clock can plausibly show once it has started ticking
