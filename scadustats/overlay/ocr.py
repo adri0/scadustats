@@ -1,12 +1,9 @@
 """Thin tesserocr wrapper shared by every OCR call site in the pipeline.
 
-Binds directly to Tesseract's C++ engine via `tesserocr` rather than shelling out to the
-`tesseract` CLI per call (as this module did via `pytesseract` until it was benchmarked
-against tesserocr, see CLAUDE.md): re-spawning a subprocess and re-initializing the
-engine (reloading its language data from disk) from scratch on every single call turned
-out to account for ~97% of a call's wall time on a real crop, with the actual character
-recognition only ~3% of it -- so a persistent engine, reused across calls instead of
-rebuilt each time, measured ~11x faster per call on the same crops with identical output.
+Binds directly to Tesseract's C++ engine via `tesserocr`, reusing one persistent engine
+per thread rather than re-initializing it on every call -- benchmarked at ~11x faster
+per call than the previous shell-out-per-call approach, with identical output (see
+CLAUDE.md).
 """
 
 import os
