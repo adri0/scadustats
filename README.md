@@ -4,14 +4,13 @@ Extract statistics from Elden Ring "Bingo Brawlers" match videos.
 
 ## Requirements
 
-- `ffmpeg` must be installed on the system (e.g. `brew install ffmpeg`) — required by yt-dlp to merge downloaded video/audio streams.
-- `tesseract` must be installed on the system (e.g. `brew install tesseract`) — required by `pytesseract` to OCR goal text, player names, commentator names, the game label, and the timer during extraction.
-- If `download`/`extract` fails with a `DownloadError` mentioning that YouTube requires sign-in/authentication, pass a cookies file with `--cookies` (a Netscape-format `cookies.txt`, e.g. exported from a browser) — see [yt-dlp's guide to exporting YouTube cookies](https://github.com/yt-dlp/yt-dlp/wiki/extractors#exporting-youtube-cookies). Installing the optional `ejs` extra (`uv sync --extra ejs`, or `pip install scadustats[ejs]`), which pulls in [`yt-dlp-ejs`](https://github.com/yt-dlp/yt-dlp-ejs), can also help resolve this class of failure.
+- `ffmpeg` - required by yt-dlp to merge downloaded video/audio streams (e.g. `brew install ffmpeg` or `sudo apt install ffmpeg`)
+- `tesseract` - OCR engine for extracting square text, player names, commentator names, the game label, and the timer (e.g. `brew install tesseract`)
+- `leptonica`, `pkgconfig` - requirements for installing `tesserocr`, Python tesseract binding. (e.g. `brew install pkgconfig leptonica` on macOS, or `sudo apt install libtesseract-dev libleptonica-dev pkg-config` on Debian/Ubuntu).
 
 ## Usage
 
 ```
-scadustats download <youtube-url> [-o downloads]
 scadustats extract <video_path_or_url> [--data-dir data] [--if-exists replace|append|error]
 scadustats load-db [data_dir] [--db scadustats.duckdb] [--if-exists replace|append|error]
 scadustats match list [--data-dir data]
@@ -36,3 +35,9 @@ The `match` sub-commands are read-only lookups over what's already been extracte
 `square consolidate` rebuilds `<data_dir>/squares/base_game.json` and `<data_dir>/squares/dlc.json` from every match under `data_dir`: every distinct goal square text seen, split by the game type it belongs to and tagged with a short, unique id, e.g. `{"id": "tunnels_3", "text": "Complete 3 Tunnels or Precipices", "game_type": "base"}`. Wholly regenerated each run from the current match history, not incrementally appended to.
 
 `player consolidate` rebuilds one YAML file per player under `<data_dir>/players/<slug>.yaml` from every match under `data_dir`: their win/loss record (per season, and overall/per game type for individual games), every match they've played (most recent first), and their 5 most-claimed squares per game type, each with its mark count. Like `square consolidate`, most of a player's file is wholly regenerated each run — but `id` is assigned once, the first time a player is seen, and kept stable after that, and `twitch`/`avatar`/`bio` are never set by the tool at all; fill those in by hand, and they (along with `id`) survive every later re-run.
+
+## Troubleshooting
+
+### `DownloadError`
+
+Sometimes `download`/`extract` fails with a `DownloadError` mentioning that YouTube requires sign-in/authentication. Pass a cookies file with `--cookies` (a Netscape-format `cookies.txt`, e.g. exported from a browser) — see [yt-dlp's guide to exporting YouTube cookies](https://github.com/yt-dlp/yt-dlp/wiki/extractors#exporting-youtube-cookies). Installing the optional `ejs` extra (`uv sync --extra ejs`, or `pip install scadustats[ejs]`), which pulls in [`yt-dlp-ejs`](https://github.com/yt-dlp/yt-dlp-ejs), can also help resolve this class of failure.

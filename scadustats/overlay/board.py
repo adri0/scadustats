@@ -94,15 +94,17 @@ _SQUARE_TEXT_OCR_SCALE = 4.0
 def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
     """OCR all 25 cells' square text.
 
-    Each cell is an independent tesseract subprocess call (~70ms fixed overhead
-    regardless of crop size, per profiling -- see CLAUDE.md), so this is run as one
-    bounded batch of concurrent calls rather than sequentially -- there's no per-video
-    stream to bound here, just a fixed 5x5 grid read once per game. The batch is capped
-    at the machine's CPU count rather than always all 25 at once: on a well-provisioned
-    dev machine that cap never bites, but a CPU-constrained CI runner (e.g. GitHub's
-    4-vCPU ubuntu-latest) was oversubscribed 6x by 25 concurrent tesseract subprocesses,
-    which turned every game's square-text read into minutes of context-switch thrashing
-    instead of the sub-second read this is meant to be.
+    Each cell is an independent OCR call, so this is run as one bounded batch of
+    concurrent calls rather than sequentially -- there's no per-video stream to bound
+    here, just a fixed 5x5 grid read once per game. The batch is capped at the machine's
+    CPU count rather than always all 25 at once: this dates from when ocr.py shelled out
+    to a `tesseract` subprocess per call (see CLAUDE.md) and a CPU-constrained CI runner
+    (e.g. GitHub's 4-vCPU ubuntu-latest) was oversubscribed 6x by 25 concurrent
+    subprocesses, turning every game's square-text read into minutes of context-switch
+    thrashing instead of the sub-second read this is meant to be -- with OCR now
+    in-process via tesserocr, 25 concurrent threads is cheaper (no process-per-call
+    overhead), but the same cap still bounds how many threads spin up their own
+    tessdata-loaded engine (see ocr._engine) at once, so it's kept rather than removed.
     """
     height, width = frame.shape[:2]
     crops = [
