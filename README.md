@@ -6,7 +6,7 @@ Extract statistics from Elden Ring "Bingo Brawlers" match videos.
 
 - `ffmpeg` - required by yt-dlp to merge downloaded video/audio streams (e.g. `brew install ffmpeg` or `sudo apt install ffmpeg`)
 - `tesseract` - OCR engine for extracting square text, player names, commentator names, the game label, and the timer (e.g. `brew install tesseract`)
-- `leptonica`, `pkgconfig` - requirements for installing `tesserocr`, Python tesseract binding. (e.g. `brew install pkgconfig leptonica` on macOS, or `sudo apt install libtesseract-dev libleptonica-dev pkgconfig` on Debian/Ubuntu).
+- `leptonica`, `pkgconfig` - requirements for installing `tesserocr`, Python tesseract binding. (e.g. `brew install pkgconfig leptonica` on macOS, or `sudo apt install libtesseract-dev libleptonica-dev pkg-config` on Debian/Ubuntu).
 
 ## Usage
 
