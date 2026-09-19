@@ -27,7 +27,7 @@ def _game(game_index: int, winner_color: CellColor | None) -> GameResult:
 
 def _extraction(*games: GameResult) -> VideoExtraction:
     return VideoExtraction(
-        video_id="2026-03-05-alice-vs-bob",
+        match_id="2026-03-05-alice-vs-bob",
         video_url=None,
         match_date=datetime.date(2026, 3, 5),
         season="6",

@@ -55,7 +55,7 @@ def _game(game_index: int = 1, **overrides) -> GameResult:
 
 def _extraction(**overrides) -> VideoExtraction:
     defaults = dict(
-        video_id="2026-03-05-alice-vs-bob",
+        match_id="2026-03-05-alice-vs-bob",
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
         season="6",
@@ -144,7 +144,7 @@ def test_render_board_shows_each_cell_as_a_colored_square():
 
 
 def test_render_match_table_has_a_header_and_a_row_per_match():
-    lines = render_match_table([_extraction(), _extraction(video_id="2026-04-01-c-vs-d")])
+    lines = render_match_table([_extraction(), _extraction(match_id="2026-04-01-c-vs-d")])
 
     assert lines[0].split() == ["MATCH", "SEASON", "TYPE", "GAMES", "RESULT"]
     assert len(lines) == 3

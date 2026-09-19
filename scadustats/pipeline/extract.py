@@ -78,7 +78,7 @@ _UNMARK_DEBOUNCE_SAMPLES = 2 * _MARK_DEBOUNCE_SAMPLES
 
 @dataclass
 class ExtractionSummary:
-    video_id: str
+    match_id: str
     num_games: int
     num_claims: int
     # The full extraction, for a caller that wants to show/inspect it (e.g. the CLI
@@ -332,9 +332,7 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
                     )
                 elif old is not CellColor.UNCLAIMED and observed is CellColor.UNCLAIMED:
                     events.append(
-                        GameEvent(
-                            r + 1, c + 1, old, obs.video_ts_s, game_elapsed, EventType.UNMARK
-                        )
+                        GameEvent(r + 1, c + 1, old, obs.video_ts_s, game_elapsed, EventType.UNMARK)
                     )
                 else:
                     logger.warning(
@@ -401,10 +399,10 @@ def _determine_winner(
     return winner.determine_winner(winner.replay(events))
 
 
-def _video_id(match_metadata: MatchMetadata, red_name: str | None, blue_name: str | None) -> str:
+def _match_id(match_metadata: MatchMetadata, red_name: str | None, blue_name: str | None) -> str:
     """`<match-date>-<red player>-vs-<blue-player>`, e.g. `2026-03-05-blanxz-vs-Serious`
     -- human-readable, and unique per match (not per game: every game in a multi-game
-    match shares one video_id, matching one video -> one match). red_name/blue_name fall
+    match shares one match_id, matching one video -> one match). red_name/blue_name fall
     back to "unknown" for an empty/failed OCR read (scoreboard.read_player_names can
     return "" but never None) or when a segment has no games at all, rather than leaving
     the id with a blank component. "/" is replaced since it would otherwise split into a
@@ -524,9 +522,9 @@ def extract_video(
                 )
             game.game_type = on_missing_game_type(game)
 
-    video_id = _video_id(match_metadata, player_red_name, player_blue_name)
+    match_id = _match_id(match_metadata, player_red_name, player_blue_name)
     extraction = VideoExtraction(
-        video_id=video_id,
+        match_id=match_id,
         video_url=match_metadata.video_url,
         match_date=match_metadata.match_date,
         season=match_metadata.season,
@@ -539,14 +537,14 @@ def extract_video(
         duration_s=duration_s if duration_s > 0 else None,
         published_at=published_at,
     )
-    # A match is unique by match_date + player names (see _video_id), which video_id
+    # A match is unique by match_date + player names (see _match_id), which match_id
     # already encodes -- so a same-name file here means this exact match was already
     # extracted. if_exists=None ("not explicitly forced by the caller") is the only case
     # that asks about it: "error"/"replace" (an explicit --if-exists) skip straight to
     # json_export.write_video below, which already knows how to raise or overwrite
     # unconditionally for those.
     if if_exists is None:
-        target_path = json_export.video_path(data_dir, extraction.season, video_id)
+        target_path = json_export.video_path(data_dir, extraction.season, match_id)
         if target_path.exists():
             if on_duplicate is None:
                 raise ValueError(
@@ -554,15 +552,13 @@ def extract_video(
                     "given to ask whether to replace it"
                 )
             if not on_duplicate(target_path):
-                return ExtractionSummary(
-                    video_id=video_id, num_games=0, num_claims=0, skipped=True
-                )
+                return ExtractionSummary(match_id=match_id, num_games=0, num_claims=0, skipped=True)
         if_exists = "replace"
 
     json_export.write_video(data_dir, extraction, if_exists=if_exists)
 
     return ExtractionSummary(
-        video_id=video_id,
+        match_id=match_id,
         num_games=len(games),
         num_claims=sum(
             1 for game in games for event in game.events if event.event_type is EventType.MARK

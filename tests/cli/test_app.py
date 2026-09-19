@@ -78,9 +78,7 @@ def test_prompt_match_metadata_offers_existing_match_details_as_defaults(monkeyp
 
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", _fake_prompt)
 
-    existing = _sample_extraction(
-        match_date=datetime.date(2026, 1, 1), season="Off-Season Cup"
-    )
+    existing = _sample_extraction(match_date=datetime.date(2026, 1, 1), season="Off-Season Cup")
     metadata = _prompt_match_metadata(None, None, MatchType.DOUBLE_ELIMINATION, None, existing)
 
     assert metadata.match_date == datetime.date(2026, 1, 1)
@@ -295,7 +293,7 @@ _EXTRACT_ARGS = [
 
 def _fake_extract_video_success(*args, **kwargs):
     return ExtractionSummary(
-        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
+        match_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(match_id="v1")
     )
 
 
@@ -309,10 +307,10 @@ def test_extract_asks_on_duplicate_and_replaces_when_confirmed(tmp_path, monkeyp
         captured["if_exists"] = if_exists
         approved = on_duplicate(dup_path)
         return ExtractionSummary(
-            video_id="v1",
+            match_id="v1",
             num_games=1,
             num_claims=0,
-            extraction=_sample_extraction(video_id="v1"),
+            extraction=_sample_extraction(match_id="v1"),
             skipped=not approved,
         )
 
@@ -340,9 +338,7 @@ def test_extract_reports_skip_when_duplicate_declined(tmp_path, monkeypatch):
 
     def _fake_extract_video(video_path, *, on_duplicate, **kwargs):
         approved = on_duplicate(dup_path)
-        return ExtractionSummary(
-            video_id="v1", num_games=0, num_claims=0, skipped=not approved
-        )
+        return ExtractionSummary(match_id="v1", num_games=0, num_claims=0, skipped=not approved)
 
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
@@ -364,8 +360,8 @@ def test_extract_if_exists_flag_skips_the_duplicate_prompt(tmp_path, monkeypatch
     def _fake_extract_video(video_path, *, if_exists, on_duplicate, **kwargs):
         captured["if_exists"] = if_exists
         return ExtractionSummary(
-        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
-    )
+            match_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(match_id="v1")
+        )
 
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
@@ -388,7 +384,7 @@ def test_extract_prints_validation_report_on_success(tmp_path, monkeypatch):
 
     def _fake_extract_video(video_path, **kwargs):
         return ExtractionSummary(
-            video_id="v1",
+            match_id="v1",
             num_games=1,
             num_claims=0,
             extraction=_valid_match_extraction(),
@@ -410,7 +406,7 @@ def test_extract_prints_validation_issues_on_success(tmp_path, monkeypatch):
 
     def _fake_extract_video(video_path, **kwargs):
         return ExtractionSummary(
-            video_id="v1",
+            match_id="v1",
             num_games=1,
             num_claims=0,
             extraction=_sample_extraction(),
@@ -432,9 +428,7 @@ def test_extract_downloads_and_deletes_video_on_success(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies=None: DownloadResult(
-            path=downloaded, published_at=None
-        ),
+        lambda url, output_dir, cookies=None: DownloadResult(path=downloaded, published_at=None),
     )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video_success)
@@ -460,9 +454,7 @@ def test_extract_keeps_downloaded_video_on_success_with_keep_video_flag(tmp_path
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies=None: DownloadResult(
-            path=downloaded, published_at=None
-        ),
+        lambda url, output_dir, cookies=None: DownloadResult(path=downloaded, published_at=None),
     )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video_success)
@@ -491,9 +483,7 @@ def test_extract_keeps_downloaded_video_on_failure_with_keep_video_flag_without_
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies=None: DownloadResult(
-            path=downloaded, published_at=None
-        ),
+        lambda url, output_dir, cookies=None: DownloadResult(path=downloaded, published_at=None),
     )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
 
@@ -546,9 +536,7 @@ def test_extract_deletes_downloaded_video_when_extraction_fails_and_confirmed(
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies=None: DownloadResult(
-            path=downloaded, published_at=None
-        ),
+        lambda url, output_dir, cookies=None: DownloadResult(path=downloaded, published_at=None),
     )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
 
@@ -573,9 +561,7 @@ def test_extract_keeps_downloaded_video_when_extraction_fails_and_declined(tmp_p
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies=None: DownloadResult(
-            path=downloaded, published_at=None
-        ),
+        lambda url, output_dir, cookies=None: DownloadResult(path=downloaded, published_at=None),
     )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
 
@@ -604,14 +590,12 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
     def _fake_extract_video(video_path, *, match_metadata, **kwargs):
         captured["match_metadata"] = match_metadata.result()
         return ExtractionSummary(
-        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
-    )
+            match_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(match_id="v1")
+        )
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
-        lambda url, output_dir, cookies=None: DownloadResult(
-            path=downloaded, published_at=None
-        ),
+        lambda url, output_dir, cookies=None: DownloadResult(path=downloaded, published_at=None),
     )
     monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
     monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
@@ -641,8 +625,8 @@ def test_extract_passes_the_downloaded_published_date_through_to_extract_video(
     def _fake_extract_video(video_path, *, published_at, **kwargs):
         captured["published_at"] = published_at
         return ExtractionSummary(
-        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
-    )
+            match_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(match_id="v1")
+        )
 
     monkeypatch.setattr(
         "scadustats.cli.app.download_video",
@@ -678,8 +662,8 @@ def test_extract_leaves_published_date_unset_for_a_local_video(tmp_path, monkeyp
     def _fake_extract_video(video_path, *, published_at, **kwargs):
         captured["published_at"] = published_at
         return ExtractionSummary(
-        video_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(video_id="v1")
-    )
+            match_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(match_id="v1")
+        )
 
     def _fail_download(*args, **kwargs):
         raise AssertionError("download_video should not be called for a local path")
@@ -726,7 +710,7 @@ def _match_sample_game(game_index: int = 1, **overrides) -> GameResult:
 
 def _sample_extraction(**overrides) -> VideoExtraction:
     defaults = dict(
-        video_id="2026-03-05-alice-vs-bob",
+        match_id="2026-03-05-alice-vs-bob",
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
         season="6",
@@ -747,16 +731,14 @@ def test_find_existing_match_matches_a_youtube_link_by_video_url(tmp_path):
     found = _find_existing_match(tmp_path, "https://youtu.be/abc123")
 
     assert found is not None
-    assert found.video_id == "2026-03-05-alice-vs-bob"
+    assert found.match_id == "2026-03-05-alice-vs-bob"
 
 
 def test_find_existing_match_never_matches_a_local_path(tmp_path):
     """Nothing on VideoExtraction records the local file an extraction ran against, so
     a local path can never look itself up -- even one that happens to equal a recorded
     match's video_url (e.g. by coincidence in a test)."""
-    write_video(
-        tmp_path, _sample_extraction(video_url="downloads/local.mp4")
-    )
+    write_video(tmp_path, _sample_extraction(video_url="downloads/local.mp4"))
 
     assert _find_existing_match(tmp_path, "downloads/local.mp4") is None
 
@@ -774,14 +756,14 @@ def test_find_existing_match_returns_none_for_an_empty_directory(tmp_path):
 
 def test_list_matches_prints_a_row_per_video_under_a_header(tmp_path):
     write_video(tmp_path, _sample_extraction())
-    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
+    write_video(tmp_path, _sample_extraction(match_id="2026-01-01-carol-vs-dave"))
 
     result = CliRunner().invoke(app, ["match", "list", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
     assert lines[0].startswith("MATCH")
-    # Filenames (== video_id) sort chronologically -- the earlier date comes first.
+    # Filenames (== match_id) sort chronologically -- the earlier date comes first.
     assert lines[1].startswith("2026-01-01-carol-vs-dave")
     assert lines[2].startswith("2026-03-05-alice-vs-bob")
     # The result of the match is the column the old listing didn't have at all.
@@ -791,7 +773,7 @@ def test_list_matches_prints_a_row_per_video_under_a_header(tmp_path):
 
 def test_list_matches_aligns_its_columns(tmp_path):
     write_video(tmp_path, _sample_extraction())
-    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-a-vs-b"))
+    write_video(tmp_path, _sample_extraction(match_id="2026-01-01-a-vs-b"))
 
     result = CliRunner().invoke(app, ["match", "list", "--data-dir", str(tmp_path)])
 
@@ -922,7 +904,7 @@ def test_show_match_lists_events_only_when_asked(tmp_path):
 
 def test_show_match_headers_are_colorized_when_color_is_supported(tmp_path):
     """CliRunner strips ANSI codes by default (see match_validate's docstring), so this
-    forces color on to confirm the section headers (video_id, each "Game N" line, and
+    forces color on to confirm the section headers (match_id, each "Game N" line, and
     the events header) actually emit bold codes for a real terminal."""
     write_video(tmp_path, _sample_extraction())
 
@@ -1037,11 +1019,9 @@ def test_validate_output_is_colorized_when_color_is_supported(tmp_path):
     one forces color on to confirm the codes are actually emitted for a real terminal, not
     just that the plain text still reads correctly once they're gone."""
     write_video(tmp_path, _valid_match_extraction())
-    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
+    write_video(tmp_path, _sample_extraction(match_id="2026-01-01-carol-vs-dave"))
 
-    result = CliRunner().invoke(
-        app, ["match", "validate", "--data-dir", str(tmp_path)], color=True
-    )
+    result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)], color=True)
 
     assert "\x1b[32m" in result.output  # green -- the clean match's "ok"
     assert "\x1b[31m" in result.output  # red -- the other match's issue count
@@ -1049,7 +1029,7 @@ def test_validate_output_is_colorized_when_color_is_supported(tmp_path):
 
 def test_validate_checks_every_match_in_the_directory_by_default(tmp_path):
     write_video(tmp_path, _valid_match_extraction())
-    write_video(tmp_path, _sample_extraction(video_id="2026-01-01-carol-vs-dave"))
+    write_video(tmp_path, _sample_extraction(match_id="2026-01-01-carol-vs-dave"))
 
     result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)])
 
@@ -1077,7 +1057,7 @@ def test_validate_reports_when_directory_has_no_matches(tmp_path):
     assert "No matches found" in result.output
 
 
-def test_validate_errors_on_unknown_video_id(tmp_path):
+def test_validate_errors_on_unknown_match_id(tmp_path):
     result = CliRunner().invoke(
         app, ["match", "validate", "nonexistent", "--data-dir", str(tmp_path)]
     )
@@ -1086,10 +1066,8 @@ def test_validate_errors_on_unknown_video_id(tmp_path):
     assert "nonexistent" in result.output
 
 
-def test_show_match_errors_on_unknown_video_id(tmp_path):
-    result = CliRunner().invoke(
-        app, ["match", "show", "nonexistent", "--data-dir", str(tmp_path)]
-    )
+def test_show_match_errors_on_unknown_match_id(tmp_path):
+    result = CliRunner().invoke(app, ["match", "show", "nonexistent", "--data-dir", str(tmp_path)])
 
     assert result.exit_code != 0
     assert "nonexistent" in result.output
@@ -1155,9 +1133,7 @@ def test_square_consolidate_writes_a_file_per_game_type(tmp_path):
 
 
 def test_square_consolidate_reports_when_directory_has_no_matches(tmp_path):
-    result = CliRunner().invoke(
-        app, ["square", "consolidate", "--data-dir", str(tmp_path)]
-    )
+    result = CliRunner().invoke(app, ["square", "consolidate", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "No matches found" in result.output
@@ -1180,7 +1156,7 @@ def _known_for_grid(
     }
 
 
-def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
+def test_square_consolidate_with_a_match_id_corrects_a_misread_square(tmp_path):
     data_dir = tmp_path / "data"
     squares_dir = data_dir / "squares"
     game = _match_sample_game()
@@ -1198,7 +1174,7 @@ def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
         [
             "square",
             "consolidate",
-            extraction.video_id,
+            extraction.match_id,
             "--data-dir",
             str(data_dir),
         ],
@@ -1209,12 +1185,12 @@ def test_square_consolidate_with_a_video_id_corrects_a_misread_square(tmp_path):
     # Nothing was added, so no reference file is rewritten and no "new" listing prints.
     assert "new" not in result.output
     assert str(squares_dir) not in result.output
-    [path] = list((data_dir / "matches").rglob(f"{extraction.video_id}.json"))
+    [path] = list((data_dir / "matches").rglob(f"{extraction.match_id}.json"))
     fixed = read_video(path)
     assert fixed.games[0].square_texts[0][0] == "Kill 3 Friendly NPCs (No Hermit Merchants)"
 
 
-def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_reference(tmp_path):
+def test_square_consolidate_with_a_match_id_adds_an_unmatched_square_to_the_reference(tmp_path):
     data_dir = tmp_path / "data"
     squares_dir = data_dir / "squares"
     game = _match_sample_game()
@@ -1229,7 +1205,7 @@ def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_refe
         [
             "square",
             "consolidate",
-            extraction.video_id,
+            extraction.match_id,
             "--data-dir",
             str(data_dir),
         ],
@@ -1245,14 +1221,14 @@ def test_square_consolidate_with_a_video_id_adds_an_unmatched_square_to_the_refe
     assert "+ 'Some completely unrelated goal text'" in result.output
     # unfixed -- there was nothing close enough in the reference to correct it against --
     # so the match's own JSON is untouched, only the reference gained a new entry.
-    [path] = list((data_dir / "matches").rglob(f"{extraction.video_id}.json"))
+    [path] = list((data_dir / "matches").rglob(f"{extraction.match_id}.json"))
     unchanged = read_video(path)
     assert unchanged.games[0].square_texts[0][0] == "Some completely unrelated goal text"
     updated = read_squares(squares_dir)
     assert "Some completely unrelated goal text" in [s.text for s in updated[GameType.BASE]]
 
 
-def test_square_consolidate_with_a_video_id_reports_no_changes(tmp_path):
+def test_square_consolidate_with_a_match_id_reports_no_changes(tmp_path):
     data_dir = tmp_path / "data"
     squares_dir = data_dir / "squares"
     extraction = _sample_extraction()
@@ -1274,17 +1250,17 @@ def test_square_consolidate_with_a_video_id_reports_no_changes(tmp_path):
         [
             "square",
             "consolidate",
-            extraction.video_id,
+            extraction.match_id,
             "--data-dir",
             str(data_dir),
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert f"{extraction.video_id}: no changes" in result.output
+    assert f"{extraction.match_id}: no changes" in result.output
 
 
-def test_square_consolidate_errors_on_unknown_video_id(tmp_path):
+def test_square_consolidate_errors_on_unknown_match_id(tmp_path):
     result = CliRunner().invoke(
         app, ["square", "consolidate", "nonexistent", "--data-dir", str(tmp_path)]
     )
@@ -1305,9 +1281,7 @@ def test_player_consolidate_writes_a_file_per_player(tmp_path):
     data_dir = tmp_path / "data"
     write_video(data_dir, _sample_extraction())
 
-    result = CliRunner().invoke(
-        app, ["player", "consolidate", "--data-dir", str(data_dir)]
-    )
+    result = CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
 
     assert result.exit_code == 0, result.output
     players_dir = data_dir / "players"
@@ -1318,9 +1292,7 @@ def test_player_consolidate_writes_a_file_per_player(tmp_path):
 
 
 def test_player_consolidate_reports_when_directory_has_no_matches(tmp_path):
-    result = CliRunner().invoke(
-        app, ["player", "consolidate", "--data-dir", str(tmp_path)]
-    )
+    result = CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "No matches found" in result.output
@@ -1335,9 +1307,7 @@ def test_player_consolidate_preserves_hand_filled_fields_across_a_rerun(tmp_path
         PlayerProfile(id=42, slug="alice", display_name="alice", twitch="alice"),
     )
 
-    result = CliRunner().invoke(
-        app, ["player", "consolidate", "--data-dir", str(data_dir)]
-    )
+    result = CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
 
     assert result.exit_code == 0, result.output
     updated = read_player(player_path(players_dir, "alice"))

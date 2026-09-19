@@ -7,7 +7,7 @@ squares.py reads its output back (via storage.json_export.read_squares) as
 extract_video's fallback for inferring a game's type.
 
 consolidate_match_squares runs that same reference the other direction, scoped to one
-already-extracted match (`square consolidate <video_id>`, issue #76): it corrects that
+already-extracted match (`square consolidate <match_id>`, issue #76): it corrects that
 match's own OCR'd square_texts against whatever the reference already knows, and grows
 the reference with whatever it doesn't -- the same end effect on squares/ that including
 this match in a from-scratch consolidate_squares run would have had.
@@ -163,9 +163,7 @@ def consolidate_squares(extractions: list[VideoExtraction]) -> dict[GameType, li
     for text in sorted(votes):
         counts = votes[text]
         if len(counts) > 1:
-            logger.warning(
-                "square seen under more than one game type: %r (%s)", text, dict(counts)
-            )
+            logger.warning("square seen under more than one game type: %r (%s)", text, dict(counts))
         game_type = counts.most_common(1)[0][0]
 
         square_id = _unique_id(_slugify(text), used_ids[game_type])
@@ -201,7 +199,15 @@ def validate_squares(squares: list[Square]) -> None:
 # Crucible Knight", 0.513), which lands well below it.
 _FUZZY_MATCH_CUTOFF = 0.85
 
-_NUMBER_RE = re.compile(r"\d+")
+# \b on both sides, not a bare \d+: a goal count is always its own token ("Kill 3 ..."),
+# but an OCR misread can also turn a letter inside an alphanumeric code into a digit --
+# e.g. "BBK" (a boss's initials) misread as "B8K" -- and \d+ alone would pull that "8" out
+# as if it were a second goal count, disagreeing with the correct candidate's "4" and
+# blocking an otherwise-obvious fix ("Kil 4 Unique Gargoyles B8K" vs. "Kill 4 Unique
+# Gargoyles / BBK", issue reported 2026-09-19). \b requires a non-word/word boundary, and
+# "B" and "8" are both word characters, so the digit run embedded inside "B8K" never
+# matches here in the first place -- only a digit run standing on its own does.
+_NUMBER_RE = re.compile(r"\b\d+\b")
 
 
 @dataclass
@@ -234,16 +240,27 @@ def _best_match(text: str, candidates: list[str]) -> tuple[str, float] | None:
     _FUZZY_MATCH_CUTOFF -- meaning `text` should be treated as its own, new square rather
     than a misread of one of these candidates.
 
-    A candidate whose goal-count digits ("Kill 3 ...") disagree with text's own is never
-    considered, however similar the surrounding wording is -- "Kill 3 Friendly NPCs" and
-    "Kill 5 Friendly NPCs" can both be real, distinct squares, and a wrong digit is
-    exactly the kind of high-similarity-looking mismatch text similarity alone can't tell
-    apart from an OCR typo. If text has digits and no candidate shares them, there's
-    nothing safe to match against, full stop -- unlike a stray letter, silently changing
-    a goal's count is the one class of "fix" worth refusing outright.
+    A candidate whose goal count -- the first standalone digit run, since Bingo Brawlers'
+    own goal texts always put it right after the verb ("Kill 4 ...", "Acquire 3 ...") --
+    disagrees with text's own is never considered, however similar the surrounding wording
+    is: "Kill 3 Friendly NPCs" and "Kill 5 Friendly NPCs" can both be real, distinct
+    squares, and a wrong digit is exactly the kind of high-similarity-looking mismatch text
+    similarity alone can't tell apart from an OCR typo. Only that leading count is compared
+    -- not every digit run in the text -- so a later, incidental number (a "+0 Weapon Only"
+    restriction) or a stray digit OCR invents out of unrelated noise (e.g. a trailing "...
+    in their name 1" misread of a text that should end "... in their name", issue reported
+    2026-09-19) doesn't get treated as a second goal count to disagree over. If text's
+    leading count has no candidate that shares it, there's nothing safe to match against,
+    full stop -- unlike a stray letter, silently changing a goal's count is the one class
+    of "fix" worth refusing outright.
     """
     numbers = _NUMBER_RE.findall(text)
-    pool = [c for c in candidates if _NUMBER_RE.findall(c) == numbers] if numbers else candidates
+    goal_count = numbers[0] if numbers else None
+    pool = (
+        [c for c in candidates if (_NUMBER_RE.findall(c) or [None])[0] == goal_count]
+        if goal_count is not None
+        else candidates
+    )
     if not pool:
         return None
 
@@ -259,7 +276,7 @@ def consolidate_match_squares(
 ) -> list[SquareTextChange]:
     """Reconciles one already-extracted match's own square_texts against the
     consolidated reference (known_squares, storage.json_export.read_squares' output) --
-    the video_id-scoped form of `square consolidate` (issue #76), as opposed to
+    the match_id-scoped form of `square consolidate` (issue #76), as opposed to
     consolidate_squares' from-scratch rebuild across every match.
 
     A cell whose text is already an exact match in its game's pool needs nothing and
@@ -420,7 +437,7 @@ def consolidate_players(
                 continue
             slug = _slugify_name(name)
             name_votes.setdefault(slug, Counter())[name] += 1
-            all_matches.setdefault(slug, []).append((extraction.match_date, extraction.video_id))
+            all_matches.setdefault(slug, []).append((extraction.match_date, extraction.match_id))
 
             if extraction.winner is not None:
                 record = season_records.setdefault(slug, {}).setdefault(
@@ -484,7 +501,7 @@ def consolidate_players(
             season_records=season_records.get(slug, {}),
             game_record=game_records.get(slug, WinLoss()),
             game_type_records=game_type_records.get(slug, {}),
-            all_matches=[video_id for _, video_id in ordered_matches],
+            all_matches=[match_id for _, match_id in ordered_matches],
             top_squares_base_game=_top_squares(
                 square_marks.get(slug, {}).get(GameType.BASE, Counter())
             ),

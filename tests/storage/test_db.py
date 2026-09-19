@@ -36,7 +36,7 @@ def _sample_game(game_index: int = 1) -> GameResult:
 
 def _sample_extraction(**overrides) -> VideoExtraction:
     defaults = dict(
-        video_id="2026-03-05-alice-vs-bob",
+        match_id="2026-03-05-alice-vs-bob",
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
         season="6",
@@ -83,7 +83,7 @@ def test_replace_is_idempotent(tmp_path):
         assert con.execute("SELECT COUNT(*) FROM squares").fetchone()[0] == 25
         assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
         # Re-writing a video has to clear its commentator rows too, or they'd accumulate
-        # (and collide on the (video_id, position) primary key).
+        # (and collide on the (match_id, position) primary key).
         assert con.execute("SELECT COUNT(*) FROM commentators").fetchone()[0] == 2
     finally:
         con.close()
@@ -97,7 +97,7 @@ def test_commentator_rows_keep_the_extractions_order(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         rows = con.execute(
-            "SELECT position, name FROM commentators WHERE video_id = ? ORDER BY position",
+            "SELECT position, name FROM commentators WHERE match_id = ? ORDER BY position",
             ["2026-03-05-alice-vs-bob"],
         ).fetchall()
         assert rows == [(0, "star0chris"), (1, "Captain_Domo")]
@@ -181,7 +181,7 @@ def test_video_row_carries_match_metadata_and_players(tmp_path):
     try:
         row = con.execute(
             "SELECT video_url, match_date, season, match_type, player_red_name, "
-            "player_blue_name, extracted_at FROM videos WHERE video_id = ?",
+            "player_blue_name, extracted_at FROM videos WHERE match_id = ?",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert row == (
@@ -275,7 +275,7 @@ def test_init_schema_adds_win_line_to_a_database_predating_it(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         con.execute(
-            "CREATE TABLE games (game_id VARCHAR PRIMARY KEY, video_id VARCHAR NOT NULL, "
+            "CREATE TABLE games (game_id VARCHAR PRIMARY KEY, match_id VARCHAR NOT NULL, "
             "game_index INTEGER NOT NULL, start_video_ts_s DOUBLE NOT NULL, "
             "end_video_ts_s DOUBLE, game_type VARCHAR, winner_color VARCHAR, "
             "win_type VARCHAR)"
@@ -314,7 +314,7 @@ def test_video_row_carries_duration(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         duration_s = con.execute(
-            "SELECT duration_s FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+            "SELECT duration_s FROM videos WHERE match_id = ?", ["2026-03-05-alice-vs-bob"]
         ).fetchone()[0]
         assert duration_s == 4321.0
     finally:
@@ -332,7 +332,7 @@ def test_video_row_carries_the_game_count(tmp_path):
     try:
         num_games, counted = con.execute(
             "SELECT v.num_games, COUNT(g.game_id) FROM videos v JOIN games g "
-            "USING (video_id) WHERE v.video_id = ? GROUP BY v.num_games",
+            "USING (match_id) WHERE v.match_id = ? GROUP BY v.num_games",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert num_games == 2
@@ -358,7 +358,7 @@ def test_video_row_carries_the_match_score_and_winner(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         row = con.execute(
-            "SELECT red_score, blue_score, winner FROM videos WHERE video_id = ?",
+            "SELECT red_score, blue_score, winner FROM videos WHERE match_id = ?",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert row == (2, 1, "red")
@@ -376,7 +376,7 @@ def test_video_winner_is_null_when_a_game_has_no_winner(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         row = con.execute(
-            "SELECT red_score, blue_score, winner FROM videos WHERE video_id = ?",
+            "SELECT red_score, blue_score, winner FROM videos WHERE match_id = ?",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert row == (0, 0, None)
@@ -414,7 +414,7 @@ def test_init_schema_adds_num_games_to_a_database_predating_it(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         con.execute(
-            "CREATE TABLE videos (video_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
+            "CREATE TABLE videos (match_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
             "resolution_width INTEGER, resolution_height INTEGER, fps DOUBLE, "
             "duration_s DOUBLE, video_url VARCHAR, match_date DATE NOT NULL, "
             "season INTEGER NOT NULL, match_type VARCHAR NOT NULL, "
@@ -429,7 +429,7 @@ def test_init_schema_adds_num_games_to_a_database_predating_it(tmp_path):
     try:
         # The match-result columns are added by the same ALTER block, so they come along.
         row = con.execute(
-            "SELECT num_games, red_score, blue_score, winner FROM videos WHERE video_id = ?",
+            "SELECT num_games, red_score, blue_score, winner FROM videos WHERE match_id = ?",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert row == (1, 0, 0, None)
@@ -445,7 +445,7 @@ def test_published_at_round_trips_through_the_db(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         published_at = con.execute(
-            "SELECT published_at FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+            "SELECT published_at FROM videos WHERE match_id = ?", ["2026-03-05-alice-vs-bob"]
         ).fetchone()[0]
         assert published_at == datetime.date(2026, 3, 1)
     finally:
@@ -459,7 +459,7 @@ def test_init_schema_adds_published_at_to_a_database_predating_it(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         con.execute(
-            "CREATE TABLE videos (video_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
+            "CREATE TABLE videos (match_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
             "resolution_width INTEGER, resolution_height INTEGER, fps DOUBLE, "
             "duration_s DOUBLE, video_url VARCHAR, match_date DATE NOT NULL, "
             "season VARCHAR NOT NULL, match_type VARCHAR NOT NULL, "
@@ -474,7 +474,7 @@ def test_init_schema_adds_published_at_to_a_database_predating_it(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         published_at = con.execute(
-            "SELECT published_at FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+            "SELECT published_at FROM videos WHERE match_id = ?", ["2026-03-05-alice-vs-bob"]
         ).fetchone()[0]
         assert published_at == datetime.date(2026, 3, 1)
     finally:
@@ -492,7 +492,7 @@ def test_video_duration_falls_back_to_the_probed_video(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         duration_s = con.execute(
-            "SELECT duration_s FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+            "SELECT duration_s FROM videos WHERE match_id = ?", ["2026-03-05-alice-vs-bob"]
         ).fetchone()[0]
         assert duration_s == 100.0
     finally:
@@ -506,7 +506,7 @@ def test_init_schema_adds_duration_to_a_database_predating_it(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         con.execute(
-            "CREATE TABLE videos (video_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
+            "CREATE TABLE videos (match_id VARCHAR PRIMARY KEY, source_path VARCHAR, "
             "resolution_width INTEGER, resolution_height INTEGER, fps DOUBLE, "
             "video_url VARCHAR, match_date DATE NOT NULL, season INTEGER NOT NULL, "
             "match_type VARCHAR NOT NULL, player_red_name VARCHAR, "
@@ -520,7 +520,7 @@ def test_init_schema_adds_duration_to_a_database_predating_it(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         duration_s = con.execute(
-            "SELECT duration_s FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
+            "SELECT duration_s FROM videos WHERE match_id = ?", ["2026-03-05-alice-vs-bob"]
         ).fetchone()[0]
         assert duration_s == 4321.0
     finally:
@@ -538,7 +538,7 @@ def test_write_extraction_allows_missing_video_info(tmp_path):
     try:
         width, height, fps = con.execute(
             "SELECT resolution_width, resolution_height, fps FROM videos "
-            "WHERE video_id = ?",
+            "WHERE match_id = ?",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert (width, height, fps) == (None, None, None)
@@ -552,21 +552,21 @@ def test_load_json_dir_writes_all_games_from_one_video_file(tmp_path):
     extraction = _sample_extraction(games=[_sample_game(1), _sample_game(2)])
     write_video(data_dir, extraction)
 
-    video_ids = load_json_dir(db_path, data_dir)
+    match_ids = load_json_dir(db_path, data_dir)
 
-    assert video_ids == [extraction.video_id]
+    assert match_ids == [extraction.match_id]
     con = duckdb.connect(str(db_path))
     try:
         assert con.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
         assert (
             con.execute(
-                "SELECT COUNT(*) FROM games WHERE video_id = ?", [extraction.video_id]
+                "SELECT COUNT(*) FROM games WHERE match_id = ?", [extraction.match_id]
             ).fetchone()[0]
             == 2
         )
         match_date, season, match_type = con.execute(
-            "SELECT match_date, season, match_type FROM videos WHERE video_id = ?",
-            [extraction.video_id],
+            "SELECT match_date, season, match_type FROM videos WHERE match_id = ?",
+            [extraction.match_id],
         ).fetchone()
         assert match_date == datetime.date(2026, 3, 5)
         assert season == "6"

@@ -56,7 +56,7 @@ def _mark(row: int, col: int, color: CellColor) -> GameEvent:
 
 def _extraction(
     *games: GameResult,
-    video_id: str = "2026-03-05-alice-vs-bob",
+    match_id: str = "2026-03-05-alice-vs-bob",
     match_date: datetime.date = datetime.date(2026, 3, 5),
     season: str = "6",
     match_type: MatchType = MatchType.ROUND_ROBIN,
@@ -64,7 +64,7 @@ def _extraction(
     player_blue_name: str | None = "bob",
 ) -> VideoExtraction:
     return VideoExtraction(
-        video_id=video_id,
+        match_id=match_id,
         video_url=None,
         match_date=match_date,
         season=season,
@@ -115,8 +115,8 @@ def test_consolidate_squares_skips_blank_cells():
 
 def test_consolidate_squares_deduplicates_the_same_text_across_matches():
     extractions = [
-        _extraction(_game(GameType.BASE, "Kill Wormface"), video_id="2026-01-01-a-vs-b"),
-        _extraction(_game(GameType.BASE, "Kill Wormface"), video_id="2026-02-01-c-vs-d"),
+        _extraction(_game(GameType.BASE, "Kill Wormface"), match_id="2026-01-01-a-vs-b"),
+        _extraction(_game(GameType.BASE, "Kill Wormface"), match_id="2026-02-01-c-vs-d"),
     ]
 
     squares = consolidate_squares(extractions)
@@ -145,9 +145,9 @@ def test_consolidate_squares_sorts_output_by_text():
 
 def test_consolidate_squares_warns_and_takes_the_majority_on_a_conflicting_game_type(caplog):
     extractions = [
-        _extraction(_game(GameType.BASE, "Ambiguous goal"), video_id="2026-01-01-a-vs-b"),
-        _extraction(_game(GameType.BASE, "Ambiguous goal"), video_id="2026-02-01-c-vs-d"),
-        _extraction(_game(GameType.DLC, "Ambiguous goal"), video_id="2026-03-01-e-vs-f"),
+        _extraction(_game(GameType.BASE, "Ambiguous goal"), match_id="2026-01-01-a-vs-b"),
+        _extraction(_game(GameType.BASE, "Ambiguous goal"), match_id="2026-02-01-c-vs-d"),
+        _extraction(_game(GameType.DLC, "Ambiguous goal"), match_id="2026-03-01-e-vs-f"),
     ]
 
     with caplog.at_level(logging.WARNING):
@@ -228,14 +228,38 @@ def test_consolidate_match_squares_corrects_a_missing_apostrophe():
 
 
 def test_consolidate_match_squares_corrects_a_letter_swap():
-    extraction = _extraction(
-        _game(GameType.BASE, "Kilt 3 Friendly NPCs (No Hermit Merchants)")
-    )
+    extraction = _extraction(_game(GameType.BASE, "Kilt 3 Friendly NPCs (No Hermit Merchants)"))
     known = _known("Kill 3 Friendly NPCs (No Hermit Merchants)")
 
     changes = consolidate_match_squares(extraction, known)
 
     assert changes[0].resolved_text == "Kill 3 Friendly NPCs (No Hermit Merchants)"
+
+
+def test_consolidate_match_squares_corrects_a_letter_misread_as_a_digit_in_a_code():
+    """"B8K" is an OCR misread of "BBK" (a boss's initials), not a second goal count --
+    only a digit run standing on its own (the actual "Kill 4 ...") counts as a goal count
+    to disagree over, so this should still be treated as an ordinary OCR typo fix."""
+    extraction = _extraction(_game(GameType.BASE, "Kil 4 Unique Gargoyles B8K"))
+    known = _known("Kill 4 Unique Gargoyles / BBK")
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == "Kill 4 Unique Gargoyles / BBK"
+
+
+def test_consolidate_match_squares_corrects_a_stray_trailing_digit():
+    """A stray trailing "1" here is OCR noise, not a second goal count -- only the leading
+    count ("Kill 4 ...") is compared, so this should still resolve as an ordinary typo
+    fix rather than being added as its own new square."""
+    extraction = _extraction(_game(GameType.BASE, "Kill 4 Bosses with God in their name 1"))
+    known = _known('Kill 4 Bosses with "God" in their name')
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == 'Kill 4 Bosses with "God" in their name'
 
 
 def test_consolidate_match_squares_corrects_a_missing_space():
@@ -257,7 +281,7 @@ def test_consolidate_match_squares_leaves_an_exact_match_unreported():
 
 
 def test_consolidate_match_squares_adds_rather_than_changes_a_different_goal_count():
-    """"Kill 3 Friendly NPCs" and "Kill 5 Friendly NPCs" can both be real, distinct
+    """ "Kill 3 Friendly NPCs" and "Kill 5 Friendly NPCs" can both be real, distinct
     squares -- a wrong digit shouldn't be "fixed" just because the rest of the wording is
     a close textual match, so this is filed as its own new square instead."""
     extraction = _extraction(_game(GameType.BASE, "Kill 3 Friendly NPCs (No Hermit Merchants)"))
@@ -371,9 +395,9 @@ def test_consolidate_players_slugifies_the_name():
 
 def test_consolidate_players_majority_votes_the_display_name():
     extractions = [
-        _extraction(player_red_name="Grey", video_id="2026-01-01-grey-vs-bob"),
-        _extraction(player_red_name="Grey", video_id="2026-02-01-grey-vs-bob"),
-        _extraction(player_red_name="grey", video_id="2026-03-01-grey-vs-bob"),
+        _extraction(player_red_name="Grey", match_id="2026-01-01-grey-vs-bob"),
+        _extraction(player_red_name="Grey", match_id="2026-02-01-grey-vs-bob"),
+        _extraction(player_red_name="grey", match_id="2026-03-01-grey-vs-bob"),
     ]
 
     profiles = consolidate_players(extractions)
@@ -384,12 +408,12 @@ def test_consolidate_players_majority_votes_the_display_name():
 def test_consolidate_players_tallies_season_match_wins_and_losses():
     red_win = _extraction(
         _game(GameType.BASE, winner_color=CellColor.RED),
-        video_id="2026-01-01-alice-vs-bob",
+        match_id="2026-01-01-alice-vs-bob",
         season="6",
     )
     red_loss = _extraction(
         _game(GameType.BASE, winner_color=CellColor.BLUE),
-        video_id="2026-02-01-alice-vs-bob",
+        match_id="2026-02-01-alice-vs-bob",
         season="6",
     )
 
@@ -459,9 +483,9 @@ def test_consolidate_players_skips_game_type_tally_for_unresolved_game_type():
 
 def test_consolidate_players_orders_all_matches_by_match_date_descending():
     extractions = [
-        _extraction(video_id="2026-01-01-alice-vs-bob", match_date=datetime.date(2026, 1, 1)),
-        _extraction(video_id="2026-03-01-alice-vs-bob", match_date=datetime.date(2026, 3, 1)),
-        _extraction(video_id="2026-02-01-alice-vs-bob", match_date=datetime.date(2026, 2, 1)),
+        _extraction(match_id="2026-01-01-alice-vs-bob", match_date=datetime.date(2026, 1, 1)),
+        _extraction(match_id="2026-03-01-alice-vs-bob", match_date=datetime.date(2026, 3, 1)),
+        _extraction(match_id="2026-02-01-alice-vs-bob", match_date=datetime.date(2026, 2, 1)),
     ]
 
     profiles = consolidate_players(extractions)

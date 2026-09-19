@@ -11,8 +11,8 @@ from scadustats.pipeline.extract import (
     _detect_game_start,
     _determine_winner,
     _extract_events,
+    _match_id,
     _segment_games,
-    _video_id,
 )
 from scadustats.pipeline.segmentation import Observation
 
@@ -158,9 +158,7 @@ def test_detect_game_end_locates_the_settling_mark_of_a_majority_win():
         "RRRRB",
         "RRRBR",
     ]
-    colors = [
-        (r, c, R if layout[r][c] == "R" else B) for r in range(5) for c in range(5)
-    ]
+    colors = [(r, c, R if layout[r][c] == "R" else B) for r in range(5) for c in range(5)]
     segment = _debounced(_board(*colors))
     events = _extract_events(segment)
     winner_color, win_type, _ = _determine_winner(events)
@@ -312,15 +310,13 @@ _MATCH_METADATA = MatchMetadata(
 )
 
 
-def test_video_id_formats_date_and_players():
-    assert _video_id(_MATCH_METADATA, "blanxz", "Serious") == "2026-03-05-blanxz-vs-Serious"
+def test_match_id_formats_date_and_players():
+    assert _match_id(_MATCH_METADATA, "blanxz", "Serious") == "2026-03-05-blanxz-vs-Serious"
 
 
-def test_video_id_falls_back_to_unknown_for_missing_names():
-    assert _video_id(_MATCH_METADATA, None, "") == "2026-03-05-unknown-vs-unknown"
+def test_match_id_falls_back_to_unknown_for_missing_names():
+    assert _match_id(_MATCH_METADATA, None, "") == "2026-03-05-unknown-vs-unknown"
 
 
-def test_video_id_strips_slashes_from_names():
-    assert (
-        _video_id(_MATCH_METADATA, "blanxz/2", "Serious") == "2026-03-05-blanxz-2-vs-Serious"
-    )
+def test_match_id_strips_slashes_from_names():
+    assert _match_id(_MATCH_METADATA, "blanxz/2", "Serious") == "2026-03-05-blanxz-2-vs-Serious"
