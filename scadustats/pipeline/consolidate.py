@@ -199,7 +199,15 @@ def validate_squares(squares: list[Square]) -> None:
 # Crucible Knight", 0.513), which lands well below it.
 _FUZZY_MATCH_CUTOFF = 0.85
 
-_NUMBER_RE = re.compile(r"\d+")
+# \b on both sides, not a bare \d+: a goal count is always its own token ("Kill 3 ..."),
+# but an OCR misread can also turn a letter inside an alphanumeric code into a digit --
+# e.g. "BBK" (a boss's initials) misread as "B8K" -- and \d+ alone would pull that "8" out
+# as if it were a second goal count, disagreeing with the correct candidate's "4" and
+# blocking an otherwise-obvious fix ("Kil 4 Unique Gargoyles B8K" vs. "Kill 4 Unique
+# Gargoyles / BBK", issue reported 2026-09-19). \b requires a non-word/word boundary, and
+# "B" and "8" are both word characters, so the digit run embedded inside "B8K" never
+# matches here in the first place -- only a digit run standing on its own does.
+_NUMBER_RE = re.compile(r"\b\d+\b")
 
 
 @dataclass
@@ -232,16 +240,27 @@ def _best_match(text: str, candidates: list[str]) -> tuple[str, float] | None:
     _FUZZY_MATCH_CUTOFF -- meaning `text` should be treated as its own, new square rather
     than a misread of one of these candidates.
 
-    A candidate whose goal-count digits ("Kill 3 ...") disagree with text's own is never
-    considered, however similar the surrounding wording is -- "Kill 3 Friendly NPCs" and
-    "Kill 5 Friendly NPCs" can both be real, distinct squares, and a wrong digit is
-    exactly the kind of high-similarity-looking mismatch text similarity alone can't tell
-    apart from an OCR typo. If text has digits and no candidate shares them, there's
-    nothing safe to match against, full stop -- unlike a stray letter, silently changing
-    a goal's count is the one class of "fix" worth refusing outright.
+    A candidate whose goal count -- the first standalone digit run, since Bingo Brawlers'
+    own goal texts always put it right after the verb ("Kill 4 ...", "Acquire 3 ...") --
+    disagrees with text's own is never considered, however similar the surrounding wording
+    is: "Kill 3 Friendly NPCs" and "Kill 5 Friendly NPCs" can both be real, distinct
+    squares, and a wrong digit is exactly the kind of high-similarity-looking mismatch text
+    similarity alone can't tell apart from an OCR typo. Only that leading count is compared
+    -- not every digit run in the text -- so a later, incidental number (a "+0 Weapon Only"
+    restriction) or a stray digit OCR invents out of unrelated noise (e.g. a trailing "...
+    in their name 1" misread of a text that should end "... in their name", issue reported
+    2026-09-19) doesn't get treated as a second goal count to disagree over. If text's
+    leading count has no candidate that shares it, there's nothing safe to match against,
+    full stop -- unlike a stray letter, silently changing a goal's count is the one class
+    of "fix" worth refusing outright.
     """
     numbers = _NUMBER_RE.findall(text)
-    pool = [c for c in candidates if _NUMBER_RE.findall(c) == numbers] if numbers else candidates
+    goal_count = numbers[0] if numbers else None
+    pool = (
+        [c for c in candidates if (_NUMBER_RE.findall(c) or [None])[0] == goal_count]
+        if goal_count is not None
+        else candidates
+    )
     if not pool:
         return None
 
