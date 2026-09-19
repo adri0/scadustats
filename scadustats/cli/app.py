@@ -23,6 +23,7 @@ from scadustats.pipeline.consolidate import (
     SquareTextChange,
     consolidate_match_squares,
     consolidate_players,
+    slugify_name,
     validate_squares,
 )
 from scadustats.pipeline.extract import estimate_sample_count, extract_video
@@ -245,6 +246,18 @@ def extract(
             "either way)"
         ),
     ] = False,
+    consolidate: Annotated[
+        bool,
+        typer.Option(
+            "--consolidate",
+            help="After a successful extraction that passes validation with no issues, "
+            "also run `match consolidate` for it -- reconciles its squares against the "
+            "consolidated reference and refreshes its two players' profiles. Skipped "
+            "with a note if validation found anything (or the extraction was skipped as "
+            "a duplicate), since consolidating a match that looks wrong would just teach "
+            "the reference the same mistake",
+        ),
+    ] = False,
     cookies: Annotated[
         Path | None,
         typer.Option(
@@ -408,7 +421,16 @@ def extract(
                 typer.echo(line)
             typer.echo()
             typer.echo(typer.style("validation", bold=True))
-            _echo_validation(summary.extraction)
+            has_issues = _echo_validation(summary.extraction)
+            if consolidate:
+                typer.echo()
+                if has_issues:
+                    typer.echo("Skipping consolidation -- validation found issues")
+                else:
+                    typer.echo(typer.style("consolidation", bold=True))
+                    _square_consolidate_match(data_dir, summary.match_id)
+                    typer.echo()
+                    _player_consolidate_match(data_dir, summary.match_id)
     except Exception:
         if (
             downloaded_path is not None
@@ -713,6 +735,18 @@ def _consolidate_one_match(
     return changes
 
 
+def _square_consolidate_match(data_dir: Path, match_id: str) -> None:
+    """Looks up one match and the reference already on disk, then hands both to
+    _consolidate_one_match -- the entry point `match consolidate`/`extract --consolidate`
+    (issue #79) need to reconcile a single match_id's squares without going through the
+    `square consolidate` CLI command itself.
+    """
+    squares_dir = Path(data_dir) / "squares"
+    extraction = read_video(_match_path(data_dir, match_id))
+    known_squares = read_squares(squares_dir)
+    _consolidate_one_match(data_dir, squares_dir, extraction, known_squares)
+
+
 @square_app.command("consolidate")
 def square_consolidate(
     match_id: Annotated[
@@ -750,9 +784,7 @@ def square_consolidate(
     squares_dir = Path(data_dir) / "squares"
 
     if match_id is not None:
-        extraction = read_video(_match_path(data_dir, match_id))
-        known_squares = read_squares(squares_dir)
-        _consolidate_one_match(data_dir, squares_dir, extraction, known_squares)
+        _square_consolidate_match(data_dir, match_id)
         return
 
     extractions = _read_matches(data_dir)
@@ -772,8 +804,46 @@ player_app = typer.Typer(
 app.add_typer(player_app, name="player")
 
 
+def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
+    """The match_id-scoped half of `player consolidate` (issue #79): writes just the two
+    players who played one match, rather than every profile under data_dir. Unlike
+    _square_consolidate_match's scoped path, this still has to read every match under
+    data_dir to compute those two profiles correctly -- a player's win/loss record and
+    top squares are tallied across their whole match history, not just this one match --
+    so only what gets *written* at the end is narrowed. Factored out of player_consolidate
+    below so `match consolidate` can run the identical step without duplicating this.
+    """
+    path = _match_path(data_dir, match_id)
+    extraction = read_video(path)
+    slugs = {
+        slugify_name(name)
+        for name in (extraction.player_red_name, extraction.player_blue_name)
+        if name
+    }
+    if not slugs:
+        typer.echo(f"{match_id}: no player names to consolidate")
+        return
+
+    extractions = _read_matches(data_dir)
+    players_dir = Path(data_dir) / "players"
+    profiles = consolidate_players(extractions, existing=read_players(players_dir))
+
+    for slug in sorted(slugs & profiles.keys()):
+        profile = profiles[slug]
+        written = write_player(players_dir, profile)
+        typer.echo(f"{written}: {len(profile.all_matches)} match(es)")
+
+
 @player_app.command("consolidate")
 def player_consolidate(
+    match_id: Annotated[
+        str | None,
+        typer.Argument(
+            help="match_id to write just its two players' profiles for, as printed by "
+            "`match list` (omitted rebuilds every player's profile from every match "
+            "under data_dir)"
+        ),
+    ] = None,
     data_dir: Annotated[
         Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
     ] = Path("data"),
@@ -788,7 +858,16 @@ def player_consolidate(
     re-run. id is assigned once, the first time a player is seen, and kept stable after
     that; twitch/avatar/bio are never set by this command at all -- fill those in by
     hand in the player's YAML file, and both they and id survive every later re-run.
+
+    Given a match_id, instead writes just the two players who played that match --
+    their profiles are still computed across their whole match history the same way
+    (there's no cheaper way to get a correct win/loss record or top-squares tally),
+    only which files get written is narrowed.
     """
+    if match_id is not None:
+        _player_consolidate_match(data_dir, match_id)
+        return
+
     extractions = _read_matches(data_dir)
     if not extractions:
         typer.echo(f"No matches found in {_matches_dir(data_dir)}")
@@ -801,6 +880,28 @@ def player_consolidate(
         profile = profiles[slug]
         path = write_player(players_dir, profile)
         typer.echo(f"{path}: {len(profile.all_matches)} match(es)")
+
+
+@match_app.command("consolidate")
+def match_consolidate(
+    match_id: Annotated[
+        str, typer.Argument(help="match_id to consolidate, as printed by `match list`")
+    ],
+    data_dir: Annotated[
+        Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
+) -> None:
+    """Consolidate one match's squares and player profiles in one step (issue #79).
+
+    Currently just `square consolidate <match_id>` followed by `player consolidate
+    <match_id>`, in that order: the square step can rewrite this match's own JSON (an
+    OCR misread corrected against the reference), and the player step re-reads that
+    file off disk afterward, so a corrected goal text -- not the pre-correction OCR
+    reading -- is what ends up in either player's top-squares tally.
+    """
+    _square_consolidate_match(data_dir, match_id)
+    typer.echo()
+    _player_consolidate_match(data_dir, match_id)
 
 
 def main() -> None:
