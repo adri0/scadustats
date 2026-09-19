@@ -43,7 +43,7 @@ def _sample_game(game_index: int = 1) -> GameResult:
 
 def _sample_extraction(**overrides) -> VideoExtraction:
     defaults = dict(
-        video_id="2026-03-05-alice-vs-bob",
+        match_id="2026-03-05-alice-vs-bob",
         video_url="https://youtu.be/abc123",
         match_date=datetime.date(2026, 3, 5),
         season="6",
@@ -64,10 +64,10 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
     extraction = _sample_extraction()
     path = write_video(tmp_path, extraction)
 
-    assert path == video_path(tmp_path, season="6", video_id="2026-03-05-alice-vs-bob")
+    assert path == video_path(tmp_path, season="6", match_id="2026-03-05-alice-vs-bob")
     data = json.loads(path.read_text())
 
-    assert data["video_id"] == "2026-03-05-alice-vs-bob"
+    assert data["match_id"] == "2026-03-05-alice-vs-bob"
     assert data["match_date"] == "2026-03-05"
     assert data["season"] == "6"
     assert data["match_type"] == "round_robin"
@@ -435,17 +435,14 @@ def test_write_video_creates_json_dir_if_missing(tmp_path):
 def test_write_video_groups_matches_under_a_season_subdirectory(tmp_path):
     path = write_video(tmp_path, _sample_extraction(season="Off-Season Cup"))
 
-    assert (
-        path
-        == tmp_path / "matches" / "season-Off-Season Cup" / "2026-03-05-alice-vs-bob.json"
-    )
+    assert path == tmp_path / "matches" / "season-Off-Season Cup" / "2026-03-05-alice-vs-bob.json"
     assert path.parent.parent == tmp_path / "matches"
 
 
 def test_write_video_puts_different_seasons_in_different_subdirectories(tmp_path):
     season_6 = write_video(tmp_path, _sample_extraction(season="6"))
     season_7 = write_video(
-        tmp_path, _sample_extraction(season="7", video_id="2027-03-05-alice-vs-bob")
+        tmp_path, _sample_extraction(season="7", match_id="2027-03-05-alice-vs-bob")
     )
 
     assert season_6.parent != season_7.parent
@@ -555,9 +552,7 @@ def test_write_squares_writes_one_file_per_game_type(tmp_path):
     base_data = json.loads(paths[GameType.BASE].read_text())
     assert base_data == [{"id": "wormface", "text": "Kill Wormface", "game_type": "base"}]
     dlc_data = json.loads(paths[GameType.DLC].read_text())
-    assert dlc_data == [
-        {"id": "hearts_2", "text": "Acquire 2 Dragon Hearts", "game_type": "dlc"}
-    ]
+    assert dlc_data == [{"id": "hearts_2", "text": "Acquire 2 Dragon Hearts", "game_type": "dlc"}]
 
 
 def test_write_squares_creates_the_directory(tmp_path):

@@ -75,9 +75,7 @@ def _prompt_match_metadata(
     # season is free text (e.g. a one-off "Off-Season Cup"), not a number -- but most
     # seasons are numbered one per year, and 2026 is season 6, so that numbering still
     # makes a reasonable default. Just a default: the user can override it at the prompt.
-    default_season = (
-        existing_match.season if existing_match else str(match_date_val.year - 2020)
-    )
+    default_season = existing_match.season if existing_match else str(match_date_val.year - 2020)
     season = (
         season_opt
         if season_opt is not None
@@ -157,8 +155,7 @@ def _prompt_game_type(game: GameResult) -> GameType:
     choices = [t.value for t in GameType]
     while True:
         raw = typer.prompt(
-            f"Game {game.game_index} type -- couldn't infer from its squares "
-            f"({'/'.join(choices)})"
+            f"Game {game.game_index} type -- couldn't infer from its squares ({'/'.join(choices)})"
         )
         try:
             return GameType(raw)
@@ -256,7 +253,7 @@ def extract(
     --keep-video was given, or extraction fails, in which case you're asked whether to
     keep it).
 
-    A match is identified by its players and match date (see video_id in the JSON) --
+    A match is identified by its players and match date (see match_id in the JSON) --
     if this exact match already has a JSON extraction under data_dir, you're asked
     whether to replace it, unless --if-exists was given to decide that upfront.
 
@@ -362,18 +359,14 @@ def extract(
 
             def on_duplicate(path: Path) -> bool:
                 # Same timing guarantee as on_missing_game_type above -- this only runs
-                # once video_id (and so path) is known, which is after match_metadata's
+                # once match_id (and so path) is known, which is after match_metadata's
                 # prompt thread has long since finished.
                 with progress_lock:
                     typer.echo()
-                    return typer.confirm(
-                        f"{path} already exists -- replace it?", default=False
-                    )
+                    return typer.confirm(f"{path} already exists -- replace it?", default=False)
 
             with ThreadPoolExecutor(max_workers=1) as prompt_executor:
-                metadata_future: Future[MatchMetadata] = prompt_executor.submit(
-                    prompt_for_metadata
-                )
+                metadata_future: Future[MatchMetadata] = prompt_executor.submit(prompt_for_metadata)
                 summary = extract_video(
                     video_path,
                     data_dir=data_dir,
@@ -396,7 +389,7 @@ def extract(
                 progress.update(pending)
                 pending = 0
         if summary.skipped:
-            typer.echo(f"Skipped -- kept the existing JSON extraction for {summary.video_id}")
+            typer.echo(f"Skipped -- kept the existing JSON extraction for {summary.match_id}")
         else:
             for line in render_match(summary.extraction):
                 typer.echo(line)
@@ -424,9 +417,7 @@ def load_db(
     data_dir: Annotated[
         Path, typer.Argument(help="Data directory written by `extract` (see extract's --data-dir)")
     ] = Path("data"),
-    db: Annotated[
-        Path, typer.Option(help="DuckDB database file path")
-    ] = Path("scadustats.duckdb"),
+    db: Annotated[Path, typer.Option(help="DuckDB database file path")] = Path("scadustats.duckdb"),
     if_exists: Annotated[
         IfExists,
         typer.Option(help="Behavior when a video's JSON was already loaded into the DB"),
@@ -437,8 +428,8 @@ def load_db(
     Separate from, and optional after, `extract` -- run this whenever you want the
     JSON's current contents (including any manual corrections) written into the DB.
     """
-    video_ids = load_json_dir(db, data_dir, if_exists=if_exists.value)
-    print(f"Loaded {len(video_ids)} video(s) into {db}")
+    match_ids = load_json_dir(db, data_dir, if_exists=if_exists.value)
+    print(f"Loaded {len(match_ids)} video(s) into {db}")
 
 
 def _matches_dir(data_dir: Path) -> Path:
@@ -448,27 +439,25 @@ def _matches_dir(data_dir: Path) -> Path:
     return Path(data_dir) / "matches"
 
 
-def _match_path(data_dir: Path, video_id: str) -> Path:
-    """The JSON file one video_id names, as a CLI error rather than a traceback when
+def _match_path(data_dir: Path, match_id: str) -> Path:
+    """The JSON file one match_id names, as a CLI error rather than a traceback when
     it isn't there -- a mistyped id is a user mistake, not a bug.
 
-    video_id alone doesn't say which season subdirectory the file lives under (see
+    match_id alone doesn't say which season subdirectory the file lives under (see
     json_export.video_path), so this searches <data_dir>/matches for it rather than
-    building the path directly -- a video_id is unique across the whole match history,
+    building the path directly -- a match_id is unique across the whole match history,
     so at most one match is ever expected.
     """
-    matches = sorted(_matches_dir(data_dir).rglob(f"{video_id}.json"))
+    matches = sorted(_matches_dir(data_dir).rglob(f"{match_id}.json"))
     if not matches:
         raise typer.BadParameter(
-            f"no match file for {video_id!r} under {_matches_dir(data_dir)}",
-            param_hint="video_id",
+            f"no match file for {match_id!r} under {_matches_dir(data_dir)}",
+            param_hint="match_id",
         )
     return matches[0]
 
 
-match_app = typer.Typer(
-    help="List or inspect previously extracted matches.", no_args_is_help=True
-)
+match_app = typer.Typer(help="List or inspect previously extracted matches.", no_args_is_help=True)
 app.add_typer(match_app, name="match")
 
 
@@ -483,8 +472,8 @@ def _read_matches(data_dir: Path) -> list[VideoExtraction]:
     <data_dir>/matches, not data_dir itself -- data_dir can also hold other entities
     (e.g. <data_dir>/squares/, issue #73), which aren't match files and shouldn't be
     read as one. Sorted by filename alone rather than the full path: a
-    filename is "<video_id>.json" and video_id is "<match-date>-<red>-vs-<blue>" (see
-    extract._video_id), so filename order already is chronological order, whereas a
+    filename is "<match_id>.json" and match_id is "<match-date>-<red>-vs-<blue>" (see
+    extract._match_id), so filename order already is chronological order, whereas a
     season subdirectory's name (free text, not necessarily a sortable number) would not
     sort that way against another season's.
     """
@@ -552,13 +541,13 @@ def _echo_validation(extraction: VideoExtraction) -> bool:
     if not issues:
         mark = typer.style("✓", fg=typer.colors.GREEN)
         status = typer.style("ok", fg=typer.colors.GREEN, bold=True)
-        typer.echo(f"{mark} {extraction.video_id}: {status}")
+        typer.echo(f"{mark} {extraction.match_id}: {status}")
         return False
 
     mark = typer.style("✗", fg=typer.colors.RED)
     count = f"{len(issues)} issue{'s' if len(issues) != 1 else ''}"
     status = typer.style(count, fg=typer.colors.RED, bold=True)
-    typer.echo(f"{mark} {extraction.video_id}: {status}")
+    typer.echo(f"{mark} {extraction.match_id}: {status}")
     for issue in issues:
         scope = typer.style(f"{issue.scope}:", fg=typer.colors.CYAN)
         code = typer.style(f"[{issue.code}]", dim=True)
@@ -568,10 +557,10 @@ def _echo_validation(extraction: VideoExtraction) -> bool:
 
 @match_app.command("validate")
 def match_validate(
-    video_id: Annotated[
+    match_id: Annotated[
         str | None,
         typer.Argument(
-            help="video_id to validate, as printed by `match list` (omitted validates "
+            help="match_id to validate, as printed by `match list` (omitted validates "
             "every match under data_dir)"
         ),
     ] = None,
@@ -590,8 +579,8 @@ def match_validate(
     strips the color codes automatically when the output isn't a terminal (piped to a
     file, or under CliRunner in tests), so this doesn't need its own --no-color flag.
     """
-    if video_id is not None:
-        extractions = [read_video(_match_path(data_dir, video_id))]
+    if match_id is not None:
+        extractions = [read_video(_match_path(data_dir, match_id))]
     else:
         extractions = _read_matches(data_dir)
         if not extractions:
@@ -615,9 +604,7 @@ def match_validate(
 
 @match_app.command("show")
 def match_show(
-    video_id: Annotated[
-        str, typer.Argument(help="video_id to show, as printed by `match list`")
-    ],
+    match_id: Annotated[str, typer.Argument(help="match_id to show, as printed by `match list`")],
     events: Annotated[
         bool,
         typer.Option(
@@ -639,7 +626,7 @@ def match_show(
     support is visible right next to it -- the validation result at the end is what
     states that in so many words.
     """
-    extraction = read_video(_match_path(data_dir, video_id))
+    extraction = read_video(_match_path(data_dir, match_id))
     for line in render_match(extraction, events=events):
         typer.echo(line)
     typer.echo()
@@ -656,10 +643,10 @@ app.add_typer(square_app, name="square")
 
 @square_app.command("consolidate")
 def square_consolidate(
-    video_id: Annotated[
+    match_id: Annotated[
         str | None,
         typer.Argument(
-            help="video_id to reconcile against the reference, as printed by `match "
+            help="match_id to reconcile against the reference, as printed by `match "
             "list` (omitted rebuilds the whole reference from every match under data_dir)"
         ),
     ] = None,
@@ -669,13 +656,13 @@ def square_consolidate(
 ) -> None:
     """Build or grow the consolidated goal-square reference (issue #76).
 
-    Given no video_id, rebuilds <data_dir>/squares/base_game.json and
+    Given no match_id, rebuilds <data_dir>/squares/base_game.json and
     <data_dir>/squares/dlc.json from every match under data_dir: every distinct goal
     square text seen, split by the game type it belongs to and tagged with a short id.
     Wholly regenerated each run from the current match history -- not something to
     hand-edit and expect preserved across a re-run.
 
-    Given a video_id, instead reconciles just that one match against the reference
+    Given a match_id, instead reconciles just that one match against the reference
     already on disk: a square whose OCR'd text is close to one the reference already
     knows is corrected to match it (and the match's JSON is rewritten), while a square
     the reference has never seen is added to it -- the same end effect on the reference
@@ -687,14 +674,14 @@ def square_consolidate(
     """
     squares_dir = Path(data_dir) / "squares"
 
-    if video_id is not None:
-        path = _match_path(data_dir, video_id)
+    if match_id is not None:
+        path = _match_path(data_dir, match_id)
         extraction = read_video(path)
         known_squares = read_squares(squares_dir)
 
         changes = consolidate_match_squares(extraction, known_squares)
         if not changes:
-            typer.echo(f"{video_id}: no changes")
+            typer.echo(f"{match_id}: no changes")
             return
 
         for change in changes:
@@ -729,7 +716,7 @@ def square_consolidate(
                 for change in new_for_type:
                     typer.echo(f"  + {change.resolved_text!r}")
 
-        typer.echo(f"\n{video_id}: {fixed} square(s) fixed, {added} square(s) added")
+        typer.echo(f"\n{match_id}: {fixed} square(s) fixed, {added} square(s) added")
         return
 
     extractions = _read_matches(data_dir)

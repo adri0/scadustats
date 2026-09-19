@@ -14,8 +14,8 @@ Extract statistics from Elden Ring "Bingo Brawlers" match videos.
 scadustats extract <video_path_or_url> [--data-dir data] [--if-exists replace|append|error]
 scadustats load-db [data_dir] [--db scadustats.duckdb] [--if-exists replace|append|error]
 scadustats match list [--data-dir data]
-scadustats match show <video_id> [--events] [--data-dir data]
-scadustats match validate [video_id] [--data-dir data]
+scadustats match show <match_id> [--events] [--data-dir data]
+scadustats match validate [match_id] [--data-dir data]
 scadustats square consolidate [--data-dir data]
 scadustats player consolidate [--data-dir data]
 ```
@@ -28,7 +28,7 @@ The `match` sub-commands are read-only lookups over what's already been extracte
 
 - `list` prints a table of every match: who played, the format, how many games, and how the match ended.
 - `show` prints one match in full — per game its recorded result, how the squares ended up split, and the final board with the winning line marked. `--events` adds every mark and unmark with its timestamp, player, and goal text.
-- `validate` checks matches against the tournament's own rules — game counts and order, a winner the board actually supports, one game-start per game, nothing claimed after a line was completed — printing every issue it finds and exiting non-zero if there were any. A reported issue means an extraction mistake probably slipped through and that file needs a look; with no `video_id` given, it checks every match in the directory.
+- `validate` checks matches against the tournament's own rules — game counts and order, a winner the board actually supports, one game-start per game, nothing claimed after a line was completed — printing every issue it finds and exiting non-zero if there were any. A reported issue means an extraction mistake probably slipped through and that file needs a look; with no `match_id` given, it checks every match in the directory.
 
 `load-db` is a separate, optional step: it reflects those JSON files into a DuckDB database file. Run it whenever you want the JSON's current contents (including any manual corrections) written into the DB.
 

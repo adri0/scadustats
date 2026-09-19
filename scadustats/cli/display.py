@@ -9,7 +9,7 @@ In particular a game's result is shown exactly as recorded, never recomputed fro
 events: `match validate` is where the two are cross-checked, and silently showing a
 "corrected" result here would hide the very disagreement that command exists to find.
 
-Section headers (the video_id line, each "Game N" line, the "event log" label) are bold
+Section headers (the match_id line, each "Game N" line, the "event log" label) are bold
 via `typer.style`, matching cli/app.py's own "validation" header on the same report --
 just formatting applied to a returned string, so it doesn't need a CliRunner to produce
 or test either; `typer.echo` (via click) strips the codes automatically outside a
@@ -72,7 +72,7 @@ def undecided_games(extraction: VideoExtraction) -> int:
 
 def player_names(extraction: VideoExtraction) -> tuple[str, str]:
     """The two players, falling back to their colors -- a name can be missing from the
-    JSON (a failed OCR read, see extract._video_id), and "red" still identifies a side."""
+    JSON (a failed OCR read, see extract._match_id), and "red" still identifies a side."""
     return (extraction.player_red_name or "red", extraction.player_blue_name or "blue")
 
 
@@ -136,12 +136,12 @@ def render_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[
 
 def render_match_table(extractions: Sequence[VideoExtraction]) -> list[str]:
     """The `match list` table. The date and both player names are deliberately not their
-    own columns: video_id already spells out `<date>-<red>-vs-<blue>` (see
-    extract._video_id) and repeating them crowded out the one thing the old listing
+    own columns: match_id already spells out `<date>-<red>-vs-<blue>` (see
+    extract._match_id) and repeating them crowded out the one thing the old listing
     didn't say at all, which is how each match actually ended."""
     rows = [
         [
-            extraction.video_id,
+            extraction.match_id,
             extraction.season,
             extraction.match_type.value,
             str(extraction.num_games),
@@ -237,9 +237,7 @@ def render_game(game: GameResult, extraction: VideoExtraction, *, events: bool) 
     unmarks = sum(event.event_type is EventType.UNMARK for event in game.events)
     game_type = _GAME_TYPE_LABELS.get(game.game_type, "unknown game type")
 
-    header = typer.style(
-        f"Game {game.game_index}  {game_type}  {_format_span(game)}", bold=True
-    )
+    header = typer.style(f"Game {game.game_index}  {game_type}  {_format_span(game)}", bold=True)
     lines = [
         f"  {header}",
         f"    result   {format_result(game, extraction)}",
@@ -268,7 +266,7 @@ def render_match(extraction: VideoExtraction, *, events: bool = False) -> list[s
     red, blue = player_names(extraction)
     games = sorted(extraction.games, key=lambda game: game.game_index)
     lines = [
-        typer.style(extraction.video_id, bold=True),
+        typer.style(extraction.match_id, bold=True),
         f"  {red} (red) vs {blue} (blue) -- {format_outcome(extraction)}",
         f"  {extraction.match_date}  season {extraction.season}  "
         f"{extraction.match_type.value}  "

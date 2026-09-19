@@ -195,9 +195,9 @@ class VideoExtraction:
     """Everything extracted from one video, and the unit `json_export`/`db` persist:
     one video is one match, and a match can contain several games (GameResult), but
     player names/match metadata are read/collected once per video, not once per game --
-    see extract._video_id and CLAUDE.md."""
+    see extract._match_id and CLAUDE.md."""
 
-    video_id: str
+    match_id: str
     video_url: str | None
     match_date: date
     season: str
@@ -345,7 +345,7 @@ class PlayerProfile:
     season_records: dict[str, MatchRecord] = field(default_factory=dict)
     game_record: WinLoss = field(default_factory=WinLoss)
     game_type_records: dict[GameType, WinLoss] = field(default_factory=dict)
-    # video_ids the player appears in, ordered by match_date descending (most recent
+    # match_ids the player appears in, ordered by match_date descending (most recent
     # first) -- see consolidate_players.
     all_matches: list[str] = field(default_factory=list)
     # The 5 squares this player has personally marked most often, per game type, each

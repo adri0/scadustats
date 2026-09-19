@@ -56,15 +56,15 @@ def test_extract_video_end_to_end(tmp_path):
 
     assert summary.num_games == 1
     assert summary.num_claims == 1
-    # video_id is "<match-date>-<red player>-vs-<blue-player>", built from
+    # match_id is "<match-date>-<red player>-vs-<blue-player>", built from
     # match_metadata plus the scoreboard names OCR'd from this clip -- not the video's
     # filename.
-    assert summary.video_id == "2026-03-05-blanxz-vs-SeriousChallenges"
+    assert summary.match_id == "2026-03-05-blanxz-vs-SeriousChallenges"
     # on_progress fires once per sampled frame, so this should track estimate_sample_count
     # (an estimate, not exact -- see its docstring) within a sample or two.
     assert progress_calls == pytest.approx(estimate_sample_count(_CLIP_PATH), abs=2)
 
-    json_path = video_path(data_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.match_id)
     assert json_path.exists()
     video_data = json.loads(json_path.read_text())
     assert video_data["player_red_name"] == "blanxz"
@@ -82,37 +82,37 @@ def test_extract_video_end_to_end(tmp_path):
     # extract_video itself never touches a database -- load_json_dir is the separate,
     # optional step that reflects the JSON it wrote into DuckDB.
     db_path = tmp_path / "extract.duckdb"
-    video_ids = load_json_dir(db_path, data_dir)
-    assert video_ids == [summary.video_id]
+    match_ids = load_json_dir(db_path, data_dir)
+    assert match_ids == [summary.match_id]
 
     con = duckdb.connect(str(db_path))
     try:
         squares = con.execute(
-            "SELECT square_text FROM squares WHERE game_id = ?", [f"{summary.video_id}-1"]
+            "SELECT square_text FROM squares WHERE game_id = ?", [f"{summary.match_id}-1"]
         ).fetchall()
         assert len(squares) == 25
         assert all(text for (text,) in squares)
 
         claims = con.execute(
             "SELECT row, col, color FROM events WHERE game_id = ? AND event_type = 'mark'",
-            [f"{summary.video_id}-1"],
+            [f"{summary.match_id}-1"],
         ).fetchall()
         assert claims == [(1, 5, "red")]
 
         game_type = con.execute(
-            "SELECT game_type FROM games WHERE game_id = ?", [f"{summary.video_id}-1"]
+            "SELECT game_type FROM games WHERE game_id = ?", [f"{summary.match_id}-1"]
         ).fetchone()[0]
         assert game_type == "base"
 
         player_red_name, player_blue_name, duration_s = con.execute(
-            "SELECT player_red_name, player_blue_name, duration_s FROM videos WHERE video_id = ?",
-            [summary.video_id],
+            "SELECT player_red_name, player_blue_name, duration_s FROM videos WHERE match_id = ?",
+            [summary.match_id],
         ).fetchone()
         assert (player_red_name, player_blue_name) == ("blanxz", "SeriousChallenges")
         assert duration_s == pytest.approx(probe(_CLIP_PATH).duration_s)
 
         num_games = con.execute(
-            "SELECT num_games FROM videos WHERE video_id = ?", [summary.video_id]
+            "SELECT num_games FROM videos WHERE match_id = ?", [summary.match_id]
         ).fetchone()[0]
         assert num_games == 1
     finally:
@@ -139,7 +139,7 @@ def test_extract_video_records_the_supplied_published_date(tmp_path):
         published_at=datetime.date(2026, 2, 20),
     )
 
-    json_path = video_path(data_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.match_id)
     assert json.loads(json_path.read_text())["metadata"]["published_at"] == "2026-02-20"
 
 
@@ -162,7 +162,7 @@ def test_extract_video_leaves_published_date_unset_by_default(tmp_path):
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    json_path = video_path(data_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.match_id)
     assert json.loads(json_path.read_text())["metadata"]["published_at"] is None
 
 
@@ -183,7 +183,7 @@ def test_extract_video_records_the_local_video_path_as_source_path(tmp_path):
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    json_path = video_path(data_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.match_id)
     assert json.loads(json_path.read_text())["metadata"]["source_path"] == _CLIP_PATH
 
 
@@ -204,7 +204,7 @@ def test_extract_video_splits_a_clip_spanning_two_games(tmp_path):
 
     assert summary.num_games == 2
 
-    games = json.loads(video_path(tmp_path / "json", "6", summary.video_id).read_text())["games"]
+    games = json.loads(video_path(tmp_path / "json", "6", summary.match_id).read_text())["games"]
     assert [game["game_index"] for game in games] == [1, 2]
     # The splash between the two games falls in the gap here -- its samples are dropped
     # rather than read as either game's board (see _collect_observations).
@@ -226,7 +226,7 @@ def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    games = json.loads(video_path(tmp_path / "json", "6", summary.video_id).read_text())["games"]
+    games = json.loads(video_path(tmp_path / "json", "6", summary.match_id).read_text())["games"]
 
     game_1_events = games[0]["events"]
     assert games[0]["winner_color"] == "red"
@@ -260,7 +260,7 @@ def _extract_once(data_dir, **kwargs):
 def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
     data_dir = tmp_path / "json"
     first = _extract_once(data_dir)
-    json_path = video_path(data_dir, "6", first.video_id)
+    json_path = video_path(data_dir, "6", first.match_id)
     # Corrupt the on-disk file so a second, successful write is unambiguously detectable.
     json_path.write_text("{}")
 
@@ -274,14 +274,14 @@ def test_extract_video_asks_on_duplicate_and_replaces_when_approved(tmp_path):
 
     assert asked_paths == [json_path]
     assert not second.skipped
-    assert json.loads(json_path.read_text())["video_id"] == second.video_id
+    assert json.loads(json_path.read_text())["match_id"] == second.match_id
 
 
 @pytest.mark.integration
 def test_extract_video_skips_write_on_duplicate_when_declined(tmp_path):
     data_dir = tmp_path / "json"
     first = _extract_once(data_dir)
-    json_path = video_path(data_dir, "6", first.video_id)
+    json_path = video_path(data_dir, "6", first.match_id)
     json_path.write_text("{}")  # would prove a write happened, if one did
 
     second = _extract_once(data_dir, on_duplicate=lambda path: False)
@@ -316,7 +316,7 @@ def test_extract_video_resolves_match_metadata_future(tmp_path):
         on_missing_game_type=lambda game: GameType.BASE,
     )
 
-    json_path = video_path(data_dir, "6", summary.video_id)
+    json_path = video_path(data_dir, "6", summary.match_id)
     video_data = json.loads(json_path.read_text())
     assert video_data["match_date"] == "2026-03-05"
     assert video_data["season"] == "6"
@@ -338,7 +338,7 @@ def test_extract_video_infers_game_type_from_known_squares(tmp_path):
         known_squares={"Kill Wormface": GameType.BASE},
     )
 
-    video_data = json.loads(video_path(data_dir, "6", summary.video_id).read_text())
+    video_data = json.loads(video_path(data_dir, "6", summary.match_id).read_text())
     assert video_data["games"][0]["game_type"] == "base"
 
 
@@ -365,7 +365,7 @@ def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip,
         known_squares={},
     )
 
-    video_data = json.loads(video_path(data_dir, "6", summary.video_id).read_text())
+    video_data = json.loads(video_path(data_dir, "6", summary.match_id).read_text())
     assert [game["game_type"] for game in video_data["games"]] == [expected]
 
 

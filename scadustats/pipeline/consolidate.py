@@ -7,7 +7,7 @@ squares.py reads its output back (via storage.json_export.read_squares) as
 extract_video's fallback for inferring a game's type.
 
 consolidate_match_squares runs that same reference the other direction, scoped to one
-already-extracted match (`square consolidate <video_id>`, issue #76): it corrects that
+already-extracted match (`square consolidate <match_id>`, issue #76): it corrects that
 match's own OCR'd square_texts against whatever the reference already knows, and grows
 the reference with whatever it doesn't -- the same end effect on squares/ that including
 this match in a from-scratch consolidate_squares run would have had.
@@ -163,9 +163,7 @@ def consolidate_squares(extractions: list[VideoExtraction]) -> dict[GameType, li
     for text in sorted(votes):
         counts = votes[text]
         if len(counts) > 1:
-            logger.warning(
-                "square seen under more than one game type: %r (%s)", text, dict(counts)
-            )
+            logger.warning("square seen under more than one game type: %r (%s)", text, dict(counts))
         game_type = counts.most_common(1)[0][0]
 
         square_id = _unique_id(_slugify(text), used_ids[game_type])
@@ -278,7 +276,7 @@ def consolidate_match_squares(
 ) -> list[SquareTextChange]:
     """Reconciles one already-extracted match's own square_texts against the
     consolidated reference (known_squares, storage.json_export.read_squares' output) --
-    the video_id-scoped form of `square consolidate` (issue #76), as opposed to
+    the match_id-scoped form of `square consolidate` (issue #76), as opposed to
     consolidate_squares' from-scratch rebuild across every match.
 
     A cell whose text is already an exact match in its game's pool needs nothing and
@@ -439,7 +437,7 @@ def consolidate_players(
                 continue
             slug = _slugify_name(name)
             name_votes.setdefault(slug, Counter())[name] += 1
-            all_matches.setdefault(slug, []).append((extraction.match_date, extraction.video_id))
+            all_matches.setdefault(slug, []).append((extraction.match_date, extraction.match_id))
 
             if extraction.winner is not None:
                 record = season_records.setdefault(slug, {}).setdefault(
@@ -503,7 +501,7 @@ def consolidate_players(
             season_records=season_records.get(slug, {}),
             game_record=game_records.get(slug, WinLoss()),
             game_type_records=game_type_records.get(slug, {}),
-            all_matches=[video_id for _, video_id in ordered_matches],
+            all_matches=[match_id for _, match_id in ordered_matches],
             top_squares_base_game=_top_squares(
                 square_marks.get(slug, {}).get(GameType.BASE, Counter())
             ),
