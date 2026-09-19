@@ -615,6 +615,59 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
     assert captured["match_metadata"].video_url == "https://youtu.be/abc123"
 
 
+def test_extract_offers_existing_match_details_as_defaults_when_video_url_matches_for_a_local_file(
+    tmp_path, monkeypatch
+):
+    """A local file has no field of its own to look an earlier extraction up by (see
+    issue #90), but --video-url still does: giving the same video_url a match was
+    already extracted under offers that match's date/season/video_url as prompt
+    defaults, same as re-extracting straight from the YouTube URL would."""
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    data_dir = tmp_path / "data"
+    write_video(
+        data_dir,
+        _sample_extraction(
+            video_url="https://youtu.be/abc123",
+            match_date=datetime.date(2026, 1, 1),
+            season="Off-Season Cup",
+        ),
+    )
+    captured: dict = {}
+
+    def _fake_extract_video(video_path, *, match_metadata, **kwargs):
+        captured["match_metadata"] = match_metadata.result()
+        return ExtractionSummary(
+            match_id="v1", num_games=1, num_claims=0, extraction=_sample_extraction(match_id="v1")
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            str(local),
+            "--data-dir",
+            str(data_dir),
+            "--match-type",
+            "round_robin",
+            "--video-url",
+            "https://youtu.be/abc123",
+        ],
+        # Blank lines accept whatever default each prompt offers -- match date, season,
+        # in that order (video_url isn't prompted for: --video-url already answered it).
+        input="\n\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    metadata = captured["match_metadata"]
+    assert metadata.match_date == datetime.date(2026, 1, 1)
+    assert metadata.season == "Off-Season Cup"
+    assert metadata.video_url == "https://youtu.be/abc123"
+
+
 def test_extract_passes_the_downloaded_published_date_through_to_extract_video(
     tmp_path, monkeypatch
 ):
