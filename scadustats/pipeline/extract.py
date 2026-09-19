@@ -536,11 +536,6 @@ def extract_video(
         commentators=casters,
         duration_s=duration_s if duration_s > 0 else None,
         published_at=published_at,
-        # The local file this extraction actually ran against -- whether it was supplied
-        # directly or downloaded from a URL first (video_path is the same either way by
-        # this point; see cli.app.extract). Recorded so a later run against the same file
-        # can be recognized and offered this run's details as defaults.
-        source_path=str(video_path),
     )
     # A match is unique by match_date + player names (see _match_id), which match_id
     # already encodes -- so a same-name file here means this exact match was already

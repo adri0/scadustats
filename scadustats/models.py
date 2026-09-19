@@ -226,16 +226,6 @@ class VideoExtraction:
     # downloading -- a locally-supplied video has no metadata to read it from, and a JSON
     # file written before this field existed still has to read back cleanly.
     published_at: date | None = None
-    # The local filesystem path of the video file this extraction was run against --
-    # whether it was supplied directly or downloaded from video_url first (see
-    # cli.app.extract). Recorded for provenance and so a later `extract` run on the same
-    # local file can be recognized (see cli.app._find_existing_match) and offered that
-    # earlier run's match_date/season/video_url as defaults instead of asking from
-    # scratch. Optional for the same two reasons as duration_s/published_at: a JSON file
-    # written before this field existed still has to read back cleanly, and db.py's
-    # videos.source_path column already allows NULL (a video reflected from JSON alone
-    # has no source file in hand at all).
-    source_path: str | None = None
 
     @property
     def red_score(self) -> int:

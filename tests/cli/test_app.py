@@ -615,12 +615,13 @@ def test_extract_uses_video_url_argument_as_provenance_when_not_separately_given
     assert captured["match_metadata"].video_url == "https://youtu.be/abc123"
 
 
-def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_path(
+def test_extract_offers_existing_match_details_as_defaults_when_video_url_matches_for_a_local_file(
     tmp_path, monkeypatch
 ):
-    """Re-extracting the same local file a match was already extracted from (e.g. after
-    a calibration fix) offers that earlier extraction's date/season/video_url as prompt
-    defaults instead of asking from scratch -- see _find_existing_match."""
+    """A local file has no field of its own to look an earlier extraction up by (see
+    issue #90), but --video-url still does: giving the same video_url a match was
+    already extracted under offers that match's date/season/video_url as prompt
+    defaults, same as re-extracting straight from the YouTube URL would."""
     local = tmp_path / "local.mp4"
     local.write_bytes(b"fake video")
     data_dir = tmp_path / "data"
@@ -628,7 +629,6 @@ def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_pa
         data_dir,
         _sample_extraction(
             video_url="https://youtu.be/abc123",
-            source_path=str(local),
             match_date=datetime.date(2026, 1, 1),
             season="Off-Season Cup",
         ),
@@ -653,10 +653,12 @@ def test_extract_offers_existing_match_details_as_defaults_for_the_same_local_pa
             str(data_dir),
             "--match-type",
             "round_robin",
+            "--video-url",
+            "https://youtu.be/abc123",
         ],
         # Blank lines accept whatever default each prompt offers -- match date, season,
-        # video URL, in that order.
-        input="\n\n\n",
+        # in that order (video_url isn't prompted for: --video-url already answered it).
+        input="\n\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -785,19 +787,11 @@ def test_find_existing_match_matches_a_youtube_link_by_video_url(tmp_path):
     assert found.match_id == "2026-03-05-alice-vs-bob"
 
 
-def test_find_existing_match_matches_a_local_path_by_source_path(tmp_path):
-    write_video(tmp_path, _sample_extraction(video_url=None, source_path="downloads/local.mp4"))
-
-    found = _find_existing_match(tmp_path, "downloads/local.mp4")
-
-    assert found is not None
-    assert found.match_id == "2026-03-05-alice-vs-bob"
-
-
-def test_find_existing_match_does_not_match_a_local_path_against_video_url(tmp_path):
-    """A local path is only ever matched against source_path -- a match whose video_url
-    happens to equal the given string (e.g. by coincidence in a test) shouldn't count."""
-    write_video(tmp_path, _sample_extraction(video_url="downloads/local.mp4", source_path=None))
+def test_find_existing_match_never_matches_a_local_path(tmp_path):
+    """Nothing on VideoExtraction records the local file an extraction ran against, so
+    a local path can never look itself up -- even one that happens to equal a recorded
+    match's video_url (e.g. by coincidence in a test)."""
+    write_video(tmp_path, _sample_extraction(video_url="downloads/local.mp4"))
 
     assert _find_existing_match(tmp_path, "downloads/local.mp4") is None
 
