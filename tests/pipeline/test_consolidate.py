@@ -238,6 +238,32 @@ def test_consolidate_match_squares_corrects_a_letter_swap():
     assert changes[0].resolved_text == "Kill 3 Friendly NPCs (No Hermit Merchants)"
 
 
+def test_consolidate_match_squares_corrects_a_letter_misread_as_a_digit_in_a_code():
+    """"B8K" is an OCR misread of "BBK" (a boss's initials), not a second goal count --
+    only a digit run standing on its own (the actual "Kill 4 ...") counts as a goal count
+    to disagree over, so this should still be treated as an ordinary OCR typo fix."""
+    extraction = _extraction(_game(GameType.BASE, "Kil 4 Unique Gargoyles B8K"))
+    known = _known("Kill 4 Unique Gargoyles / BBK")
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == "Kill 4 Unique Gargoyles / BBK"
+
+
+def test_consolidate_match_squares_corrects_a_stray_trailing_digit():
+    """A stray trailing "1" here is OCR noise, not a second goal count -- only the leading
+    count ("Kill 4 ...") is compared, so this should still resolve as an ordinary typo
+    fix rather than being added as its own new square."""
+    extraction = _extraction(_game(GameType.BASE, "Kill 4 Bosses with God in their name 1"))
+    known = _known('Kill 4 Bosses with "God" in their name')
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == 'Kill 4 Bosses with "God" in their name'
+
+
 def test_consolidate_match_squares_corrects_a_missing_space():
     extraction = _extraction(_game(GameType.BASE, "Killa Death Knight"))
     known = _known("Kill a Death Knight")
