@@ -310,8 +310,8 @@ class PlayerProfile:
 
     slug/display_name/season_records/game_record/game_type_records/all_matches/
     top_squares_base_game/top_squares_dlc are wholly regenerated from match history on
-    every `player consolidate` run, the same as pipeline.consolidate.consolidate_squares'
-    output -- none of them is meant to be hand-edited and expected to survive a re-run.
+    every `player consolidate` run -- none of them is meant to be hand-edited and
+    expected to survive a re-run.
     id/twitch/avatar/bio are the exception: id is assigned once, the first time a
     player is seen, and kept stable across every later re-run, and twitch/avatar/bio
     are never set by the tool at all -- they're filled in by hand and preserved the same

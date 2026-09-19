@@ -6,11 +6,14 @@ from already-extracted matches (see storage.json_export) -- the source data for
 squares.py reads its output back (via storage.json_export.read_squares) as
 extract_video's fallback for inferring a game's type.
 
-consolidate_match_squares runs that same reference the other direction, scoped to one
-already-extracted match (`square consolidate <match_id>`, issue #76): it corrects that
-match's own OCR'd square_texts against whatever the reference already knows, and grows
-the reference with whatever it doesn't -- the same end effect on squares/ that including
-this match in a from-scratch consolidate_squares run would have had.
+consolidate_match_squares is the one operation this module actually performs: it
+reconciles a single already-extracted match's OCR'd square_texts against a reference
+built so far (correcting a misread in place, or growing the reference with a square it's
+never seen), the `square consolidate <match_id>` half of the command (issue #76). A
+from-scratch rebuild across the whole match history (`square consolidate` with no
+match_id, issue #86) is just this same operation run once per match in turn, starting
+from an empty reference -- cli.app.square_consolidate is what loops it, so there's no
+separate whole-history function here to keep in step with it.
 
 consolidate_players (issue #72) builds the analogous per-player reference -- one
 consolidated profile per player, covering every match they've appeared in -- for
@@ -18,7 +21,6 @@ consolidated profile per player, covering every match they've appeared in -- for
 """
 
 import difflib
-import logging
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -36,8 +38,6 @@ from scadustats.models import (
     VideoExtraction,
     WinLoss,
 )
-
-logger = logging.getLogger(__name__)
 
 # Filler verbs and connectors common to Bingo Brawlers' goal-text phrasing ("Acquire 3
 # ...", "Kill 5 ..."), stripped before picking a square's slug word so the slug lands on
@@ -133,48 +133,8 @@ def _unique_id(base: str, used: set[str]) -> str:
     return f"{base}_{suffix}"
 
 
-def consolidate_squares(extractions: list[VideoExtraction]) -> dict[GameType, list[Square]]:
-    """Every distinct goal square text seen across `extractions`, split by game type and
-    tagged with a short slug id.
-
-    A game with no resolved game_type contributes nothing (there's no pool to file its
-    squares under), and a blank square_texts cell (a ragged, hand-edited grid) is skipped.
-    The same text seen under more than one game type across the match history is a real
-    data problem -- a board's squares are drawn from one pool, not a mix (see
-    squares.infer_game_type) -- so it's filed under whichever type it was seen under most,
-    with a warning, rather than appearing in both references.
-
-    Output is sorted by text within each game type, so re-running this against a growing
-    match history produces a stable, diffable file rather than one reordered by whatever
-    order the source files happened to be read in.
-    """
-    votes: dict[str, Counter[GameType]] = {}
-    for extraction in extractions:
-        for game in extraction.games:
-            if game.game_type is None:
-                continue
-            for row in game.square_texts:
-                for text in row:
-                    if text:
-                        votes.setdefault(text, Counter())[game.game_type] += 1
-
-    squares: dict[GameType, list[Square]] = {GameType.BASE: [], GameType.DLC: []}
-    used_ids: dict[GameType, set[str]] = {GameType.BASE: set(), GameType.DLC: set()}
-    for text in sorted(votes):
-        counts = votes[text]
-        if len(counts) > 1:
-            logger.warning("square seen under more than one game type: %r (%s)", text, dict(counts))
-        game_type = counts.most_common(1)[0][0]
-
-        square_id = _unique_id(_slugify(text), used_ids[game_type])
-        used_ids[game_type].add(square_id)
-        squares[game_type].append(Square(id=square_id, text=text, game_type=game_type))
-
-    return squares
-
-
 def validate_squares(squares: list[Square]) -> None:
-    """Raises ValueError if `squares` holds a duplicated id or text. consolidate_squares'
+    """Raises ValueError if `squares` holds a duplicated id or text. consolidate_match_squares'
     own construction already prevents both within one game type -- this is the final
     sanity check the reference is built to have (see issue #71), catching a future
     regression in that construction rather than anything expected to fire in practice.
@@ -276,8 +236,12 @@ def consolidate_match_squares(
 ) -> list[SquareTextChange]:
     """Reconciles one already-extracted match's own square_texts against the
     consolidated reference (known_squares, storage.json_export.read_squares' output) --
-    the match_id-scoped form of `square consolidate` (issue #76), as opposed to
-    consolidate_squares' from-scratch rebuild across every match.
+    the operation `square consolidate <match_id>` performs (issue #76). A from-scratch
+    rebuild across the whole match history (`square consolidate` with no match_id, issue
+    #86) is cli.app.square_consolidate calling this once per match in turn, starting from
+    an empty known_squares, rather than a separate whole-history algorithm -- so the two
+    forms of the command can't drift apart the way a second, independent implementation
+    of "what squares exist" risked.
 
     A cell whose text is already an exact match in its game's pool needs nothing and
     isn't reported. Anything else is one of two things: an OCR misread of a square the
@@ -285,16 +249,14 @@ def consolidate_match_squares(
     `extraction`, mutating game.square_texts -- the same object the caller goes on to
     write back with json_export.write_video), or a square the reference has never seen,
     appended to `known_squares` (mutated in place, the same object the caller goes on to
-    write back with json_export.write_squares) with a freshly assigned id -- the same
-    _slugify/_unique_id scheme consolidate_squares itself uses, so a squares file grown
-    one match at a time this way ids its entries exactly as a from-scratch
-    consolidate_squares run would. That's also why a genuinely new square is added at all
-    rather than left unresolved the way an unmatched cell used to be: doing so gives this
+    write back with json_export.write_squares) with a freshly assigned id via
+    _slugify/_unique_id. That's also why a genuinely new square is added at all rather
+    than left unresolved the way an unmatched cell used to be: doing so gives this
     one-match path the same end effect on the reference that including this match in a
     full consolidate run would have had.
 
-    A game with no resolved game_type is skipped entirely, like consolidate_squares
-    itself -- there's no pool to check or add its squares to.
+    A game with no resolved game_type is skipped entirely -- there's no pool to check or
+    add its squares to.
     """
     changes: list[SquareTextChange] = []
     used_ids = {
@@ -385,9 +347,9 @@ def _event_square_text(square_texts: list[list[str]], row: int | None, col: int 
 
 def _top_squares(counts: Counter[str], limit: int = 5) -> list[SquareMarks]:
     """The `limit` most-marked texts in `counts`, each paired with its mark count, ranked
-    by count descending and then alphabetically -- the same tie-break consolidate_squares'
-    own sort relies on for a stable, diffable file, rather than Counter.most_common's
-    insertion-order tie-break."""
+    by count descending and then alphabetically -- the same tie-break
+    storage.json_export.write_squares' own sort-by-id relies on for a stable, diffable
+    file, rather than Counter.most_common's insertion-order tie-break."""
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return [SquareMarks(text=text, marks=count) for text, count in ranked[:limit]]
 
@@ -410,7 +372,7 @@ def consolidate_players(
     fills in at all (twitch/avatar/bio); a slug not already in `existing` is a new
     player, assigned the next id after whatever's already in use (1 if `existing` is
     empty). Everything else here is wholly regenerated from `extractions` every call, the
-    same as consolidate_squares.
+    same as a from-scratch `square consolidate` run's reference.
 
     A match whose winner can't be named (VideoExtraction.winner is None -- see its own
     docstring) contributes nothing to season_records, and a game with no winner_color

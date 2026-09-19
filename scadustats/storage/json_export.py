@@ -22,9 +22,9 @@ from scadustats.models import (
 )
 
 # File a game type's consolidated squares reference is written to, keyed by GameType --
-# see pipeline.consolidate.consolidate_squares and write_squares below. "base_game.json"
-# rather than "base.json" so the filename reads unambiguously on its own, next to
-# "dlc.json", in a directory listing.
+# see pipeline.consolidate.consolidate_match_squares and write_squares below.
+# "base_game.json" rather than "base.json" so the filename reads unambiguously on its
+# own, next to "dlc.json", in a directory listing.
 _SQUARES_FILENAMES = {GameType.BASE: "base_game.json", GameType.DLC: "dlc.json"}
 
 
@@ -265,16 +265,19 @@ def _square_to_dict(square: Square) -> dict:
 def write_squares(
     squares_dir: str | Path, squares: dict[GameType, list[Square]]
 ) -> dict[GameType, Path]:
-    """Write pipeline.consolidate.consolidate_squares' output as one JSON file per game
-    type (see squares_path), creating squares_dir if it doesn't exist yet. Each square is
-    written sorted by id, for the same diffability reason consolidate_squares itself
-    sorts by text -- id already reads close to alphabetical-by-text since it's derived
-    from the text, so this doesn't reorder the list in any surprising way.
+    """Write pipeline.consolidate.consolidate_match_squares' grown/corrected reference as
+    one JSON file per game type (see squares_path), creating squares_dir if it doesn't
+    exist yet. Each square is written sorted by id -- id already reads close to
+    alphabetical-by-text since it's derived from the text, so this doesn't reorder the
+    list in any surprising way -- purely so a re-run against an unchanged reference
+    produces a byte-identical, diffable file rather than one reordered by whatever order
+    the squares happened to be added in this run.
 
-    Unconditionally overwrites, unlike write_video: this reference is wholly regenerated
-    from the current match history every run, not incrementally appended to, so there's
-    no prior version worth asking about before replacing. Returns the path written per
-    game type.
+    Unconditionally overwrites, unlike write_video: the caller (cli.app's
+    _consolidate_one_match) already read whatever this held before via read_squares and
+    folded its own changes into that same dict before calling this, so there's no prior
+    on-disk version left to ask about before replacing -- this only ever writes what the
+    caller already knows supersedes it. Returns the path written per game type.
     """
     Path(squares_dir).mkdir(parents=True, exist_ok=True)
 
