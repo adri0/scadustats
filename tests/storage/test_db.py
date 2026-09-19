@@ -57,7 +57,7 @@ def test_write_and_read_extraction(tmp_path):
     db_path = tmp_path / "test.duckdb"
     video_info = VideoInfo(width=1280, height=720, fps=60.0, duration_s=100.0)
 
-    write_extraction(db_path, _sample_extraction(), "downloads/vid1.mp4", video_info)
+    write_extraction(db_path, _sample_extraction(), video_info)
 
     con = duckdb.connect(str(db_path))
     try:
@@ -487,7 +487,7 @@ def test_video_duration_falls_back_to_the_probed_video(tmp_path):
     db_path = tmp_path / "test.duckdb"
     video_info = VideoInfo(width=1280, height=720, fps=60.0, duration_s=100.0)
 
-    write_extraction(db_path, _sample_extraction(duration_s=None), "vid.mp4", video_info)
+    write_extraction(db_path, _sample_extraction(duration_s=None), video_info)
 
     con = duckdb.connect(str(db_path))
     try:
@@ -495,43 +495,6 @@ def test_video_duration_falls_back_to_the_probed_video(tmp_path):
             "SELECT duration_s FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
         ).fetchone()[0]
         assert duration_s == 100.0
-    finally:
-        con.close()
-
-
-def test_source_path_prefers_the_extraction_over_the_caller_supplied_value(tmp_path):
-    """Mirrors duration_s: the JSON's own source_path (this project's source of truth,
-    including any hand correction) wins over a caller-supplied one when both are in
-    hand."""
-    db_path = tmp_path / "test.duckdb"
-
-    write_extraction(
-        db_path, _sample_extraction(source_path="matches/real.mp4"), "downloads/vid1.mp4"
-    )
-
-    con = duckdb.connect(str(db_path))
-    try:
-        source_path = con.execute(
-            "SELECT source_path FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
-        ).fetchone()[0]
-        assert source_path == "matches/real.mp4"
-    finally:
-        con.close()
-
-
-def test_source_path_falls_back_to_the_caller_supplied_value(tmp_path):
-    """JSON predating source_path has none to write, but a caller extracting from a real
-    file (or a direct write_extraction caller) still has the path in hand."""
-    db_path = tmp_path / "test.duckdb"
-
-    write_extraction(db_path, _sample_extraction(source_path=None), "downloads/vid1.mp4")
-
-    con = duckdb.connect(str(db_path))
-    try:
-        source_path = con.execute(
-            "SELECT source_path FROM videos WHERE video_id = ?", ["2026-03-05-alice-vs-bob"]
-        ).fetchone()[0]
-        assert source_path == "downloads/vid1.mp4"
     finally:
         con.close()
 
@@ -564,21 +527,21 @@ def test_init_schema_adds_duration_to_a_database_predating_it(tmp_path):
         con.close()
 
 
-def test_write_extraction_allows_missing_source_path_and_video_info(tmp_path):
-    """load_json_dir has no source video file in hand -- both are optional and stored
-    as NULL, not required."""
+def test_write_extraction_allows_missing_video_info(tmp_path):
+    """load_json_dir has no source video file in hand -- video_info is optional and its
+    columns are stored as NULL, not required."""
     db_path = tmp_path / "test.duckdb"
 
     write_extraction(db_path, _sample_extraction())
 
     con = duckdb.connect(str(db_path))
     try:
-        source_path, width, height, fps = con.execute(
-            "SELECT source_path, resolution_width, resolution_height, fps FROM videos "
+        width, height, fps = con.execute(
+            "SELECT resolution_width, resolution_height, fps FROM videos "
             "WHERE video_id = ?",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
-        assert (source_path, width, height, fps) == (None, None, None, None)
+        assert (width, height, fps) == (None, None, None)
     finally:
         con.close()
 

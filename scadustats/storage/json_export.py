@@ -92,7 +92,6 @@ def _metadata_to_dict(extraction: VideoExtraction) -> dict:
         "video_url": extraction.video_url,
         "duration_s": extraction.duration_s,
         "published_at": extraction.published_at.isoformat() if extraction.published_at else None,
-        "source_path": extraction.source_path,
         "extracted_at": extraction.extracted_at.isoformat(),
     }
 
@@ -207,8 +206,8 @@ def read_video(path: str | Path) -> VideoExtraction:
     hand-edited file that added a game, or corrected one's winner, is re-tallied from what
     it actually holds rather than trusted to have had every place updated in step.
 
-    video_url/duration_s/published_at/source_path/extracted_at moved under a "metadata"
-    key (issue #47). A file written before that lacks the key entirely; `metadata` falls
+    video_url/duration_s/published_at/extracted_at moved under a "metadata" key (issue
+    #47). A file written before that lacks the key entirely; `metadata` falls
     back to `data` itself in that case, since those fields lived at the top level there --
     the .get() calls below then behave exactly as they did against the flat layout.
     """
@@ -249,9 +248,6 @@ def read_video(path: str | Path) -> VideoExtraction:
         published_at=(
             date.fromisoformat(metadata["published_at"]) if metadata.get("published_at") else None
         ),
-        # .get, for the same reason as duration_s/published_at: a file written before
-        # source_path existed still reads back cleanly, as "unknown".
-        source_path=metadata.get("source_path"),
     )
 
 

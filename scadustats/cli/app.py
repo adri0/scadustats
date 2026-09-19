@@ -260,10 +260,11 @@ def extract(
     if this exact match already has a JSON extraction under data_dir, you're asked
     whether to replace it, unless --if-exists was given to decide that upfront.
 
-    If video_path_or_url matches the video_url or local source path of a match already
-    extracted under data_dir, its match_date/season/video_url are offered as defaults at
-    the prompts instead of the usual from-scratch ones -- handy when re-extracting the
-    same source after a calibration fix.
+    If video_path_or_url is itself a YouTube URL that matches the video_url of a match
+    already extracted under data_dir, its match_date/season/video_url are offered as
+    defaults at the prompts instead of the usual from-scratch ones -- handy when
+    re-extracting the same source after a calibration fix. There's no equivalent lookup
+    for a local file.
 
     This only writes JSON -- it never touches a database. Run `load-db` separately
     (and optionally) to reflect that JSON into DuckDB.
@@ -281,14 +282,16 @@ def extract(
             param_hint="--video-url",
         )
 
-    # A previously-extracted match from this exact same source link (its video_url for a
-    # YouTube URL, its source_path for a local file) -- if found, its match_date/season/
-    # video_url are offered as prompt defaults below instead of asking from scratch, e.g.
-    # when re-extracting the same source after a calibration fix. Looked up here, upfront
-    # (a quick directory walk, unlike the metadata prompts), rather than inside
-    # prompt_for_metadata on the background thread below, so its own JSON-parsing warnings
-    # (see _read_matches) don't get interleaved with the progress bar the way a prompt
-    # would need progress_lock to avoid.
+    # A previously-extracted match whose video_url is this exact same YouTube link -- if
+    # found, its match_date/season/video_url are offered as prompt defaults below instead
+    # of asking from scratch, e.g. when re-extracting the same source after a calibration
+    # fix. There's no equivalent lookup for a local path (nothing on VideoExtraction
+    # records the local file an extraction ran against), so this only ever finds anything
+    # when video_path_or_url is itself a YouTube URL. Looked up here, upfront (a quick
+    # directory walk, unlike the metadata prompts), rather than inside prompt_for_metadata
+    # on the background thread below, so its own JSON-parsing warnings (see _read_matches)
+    # don't get interleaved with the progress bar the way a prompt would need
+    # progress_lock to avoid.
     existing_match = _find_existing_match(data_dir, video_path_or_url)
 
     # video_path_or_url doubles as the source of the --video-url provenance field when
@@ -498,19 +501,22 @@ def _read_matches(data_dir: Path) -> list[VideoExtraction]:
 
 
 def _find_existing_match(data_dir: Path, link: str) -> VideoExtraction | None:
-    """The previously-extracted match, if any, that came from the same source link as
-    this `extract` run's video_path_or_url -- a YouTube URL is matched against that
-    match's video_url, a local path against its source_path (see
-    extract_video/models.VideoExtraction). Used by `extract` to offer that match's
-    match_date/season/video_url as prompt defaults, so re-extracting the same source
-    (e.g. after a calibration fix) doesn't mean retyping details already on record.
+    """The previously-extracted match, if any, whose video_url is this `extract` run's
+    video_path_or_url. Used by `extract` to offer that match's match_date/season/
+    video_url as prompt defaults, so re-extracting the same source (e.g. after a
+    calibration fix) doesn't mean retyping details already on record.
+
+    Only a YouTube URL can match anything here -- nothing on VideoExtraction records the
+    local file an extraction ran against, so a local path has no field to look itself up
+    against.
 
     Reuses _read_matches' directory walk, so an unparseable file is skipped the same way
     match list/validate already tolerate it, rather than failing this lookup outright.
     """
-    field = "video_url" if _is_youtube_url(link) else "source_path"
+    if not _is_youtube_url(link):
+        return None
     for extraction in _read_matches(data_dir):
-        if getattr(extraction, field) == link:
+        if extraction.video_url == link:
             return extraction
     return None
 

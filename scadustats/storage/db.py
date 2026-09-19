@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS videos (
     video_id VARCHAR PRIMARY KEY,
     -- Nullable: load_json_dir writes a video row from previously-extracted JSON alone,
     -- with no source video file (or its resolution/fps) in hand.
-    source_path VARCHAR,
     resolution_width INTEGER,
     resolution_height INTEGER,
     fps DOUBLE,
@@ -157,13 +156,12 @@ def _delete_video(con: duckdb.DuckDBPyConnection, video_id: str) -> None:
 def write_extraction(
     db_path: str | Path,
     extraction: VideoExtraction,
-    source_path: str | None = None,
     video_info: VideoInfo | None = None,
     if_exists: str = "replace",
 ) -> None:
-    """source_path/video_info are optional since load_json_dir calls this from
-    previously-extracted JSON alone, with no source video file in hand -- resolution/fps
-    are stored as NULL in that case."""
+    """video_info is optional since load_json_dir calls this from previously-extracted
+    JSON alone, with no source video file in hand -- resolution/fps are stored as NULL in
+    that case."""
     con = duckdb.connect(str(db_path))
     try:
         init_schema(con)
@@ -177,27 +175,24 @@ def write_extraction(
             if if_exists == "replace":
                 _delete_video(con, extraction.video_id)
 
-        # The extraction's own duration/source_path win over the caller-supplied ones when
-        # both are in hand: they're what the JSON -- this project's source of truth --
-        # records, including any hand correction. The caller-supplied values only fill in
-        # for JSON written before those fields existed, where they're the one thing still
-        # able to answer.
+        # The extraction's own duration wins over the caller-supplied one when both are
+        # in hand: it's what the JSON -- this project's source of truth -- records,
+        # including any hand correction. The caller-supplied value only fills in for
+        # JSON written before the field existed, where it's the one thing still able to
+        # answer.
         duration_s = extraction.duration_s
         if duration_s is None and video_info is not None:
             duration_s = video_info.duration_s
-        if extraction.source_path is not None:
-            source_path = extraction.source_path
 
         con.execute(
             """INSERT INTO videos
-               (video_id, source_path, resolution_width, resolution_height, fps,
+               (video_id, resolution_width, resolution_height, fps,
                 duration_s, video_url, match_date, season, match_type, player_red_name,
                 player_blue_name, extracted_at, num_games, red_score, blue_score, winner,
                 published_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 extraction.video_id,
-                source_path,
                 video_info.width if video_info else None,
                 video_info.height if video_info else None,
                 video_info.fps if video_info else None,
