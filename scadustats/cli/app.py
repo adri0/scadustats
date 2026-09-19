@@ -172,26 +172,6 @@ def _prompt_game_type(game: GameResult) -> GameType:
 
 
 @app.command()
-def download(
-    url: Annotated[str, typer.Argument(help="YouTube video URL")],
-    output_dir: Annotated[
-        Path,
-        typer.Option("-o", "--output-dir", help="Directory to save the video to"),
-    ] = Path("downloads"),
-    cookies: Annotated[
-        Path | None,
-        typer.Option(
-            help="Netscape-format cookies.txt (e.g. exported from a browser) to pass "
-            "to yt-dlp, for videos that need an authenticated/logged-in request"
-        ),
-    ] = None,
-) -> None:
-    """Download a YouTube video."""
-    result = download_video(url, output_dir=output_dir, cookies=cookies)
-    print(result.path)
-
-
-@app.command()
 def extract(
     video_path_or_url: Annotated[
         str,
