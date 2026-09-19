@@ -1192,6 +1192,35 @@ def test_square_consolidate_reports_when_directory_has_no_matches(tmp_path):
     assert "No matches found" in result.output
 
 
+def test_square_consolidate_with_no_match_id_grows_rather_than_wipes_the_existing_reference(
+    tmp_path,
+):
+    """issue #86: the no-match_id form used to wholly regenerate base_game.json/dlc.json
+    from the current match history every run, discarding anything already on disk -- a
+    hand-curated entry with no corresponding match (or one whose match file was since
+    removed) would be silently lost. It should instead grow/correct the existing
+    reference in place, the same as running `square consolidate <match_id>` once per
+    match would."""
+    data_dir = tmp_path / "data"
+    squares_dir = data_dir / "squares"
+    write_video(data_dir, _sample_extraction())
+    write_squares(
+        squares_dir,
+        {
+            GameType.BASE: [
+                Square(id="hand_curated", text="Hand-curated goal", game_type=GameType.BASE)
+            ],
+            GameType.DLC: [],
+        },
+    )
+
+    result = CliRunner().invoke(app, ["square", "consolidate", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 0, result.output
+    updated = read_squares(squares_dir)
+    assert "Hand-curated goal" in [s.text for s in updated[GameType.BASE]]
+
+
 def _known_for_grid(
     square_texts: list[list[str]], game_type: GameType = GameType.BASE
 ) -> dict[GameType, list[Square]]:
