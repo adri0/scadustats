@@ -1,5 +1,4 @@
 import datetime
-import logging
 
 import pytest
 
@@ -19,7 +18,6 @@ from scadustats.models import (
 from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
     consolidate_players,
-    consolidate_squares,
     validate_squares,
 )
 
@@ -76,92 +74,80 @@ def _extraction(
     )
 
 
-def test_consolidate_squares_splits_by_game_type():
-    extraction = _extraction(
-        _game(GameType.BASE, "Complete 3 Tunnels or Precipices"),
-        _game(GameType.DLC, "Acquire 2 Dragon Hearts", game_index=2),
+def _consolidate_all(*extractions: VideoExtraction) -> dict[GameType, list[Square]]:
+    """Rebuilds a reference from scratch the way cli.app.square_consolidate's no-match_id
+    form does for a fresh data_dir (issue #86): consolidate_match_squares run once per
+    extraction in the order given, against a shared reference that starts empty --
+    starting empty here models a squares_dir that doesn't exist yet (storage.json_export.
+    read_squares' own "ships empty" tolerance); the CLI itself seeds this dict from
+    whatever's already on disk instead, sharing the exact same per-match mechanic
+    exercised here."""
+    known: dict[GameType, list[Square]] = {GameType.BASE: [], GameType.DLC: []}
+    for extraction in extractions:
+        consolidate_match_squares(extraction, known)
+    return known
+
+
+def test_consolidate_squares_iterates_matches_against_a_shared_reference():
+    """A rebuild across several matches is exactly consolidate_match_squares called once
+    per match in turn against one shared reference dict -- the mechanic
+    cli.app.square_consolidate's no-match_id form relies on (issue #86), whether that
+    dict starts out empty (a fresh data_dir) or seeded from disk (an existing one)."""
+    first = _extraction(
+        _game(GameType.BASE, "Complete 3 Tunnels or Precipices"), match_id="2026-01-01-a-vs-b"
+    )
+    second = _extraction(
+        _game(GameType.DLC, "Acquire 2 Dragon Hearts", game_index=2), match_id="2026-02-01-c-vs-d"
     )
 
-    squares = consolidate_squares([extraction])
+    squares = _consolidate_all(first, second)
 
     assert [s.text for s in squares[GameType.BASE]] == ["Complete 3 Tunnels or Precipices"]
     assert [s.text for s in squares[GameType.DLC]] == ["Acquire 2 Dragon Hearts"]
 
 
-def test_consolidate_squares_slugifies_a_short_readable_id():
-    extraction = _extraction(_game(GameType.BASE, "Complete 3 Tunnels or Precipices"))
+def test_consolidate_squares_leaves_an_exact_repeat_across_matches_unchanged():
+    first = _extraction(_game(GameType.BASE, "Kill Wormface"), match_id="2026-01-01-a-vs-b")
+    second = _extraction(_game(GameType.BASE, "Kill Wormface"), match_id="2026-02-01-c-vs-d")
 
-    squares = consolidate_squares([extraction])
-
-    assert squares[GameType.BASE][0].id == "tunnels_3"
-
-
-def test_consolidate_squares_skips_games_with_no_resolved_game_type():
-    extraction = _extraction(_game(None, "Some unresolved goal"))
-
-    squares = consolidate_squares([extraction])
-
-    assert squares[GameType.BASE] == []
-    assert squares[GameType.DLC] == []
-
-
-def test_consolidate_squares_skips_blank_cells():
-    extraction = _extraction(_game(GameType.BASE, "Real goal"))
-
-    squares = consolidate_squares([extraction])
-
-    assert [s.text for s in squares[GameType.BASE]] == ["Real goal"]
-
-
-def test_consolidate_squares_deduplicates_the_same_text_across_matches():
-    extractions = [
-        _extraction(_game(GameType.BASE, "Kill Wormface"), match_id="2026-01-01-a-vs-b"),
-        _extraction(_game(GameType.BASE, "Kill Wormface"), match_id="2026-02-01-c-vs-d"),
-    ]
-
-    squares = consolidate_squares(extractions)
+    squares = _consolidate_all(first, second)
 
     assert [s.text for s in squares[GameType.BASE]] == ["Kill Wormface"]
 
 
-def test_consolidate_squares_disambiguates_colliding_slugs():
-    extraction = _extraction(
-        _game(GameType.BASE, "Acquire 14 Unique Incantations", "Acquire 14 Unique incantations")
+def test_consolidate_squares_fuzzy_corrects_a_later_matchs_own_misread():
+    """The whole point of the iterative rebuild (issue #86): a later match's OCR typo of
+    a square an earlier match already established gets corrected in that later match's
+    own square_texts, not just voted around -- something the old flat, majority-vote
+    rebuild could never do since it never touched a match's own JSON."""
+    first = _extraction(_game(GameType.BASE, "Kill Wormface"), match_id="2026-01-01-a-vs-b")
+    second = _extraction(_game(GameType.BASE, "Kilt Wormface"), match_id="2026-02-01-c-vs-d")
+
+    squares = _consolidate_all(first, second)
+
+    assert [s.text for s in squares[GameType.BASE]] == ["Kill Wormface"]
+    assert second.games[0].square_texts[0][0] == "Kill Wormface"
+
+
+def test_consolidate_squares_disambiguates_colliding_slugs_across_matches():
+    first = _extraction(
+        _game(GameType.BASE, "Acquire 14 Unique Incantations"), match_id="2026-01-01-a-vs-b"
+    )
+    second = _extraction(
+        _game(GameType.BASE, "Complete 14 Unique Incantations Instead"),
+        match_id="2026-02-01-c-vs-d",
     )
 
-    squares = consolidate_squares([extraction])
+    squares = _consolidate_all(first, second)
 
     ids = {s.id for s in squares[GameType.BASE]}
     assert ids == {"incantations_14", "incantations_14_2"}
 
 
-def test_consolidate_squares_sorts_output_by_text():
-    extraction = _extraction(_game(GameType.BASE, "Zebra goal", "Apple goal"))
-
-    squares = consolidate_squares([extraction])
-
-    assert [s.text for s in squares[GameType.BASE]] == ["Apple goal", "Zebra goal"]
-
-
-def test_consolidate_squares_warns_and_takes_the_majority_on_a_conflicting_game_type(caplog):
-    extractions = [
-        _extraction(_game(GameType.BASE, "Ambiguous goal"), match_id="2026-01-01-a-vs-b"),
-        _extraction(_game(GameType.BASE, "Ambiguous goal"), match_id="2026-02-01-c-vs-d"),
-        _extraction(_game(GameType.DLC, "Ambiguous goal"), match_id="2026-03-01-e-vs-f"),
-    ]
-
-    with caplog.at_level(logging.WARNING):
-        squares = consolidate_squares(extractions)
-
-    assert [s.text for s in squares[GameType.BASE]] == ["Ambiguous goal"]
-    assert squares[GameType.DLC] == []
-    assert any("more than one game type" in r.message for r in caplog.records)
-
-
 def test_validate_squares_passes_for_unique_ids_and_texts():
     extraction = _extraction(_game(GameType.BASE, "Goal one", "Goal two"))
 
-    validate_squares(consolidate_squares([extraction])[GameType.BASE])
+    validate_squares(_consolidate_all(extraction)[GameType.BASE])
 
 
 def test_validate_squares_raises_on_duplicate_id():
