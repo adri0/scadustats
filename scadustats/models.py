@@ -331,7 +331,7 @@ class PlayerProfile:
     id: int
     # Lowercase, underscores as separator -- e.g. "twistiet" -- derived from display_name
     # and what two OCR'd readings of the same player's name are considered equal under
-    # (see pipeline.consolidate._slugify_name). Also the file's own basename (see
+    # (see pipeline.consolidate.slugify_name). Also the file's own basename (see
     # storage.player_export.player_path).
     slug: str
     # The exact spelling seen most often across this player's matches -- see

@@ -337,7 +337,7 @@ def consolidate_match_squares(
 _NAME_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
-def _slugify_name(name: str) -> str:
+def slugify_name(name: str) -> str:
     """A player's display name, lowercased with any run of non-alphanumeric characters
     (spaces, punctuation) collapsed to a single underscore and stripped from either end
     -- e.g. "TwistieT" -> "twistiet", "Star0 Chris" -> "star0_chris". This is the identity
@@ -345,6 +345,10 @@ def _slugify_name(name: str) -> str:
     consolidate_players): a casing/spacing difference between two readings of the same
     overlay is common, but two different players sharing a slug isn't expected in
     practice.
+
+    Public (not `_`-prefixed) since `cli.app`'s match_id-scoped `player consolidate`
+    (issue #79) needs it too, to know which of consolidate_players' output profiles --
+    keyed by slug -- belong to one match's two players.
     """
     return _NAME_SLUG_RE.sub("_", name.strip().lower()).strip("_")
 
@@ -378,7 +382,7 @@ def consolidate_players(
     existing: dict[str, PlayerProfile] | None = None,
 ) -> dict[str, PlayerProfile]:
     """Every player's consolidated profile (see models.PlayerProfile) across
-    `extractions`, keyed by slug (see _slugify_name) -- the source data for `player
+    `extractions`, keyed by slug (see slugify_name) -- the source data for `player
     consolidate` (storage.player_export.write_player, issue #72).
 
     Two OCR'd name strings that slugify the same are treated as the same player, and
@@ -416,7 +420,7 @@ def consolidate_players(
         ):
             if not name:
                 continue
-            slug = _slugify_name(name)
+            slug = slugify_name(name)
             name_votes.setdefault(slug, Counter())[name] += 1
             all_matches.setdefault(slug, []).append((extraction.match_date, extraction.match_id))
 

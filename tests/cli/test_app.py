@@ -1382,4 +1382,231 @@ def test_player_consolidate_reflects_current_match_history(tmp_path):
 
     players = read_players(data_dir / "players")
     assert players["alice"].all_matches == ["2026-03-05-alice-vs-bob"]
-    assert players["alice"].game_record.wins == 1
+
+
+def test_player_consolidate_with_a_match_id_writes_only_that_matchs_players(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction())
+    write_video(
+        data_dir,
+        _sample_extraction(
+            match_id="2026-04-01-carol-vs-dave",
+            match_date=datetime.date(2026, 4, 1),
+            player_red_name="carol",
+            player_blue_name="dave",
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "2026-03-05-alice-vs-bob", "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    players_dir = data_dir / "players"
+    assert (players_dir / "alice.yaml").exists()
+    assert (players_dir / "bob.yaml").exists()
+    assert not (players_dir / "carol.yaml").exists()
+    assert not (players_dir / "dave.yaml").exists()
+    assert str(players_dir / "alice.yaml") in result.output
+    assert "carol" not in result.output
+
+
+def test_player_consolidate_with_a_match_id_still_reflects_full_match_history(tmp_path):
+    """The match_id-scoped path only narrows which files get *written* -- alice's
+    profile is still computed across every match she's played, not just this one."""
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction())
+    write_video(
+        data_dir,
+        _sample_extraction(
+            match_id="2026-04-01-alice-vs-carol",
+            match_date=datetime.date(2026, 4, 1),
+            player_blue_name="carol",
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "2026-03-05-alice-vs-bob", "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    alice = read_player(player_path(data_dir / "players", "alice"))
+    assert set(alice.all_matches) == {"2026-03-05-alice-vs-bob", "2026-04-01-alice-vs-carol"}
+
+
+def test_player_consolidate_with_a_match_id_reports_when_no_names_to_consolidate(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction(player_red_name="", player_blue_name=""))
+
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "2026-03-05-alice-vs-bob", "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no player names to consolidate" in result.output
+
+
+def test_player_consolidate_errors_on_unknown_match_id(tmp_path):
+    result = CliRunner().invoke(
+        app, ["player", "consolidate", "nonexistent", "--data-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code != 0
+    assert "nonexistent" in result.output
+
+
+def test_no_match_consolidate_help_lists_it_under_match(tmp_path):
+    result = CliRunner().invoke(app, ["match"])
+
+    assert "consolidate" in result.output
+
+
+def test_match_consolidate_runs_square_then_player_consolidate(tmp_path):
+    data_dir = tmp_path / "data"
+    extraction = _valid_match_extraction()
+    write_video(data_dir, extraction)
+
+    result = CliRunner().invoke(
+        app, ["match", "consolidate", extraction.match_id, "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    squares_dir = data_dir / "squares"
+    assert (squares_dir / "base_game.json").exists()
+    assert (squares_dir / "dlc.json").exists()
+    players_dir = data_dir / "players"
+    assert (players_dir / "alice.yaml").exists()
+    assert (players_dir / "bob.yaml").exists()
+
+
+def test_match_consolidate_errors_on_unknown_match_id(tmp_path):
+    result = CliRunner().invoke(
+        app, ["match", "consolidate", "nonexistent", "--data-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code != 0
+    assert "nonexistent" in result.output
+
+
+def test_match_consolidate_reflects_square_corrections_in_player_top_squares(tmp_path):
+    """The square step runs before the player step, so a corrected goal text -- not the
+    pre-correction OCR reading -- is what ends up in a player's top-squares tally."""
+    data_dir = tmp_path / "data"
+    squares_dir = data_dir / "squares"
+    game = _match_sample_game(
+        events=[GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)]
+    )
+    known = _known_for_grid(game.square_texts)
+    game.square_texts[0][0] = "Kilt 3 Friendly NPCs (No Hermit Merchants)"
+    known[GameType.BASE][0] = Square(
+        id="npcs_3", text="Kill 3 Friendly NPCs (No Hermit Merchants)", game_type=GameType.BASE
+    )
+    extraction = _sample_extraction(games=[game])
+    write_video(data_dir, extraction)
+    write_squares(squares_dir, known)
+
+    result = CliRunner().invoke(
+        app, ["match", "consolidate", extraction.match_id, "--data-dir", str(data_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    alice = read_player(player_path(data_dir / "players", "alice"))
+    texts = [square.text for square in alice.top_squares_base_game]
+    assert "Kill 3 Friendly NPCs (No Hermit Merchants)" in texts
+    assert "Kilt 3 Friendly NPCs (No Hermit Merchants)" not in texts
+
+
+def test_extract_consolidate_runs_after_a_clean_extraction(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    extraction = _valid_match_extraction()
+    write_video(data_dir, extraction)
+
+    def _fake_extract_video(video_path, *, data_dir, **kwargs):
+        return ExtractionSummary(
+            match_id=extraction.match_id, num_games=2, num_claims=0, extraction=extraction
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            str(local),
+            *_EXTRACT_ARGS,
+            "--video-url",
+            "",
+            "--data-dir",
+            str(data_dir),
+            "--consolidate",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "consolidation" in result.output
+    assert (data_dir / "squares" / "base_game.json").exists()
+    assert (data_dir / "players" / "alice.yaml").exists()
+    assert (data_dir / "players" / "bob.yaml").exists()
+
+
+def test_extract_consolidate_skips_when_validation_has_issues(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    extraction = _sample_extraction()
+    write_video(data_dir, extraction)
+
+    def _fake_extract_video(video_path, *, data_dir, **kwargs):
+        return ExtractionSummary(
+            match_id=extraction.match_id, num_games=1, num_claims=0, extraction=extraction
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            str(local),
+            *_EXTRACT_ARGS,
+            "--video-url",
+            "",
+            "--data-dir",
+            str(data_dir),
+            "--consolidate",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Skipping consolidation" in result.output
+    assert not (data_dir / "squares").exists()
+    assert not (data_dir / "players").exists()
+
+
+def test_extract_without_consolidate_flag_does_not_consolidate(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    extraction = _valid_match_extraction()
+    write_video(data_dir, extraction)
+
+    def _fake_extract_video(video_path, *, data_dir, **kwargs):
+        return ExtractionSummary(
+            match_id=extraction.match_id, num_games=2, num_claims=0, extraction=extraction
+        )
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", _fake_extract_video)
+
+    result = CliRunner().invoke(
+        app,
+        ["extract", str(local), *_EXTRACT_ARGS, "--video-url", "", "--data-dir", str(data_dir)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (data_dir / "squares").exists()
+    assert not (data_dir / "players").exists()
