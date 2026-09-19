@@ -11,7 +11,7 @@ _SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS events_seq START 1;
 
 CREATE TABLE IF NOT EXISTS videos (
-    video_id VARCHAR PRIMARY KEY,
+    match_id VARCHAR PRIMARY KEY,
     -- Nullable: load_json_dir writes a video row from previously-extracted JSON alone,
     -- with no source video file (or its resolution/fps) in hand.
     source_path VARCHAR,
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS videos (
 );
 
 CREATE TABLE IF NOT EXISTS commentators (
-    video_id VARCHAR NOT NULL REFERENCES videos(video_id),
+    match_id VARCHAR NOT NULL REFERENCES videos(match_id),
     -- Order within VideoExtraction.commentators (left nameplate first), not a seat id:
     -- a commentator whose plate didn't read is dropped from the list rather than left as
     -- a gap, so position 1 isn't necessarily the right-hand webcam. Its only job is to
@@ -59,12 +59,12 @@ CREATE TABLE IF NOT EXISTS commentators (
     -- isn't a property of the match (see models.VideoExtraction).
     position INTEGER NOT NULL,
     name VARCHAR NOT NULL,
-    PRIMARY KEY (video_id, position)
+    PRIMARY KEY (match_id, position)
 );
 
 CREATE TABLE IF NOT EXISTS games (
     game_id VARCHAR PRIMARY KEY,
-    video_id VARCHAR NOT NULL REFERENCES videos(video_id),
+    match_id VARCHAR NOT NULL REFERENCES videos(match_id),
     game_index INTEGER NOT NULL,
     start_video_ts_s DOUBLE NOT NULL,
     end_video_ts_s DOUBLE,
@@ -140,18 +140,18 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(_SCHEMA)
 
 
-def _delete_video(con: duckdb.DuckDBPyConnection, video_id: str) -> None:
+def _delete_video(con: duckdb.DuckDBPyConnection, match_id: str) -> None:
     con.execute(
-        "DELETE FROM events WHERE game_id IN (SELECT game_id FROM games WHERE video_id = ?)",
-        [video_id],
+        "DELETE FROM events WHERE game_id IN (SELECT game_id FROM games WHERE match_id = ?)",
+        [match_id],
     )
     con.execute(
-        "DELETE FROM squares WHERE game_id IN (SELECT game_id FROM games WHERE video_id = ?)",
-        [video_id],
+        "DELETE FROM squares WHERE game_id IN (SELECT game_id FROM games WHERE match_id = ?)",
+        [match_id],
     )
-    con.execute("DELETE FROM games WHERE video_id = ?", [video_id])
-    con.execute("DELETE FROM commentators WHERE video_id = ?", [video_id])
-    con.execute("DELETE FROM videos WHERE video_id = ?", [video_id])
+    con.execute("DELETE FROM games WHERE match_id = ?", [match_id])
+    con.execute("DELETE FROM commentators WHERE match_id = ?", [match_id])
+    con.execute("DELETE FROM videos WHERE match_id = ?", [match_id])
 
 
 def write_extraction(
@@ -169,13 +169,13 @@ def write_extraction(
         init_schema(con)
 
         exists = con.execute(
-            "SELECT 1 FROM videos WHERE video_id = ?", [extraction.video_id]
+            "SELECT 1 FROM videos WHERE match_id = ?", [extraction.match_id]
         ).fetchone()
         if exists:
             if if_exists == "error":
-                raise ValueError(f"video {extraction.video_id!r} already extracted into {db_path}")
+                raise ValueError(f"video {extraction.match_id!r} already extracted into {db_path}")
             if if_exists == "replace":
-                _delete_video(con, extraction.video_id)
+                _delete_video(con, extraction.match_id)
 
         # The extraction's own duration/source_path win over the caller-supplied ones when
         # both are in hand: they're what the JSON -- this project's source of truth --
@@ -190,13 +190,13 @@ def write_extraction(
 
         con.execute(
             """INSERT INTO videos
-               (video_id, source_path, resolution_width, resolution_height, fps,
+               (match_id, source_path, resolution_width, resolution_height, fps,
                 duration_s, video_url, match_date, season, match_type, player_red_name,
                 player_blue_name, extracted_at, num_games, red_score, blue_score, winner,
                 published_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                extraction.video_id,
+                extraction.match_id,
                 source_path,
                 video_info.width if video_info else None,
                 video_info.height if video_info else None,
@@ -222,20 +222,20 @@ def write_extraction(
         # column would make "which matches did X cast?" a string search.
         for position, name in enumerate(extraction.commentators):
             con.execute(
-                "INSERT INTO commentators (video_id, position, name) VALUES (?, ?, ?)",
-                [extraction.video_id, position, name],
+                "INSERT INTO commentators (match_id, position, name) VALUES (?, ?, ?)",
+                [extraction.match_id, position, name],
             )
 
         for game in extraction.games:
-            game_id = f"{extraction.video_id}-{game.game_index}"
+            game_id = f"{extraction.match_id}-{game.game_index}"
             con.execute(
                 """INSERT INTO games
-                   (game_id, video_id, game_index, start_video_ts_s, end_video_ts_s,
+                   (game_id, match_id, game_index, start_video_ts_s, end_video_ts_s,
                     game_type, winner_color, win_type, win_line)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     game_id,
-                    extraction.video_id,
+                    extraction.match_id,
                     game.game_index,
                     game.start_video_ts_s,
                     game.end_video_ts_s,
@@ -283,7 +283,7 @@ def load_json_dir(
     per season subdirectory -- see json_export.video_path) under `<data_dir>/matches`
     into the DuckDB at db_path -- the separate, optional process that turns extracted
     JSON into database rows. extract_video itself never touches the database; this is
-    the only path that does. Returns the video_ids written, in filename order -- sorted
+    the only path that does. Returns the match_ids written, in filename order -- sorted
     by filename alone, not the full path, since a season subdirectory's name (free text,
     not necessarily a sortable number) doesn't sort chronologically against another
     season's.
@@ -294,11 +294,11 @@ def load_json_dir(
     extraction.
     """
     matches_dir = Path(data_dir) / "matches"
-    video_ids = []
+    match_ids = []
 
     for path in sorted(matches_dir.rglob("*.json"), key=lambda p: p.name):
         extraction = json_export.read_video(path)
         write_extraction(db_path, extraction, if_exists=if_exists)
-        video_ids.append(extraction.video_id)
+        match_ids.append(extraction.match_id)
 
-    return video_ids
+    return match_ids

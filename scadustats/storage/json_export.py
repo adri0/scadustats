@@ -85,7 +85,7 @@ def _game_to_dict(game: GameResult) -> dict:
 def _metadata_to_dict(extraction: VideoExtraction) -> dict:
     """The fields that describe the *video file* itself, as opposed to the match it
     records -- grouped under their own "metadata" key so a reviewer skimming the file's
-    match-identifying fields (video_id, players, season, ...) isn't interleaved with this
+    match-identifying fields (match_id, players, season, ...) isn't interleaved with this
     provenance/technical detail. See CLAUDE.md and issue #47.
     """
     return {
@@ -99,7 +99,7 @@ def _metadata_to_dict(extraction: VideoExtraction) -> dict:
 
 def _extraction_to_dict(extraction: VideoExtraction) -> dict:
     return {
-        "video_id": extraction.video_id,
+        "match_id": extraction.match_id,
         "match_date": extraction.match_date.isoformat(),
         "season": extraction.season,
         "match_type": extraction.match_type.value,
@@ -123,10 +123,10 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
     }
 
 
-def video_path(data_dir: str | Path, season: str, video_id: str) -> Path:
+def video_path(data_dir: str | Path, season: str, match_id: str) -> Path:
     """The path write_video writes (or would write) a video's extraction to --
-    `<data_dir>/matches/season-<season>/<video_id>.json`. Shared with extract.py's
-    duplicate check, so both agree on where a given (season, video_id) lives without
+    `<data_dir>/matches/season-<season>/<match_id>.json`. Shared with extract.py's
+    duplicate check, so both agree on where a given (season, match_id) lives without
     either hand-rolling the layout: files are grouped one directory per season, rather
     than flat across every season a tournament has run, since the matches folder
     otherwise only grows across seasons and a season is a natural, already-recorded
@@ -140,7 +140,7 @@ def video_path(data_dir: str | Path, season: str, video_id: str) -> Path:
     pipeline.consolidate/pipeline.squares) -- rather than a single flat directory that
     only ever held match JSON.
     """
-    return Path(data_dir) / "matches" / f"season-{season}" / f"{video_id}.json"
+    return Path(data_dir) / "matches" / f"season-{season}" / f"{match_id}.json"
 
 
 def write_video(
@@ -149,14 +149,14 @@ def write_video(
     if_exists: str = "replace",
 ) -> Path:
     """Write one video's full extraction (every game it contains) to
-    `<data_dir>/matches/season-<season>/<video_id>.json` (see video_path), creating any
+    `<data_dir>/matches/season-<season>/<match_id>.json` (see video_path), creating any
     missing directories. Returns the path written.
 
     if_exists="error" raises FileExistsError if the target file already exists.
     Any other value (including "append") overwrites unconditionally -- there's nothing
     meaningful to append into a single already-complete video's extraction file.
     """
-    path = video_path(data_dir, extraction.season, extraction.video_id)
+    path = video_path(data_dir, extraction.season, extraction.match_id)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if if_exists == "error" and path.exists():
@@ -216,7 +216,7 @@ def read_video(path: str | Path) -> VideoExtraction:
     metadata = data.get("metadata", data)
 
     return VideoExtraction(
-        video_id=data["video_id"],
+        match_id=data["match_id"],
         # .get, unlike every other field read directly off `data` here: a pre-#47 file
         # always had this key, but it's genuinely optional (see VideoExtraction.video_url)
         # so there's no reason to demand it be present.
