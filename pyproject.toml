@@ -5,12 +5,23 @@ build-backend = "hatchling.build"
 [project]
 name = "scadustats"
 dynamic = ["version"]
-description = ""
+description = "Extract match data and statistics from Elden Ring Bingo Brawlers match videos"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
 authors = [
-    { name = "Adriano Oliveira @adri0", email = "" },
+    { name = "Adriano Oliveira" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Games/Entertainment",
 ]
 dependencies = [
     "yt-dlp>=2026.8",
@@ -22,6 +33,10 @@ dependencies = [
     "typer>=0.27.2",
     "pyyaml>=6.0.3",
 ]
+
+[project.urls]
+Repository = "https://github.com/adri0/scadustats"
+Issues = "https://github.com/adri0/scadustats/issues"
 
 [project.optional-dependencies]
 ejs = [
