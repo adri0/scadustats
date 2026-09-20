@@ -4,6 +4,7 @@ import enum
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
@@ -38,6 +39,30 @@ from scadustats.video.download import download_video
 # commands actually are. Set on every Typer group here (see match_app below), so a bare
 # sub-command group behaves the same way its parent does.
 app = typer.Typer(no_args_is_help=True)
+
+
+def _version_callback(value: bool) -> None:
+    # The version itself is never hand-written here: hatch-vcs derives it from the
+    # nearest git tag at build time (see [tool.hatch.version] in pyproject.toml), so this
+    # just reports whatever ended up in the installed package's metadata.
+    if value:
+        typer.echo(_pkg_version("scadustats"))
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the installed scadustats version and exit.",
+        ),
+    ] = False,
+) -> None:
+    pass
 
 
 class IfExists(enum.StrEnum):

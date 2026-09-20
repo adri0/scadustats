@@ -10,6 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history, not just the latest commit: hatch-vcs (see
+          # [tool.hatch.version] in pyproject.toml) derives the package version from the
+          # nearest git tag, which a shallow clone can't see.
+          fetch-depth: 0
 
       - name: Install ffmpeg, tesseract and tesserocr requirements
         run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr libtesseract-dev libleptonica-dev pkg-config

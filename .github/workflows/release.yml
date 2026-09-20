@@ -1,0 +1,45 @@
+name: Release
+
+# Semantic-versioning release: pushing a `vMAJOR.MINOR.PATCH` tag builds the package (its
+# version is derived from that tag by hatch-vcs, see [tool.hatch.version] in
+# pyproject.toml) and publishes it as a GitHub release with the wheel/sdist attached.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history, not just the tag's commit: hatch-vcs needs to see the tag
+          # itself (and prior tags) to derive a version at all.
+          fetch-depth: 0
+
+      - name: Install ffmpeg, tesseract and tesserocr requirements
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr libtesseract-dev libleptonica-dev pkg-config
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
