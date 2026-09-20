@@ -24,13 +24,20 @@ from scadustats.pipeline.consolidate import (
     SquareTextChange,
     consolidate_match_squares,
     consolidate_players,
+    find_square_issues,
     slugify_name,
     validate_squares,
 )
 from scadustats.pipeline.extract import estimate_sample_count, extract_video
 from scadustats.rules.validation import validate_extraction
 from scadustats.storage.db import load_json_dir
-from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
+from scadustats.storage.json_export import (
+    read_squares,
+    read_video,
+    squares_path,
+    write_squares,
+    write_video,
+)
 from scadustats.storage.player_export import read_players, write_player
 from scadustats.video.download import download_video
 
@@ -800,6 +807,46 @@ def square_consolidate(
     known_squares = read_squares(squares_dir)
     for extraction in extractions:
         _consolidate_one_match(data_dir, squares_dir, extraction, known_squares)
+
+
+@square_app.command("validate")
+def square_validate(
+    data_dir: Annotated[
+        Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
+) -> None:
+    """Check the consolidated goal-square reference (issue #87): a duplicated id or text
+    within a game type, and any square listed out of the text's own alphabetical order.
+
+    Checks <data_dir>/squares/base_game.json and dlc.json independently, reported one at
+    a time the same way `match validate` reports one match at a time. Exits non-zero if
+    either file has issues, so this can gate a `square consolidate` run the same way
+    `match validate` gates a batch of extractions.
+    """
+    squares_dir = Path(data_dir) / "squares"
+    known_squares = read_squares(squares_dir)
+
+    with_issues = 0
+    for game_type in GameType:
+        path = squares_path(squares_dir, game_type)
+        issues = find_square_issues(known_squares.get(game_type, []))
+        if not issues:
+            mark = typer.style("✓", fg=typer.colors.GREEN)
+            status = typer.style("ok", fg=typer.colors.GREEN, bold=True)
+            typer.echo(f"{mark} {path}: {status}")
+            continue
+
+        with_issues += 1
+        mark = typer.style("✗", fg=typer.colors.RED)
+        count = f"{len(issues)} issue{'s' if len(issues) != 1 else ''}"
+        status = typer.style(count, fg=typer.colors.RED, bold=True)
+        typer.echo(f"{mark} {path}: {status}")
+        for issue in issues:
+            code = typer.style(f"[{issue.code}]", dim=True)
+            typer.echo(f"    {issue.message} {code}")
+
+    if with_issues:
+        raise typer.Exit(1)
 
 
 player_app = typer.Typer(
