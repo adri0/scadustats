@@ -4,10 +4,11 @@ Extract match data from [Bingo Brawlers](https://bingobrawlers.com/) match VODs.
 
 - Board layout & square texts
 - Square mark/unmark events
+- Start/end events for all games in a match video
 - Game type (base game / DLC)
 - Game result (winner of each game)
 - Game duration
-- Win type (line [row, column, diagonal], majority)
+- Win type (by line [row, column, diagonal], by majority)
 - Players (names and colours)
 - Commentators
 - Timer
@@ -23,8 +24,8 @@ From that data, derive consolidated views of each player and existing squares an
 ## Usage
 
 ```
+scadustats extract <video_path_or_url>
 scadustats extract <video_path_or_url> [--data-dir data] [--if-exists replace|append|error] [--consolidate]
-scadustats load-db [data_dir] [--db scadustats.duckdb] [--if-exists replace|append|error]
 scadustats match list [--data-dir data]
 scadustats match show <match_id> [--events] [--data-dir data]
 scadustats match validate [match_id] [--data-dir data]
