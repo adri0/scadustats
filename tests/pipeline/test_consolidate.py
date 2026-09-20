@@ -248,6 +248,50 @@ def test_consolidate_match_squares_corrects_a_stray_trailing_digit():
     assert changes[0].resolved_text == 'Kill 4 Bosses with "God" in their name'
 
 
+def test_consolidate_match_squares_corrects_a_misread_s_as_the_digit_five():
+    """Tesseract's rendering of this crop routinely confuses the digit "5" for the
+    letter "S" -- "Kill S Unique Horned Warriors" should still resolve against the
+    correctly-read "Kill 5 Unique Horned Warriors" already in the reference, not be
+    treated as a differently-counted (and therefore genuinely distinct) square."""
+    extraction = _extraction(_game(GameType.BASE, "Kill S Unique Horned Warriors"))
+    known = _known("Kill 5 Unique Horned Warriors")
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == "Kill 5 Unique Horned Warriors"
+    assert extraction.games[0].square_texts[0][0] == "Kill 5 Unique Horned Warriors"
+
+
+def test_consolidate_match_squares_matches_a_correct_five_against_an_earlier_s_misread():
+    """The reverse of the above: an earlier match's own "S" misread already made it into
+    the reference first, so a later match's correctly-read "5" should still match it
+    rather than being added as a spurious duplicate square."""
+    extraction = _extraction(_game(GameType.BASE, "Kill 5 Unique Horned Warriors"))
+    known = _known("Kill S Unique Horned Warriors")
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == "Kill S Unique Horned Warriors"
+    assert known[GameType.BASE] == [
+        Square(id="id_0", text="Kill S Unique Horned Warriors", game_type=GameType.BASE)
+    ]
+
+
+def test_consolidate_match_squares_still_distinguishes_a_different_count_misread_as_s():
+    """The "S"/"5" normalization must not widen the digit gate into matching *any* count
+    -- a misread "Kill S Friendly NPCs" (really "Kill 5 ...") should still be kept apart
+    from a genuinely different "Kill 3 Friendly NPCs" square."""
+    extraction = _extraction(_game(GameType.BASE, "Kill S Friendly NPCs (No Hermit Merchants)"))
+    known = _known("Kill 3 Friendly NPCs (No Hermit Merchants)")
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert changes[0].is_new
+    assert changes[0].resolved_text == "Kill S Friendly NPCs (No Hermit Merchants)"
+
+
 def test_consolidate_match_squares_corrects_a_missing_space():
     extraction = _extraction(_game(GameType.BASE, "Killa Death Knight"))
     known = _known("Kill a Death Knight")

@@ -167,7 +167,33 @@ _FUZZY_MATCH_CUTOFF = 0.85
 # Gargoyles / BBK", issue reported 2026-09-19). \b requires a non-word/word boundary, and
 # "B" and "8" are both word characters, so the digit run embedded inside "B8K" never
 # matches here in the first place -- only a digit run standing on its own does.
-_NUMBER_RE = re.compile(r"\b\d+\b")
+#
+# A standalone "S"/"s" is included alongside a digit run for the same reason: at the
+# glyph height square text is OCR'd at (see ocr.py), Tesseract routinely renders the
+# digit "5" as the letter "S" -- a real "Kill 5 ..." square has come back read as "Kill
+# S ..." in practice (issue #98). Left as a bare digit check, that misread would either
+# wrongly refuse to match a correct "Kill 5 ..." reading of the same square in a later
+# match (no digit found in "Kill S ...", so goal_count comes back None where the other
+# reading's is "5" -- an unfixable disagreement that adds a permanent duplicate), or
+# worse, wrongly fuzzy-match a misread "Kill S ..." against a genuinely different "Kill 3
+# ..." square, since neither looked like it carried a count at all (see
+# test_consolidate_match_squares_adds_rather_than_changes_a_different_goal_count for the
+# case this guards). Normalizing a standalone "S"/"s" to "5" (_goal_count, below) treats
+# both readings of the same square as agreeing, while still keeping them apart from any
+# other, genuinely different count.
+_NUMBER_RE = re.compile(r"\b(?:\d+|[Ss])\b")
+
+
+def _goal_count(text: str) -> str | None:
+    """`text`'s own leading goal count -- see _best_match -- or None if it doesn't have
+    one. A standalone "S"/"s" token is normalized to "5" (see _NUMBER_RE above); any other
+    match is the digit run verbatim.
+    """
+    matches = _NUMBER_RE.findall(text)
+    if not matches:
+        return None
+    token = matches[0]
+    return "5" if token in ("S", "s") else token
 
 
 @dataclass
@@ -200,8 +226,9 @@ def _best_match(text: str, candidates: list[str]) -> tuple[str, float] | None:
     _FUZZY_MATCH_CUTOFF -- meaning `text` should be treated as its own, new square rather
     than a misread of one of these candidates.
 
-    A candidate whose goal count -- the first standalone digit run, since Bingo Brawlers'
-    own goal texts always put it right after the verb ("Kill 4 ...", "Acquire 3 ...") --
+    A candidate whose goal count -- the first standalone digit run (a standalone "S"/"s"
+    counts too, normalized to "5"; see _goal_count), since Bingo Brawlers' own goal texts
+    always put it right after the verb ("Kill 4 ...", "Acquire 3 ...") --
     disagrees with text's own is never considered, however similar the surrounding wording
     is: "Kill 3 Friendly NPCs" and "Kill 5 Friendly NPCs" can both be real, distinct
     squares, and a wrong digit is exactly the kind of high-similarity-looking mismatch text
@@ -214,10 +241,9 @@ def _best_match(text: str, candidates: list[str]) -> tuple[str, float] | None:
     full stop -- unlike a stray letter, silently changing a goal's count is the one class
     of "fix" worth refusing outright.
     """
-    numbers = _NUMBER_RE.findall(text)
-    goal_count = numbers[0] if numbers else None
+    goal_count = _goal_count(text)
     pool = (
-        [c for c in candidates if (_NUMBER_RE.findall(c) or [None])[0] == goal_count]
+        [c for c in candidates if _goal_count(c) == goal_count]
         if goal_count is not None
         else candidates
     )
