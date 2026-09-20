@@ -150,6 +150,59 @@ def validate_squares(squares: list[Square]) -> None:
         raise ValueError(f"duplicate square text(s): {', '.join(duplicate_texts)}")
 
 
+@dataclass
+class SquareValidationIssue:
+    """One thing wrong with a consolidated squares reference, as found by
+    find_square_issues -- the `square validate` CLI command's report (issue #87). `code`
+    is a stable, greppable rule id; `message` is the human-facing explanation.
+    """
+
+    code: str
+    message: str
+
+
+def find_square_issues(squares: list[Square]) -> list[SquareValidationIssue]:
+    """Every problem found in one game type's consolidated square list (issue #87): a
+    duplicated `id` or `text`, and any square listed out of the text's own alphabetical
+    order.
+
+    This is the same duplicate check validate_squares already enforces as a hard
+    regression backstop *during* consolidation (see its own docstring) -- but reported
+    here as data rather than raised, since `square validate` is a read-only diagnostic
+    over whatever's already on disk (the same "point at what looks wrong, never guess a
+    correction" stance rules.validation.validate_extraction takes for matches), not a
+    step in building the reference where a raise is the right way to stop.
+
+    The order check is new: `storage.json_export.write_squares` sorts each file by `id`
+    for a stable, diffable file, reasoning that an id -- derived from its own square's
+    text -- already reads "close to alphabetical-by-text" without deliberately sorting by
+    text itself. That's usually true but not guaranteed (an id's slug word is whichever
+    one `_slugify` picked as goal-identifying, which isn't always the text's first word),
+    so this flags wherever it actually isn't, one issue per adjacent pair found out of
+    order.
+    """
+    issues: list[SquareValidationIssue] = []
+
+    id_counts = Counter(square.id for square in squares)
+    for id in sorted(id for id, count in id_counts.items() if count > 1):
+        issues.append(SquareValidationIssue("duplicate_id", f"duplicate square id: {id}"))
+
+    text_counts = Counter(square.text for square in squares)
+    for text in sorted(text for text, count in text_counts.items() if count > 1):
+        issues.append(SquareValidationIssue("duplicate_text", f"duplicate square text: {text!r}"))
+
+    texts = [square.text for square in squares]
+    for previous, current in zip(texts, texts[1:], strict=False):
+        if current < previous:
+            issues.append(
+                SquareValidationIssue(
+                    "square_order", f"{current!r} is out of alphabetical order (after {previous!r})"
+                )
+            )
+
+    return issues
+
+
 # Below this, a candidate is treated as a genuinely different square rather than an OCR
 # misread of one already in the reference -- see consolidate_match_squares. Calibrated
 # against real OCR failures logged in issue #76 (a dropped/swapped letter, a stray

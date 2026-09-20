@@ -18,6 +18,7 @@ from scadustats.models import (
 from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
     consolidate_players,
+    find_square_issues,
     validate_squares,
 )
 
@@ -168,6 +169,68 @@ def test_validate_squares_raises_on_duplicate_text():
 
     with pytest.raises(ValueError, match="duplicate square text"):
         validate_squares(squares)
+
+
+def test_find_square_issues_reports_nothing_for_a_clean_alphabetical_list():
+    squares = [
+        Square(id="id_0", text="Alpha goal", game_type=GameType.BASE),
+        Square(id="id_1", text="Beta goal", game_type=GameType.BASE),
+        Square(id="id_2", text="Charlie goal", game_type=GameType.BASE),
+    ]
+
+    assert find_square_issues(squares) == []
+
+
+def test_find_square_issues_reports_a_duplicate_id():
+    squares = [
+        Square(id="dup", text="Goal one", game_type=GameType.BASE),
+        Square(id="dup", text="Goal two", game_type=GameType.BASE),
+    ]
+
+    issues = find_square_issues(squares)
+
+    assert len(issues) == 1
+    assert issues[0].code == "duplicate_id"
+    assert "dup" in issues[0].message
+
+
+def test_find_square_issues_reports_a_duplicate_text():
+    squares = [
+        Square(id="id_1", text="Same goal", game_type=GameType.BASE),
+        Square(id="id_2", text="Same goal", game_type=GameType.BASE),
+    ]
+
+    issues = find_square_issues(squares)
+
+    assert len(issues) == 1
+    assert issues[0].code == "duplicate_text"
+    assert "Same goal" in issues[0].message
+
+
+def test_find_square_issues_reports_a_square_out_of_alphabetical_order():
+    squares = [
+        Square(id="id_0", text="Beta goal", game_type=GameType.BASE),
+        Square(id="id_1", text="Alpha goal", game_type=GameType.BASE),
+    ]
+
+    issues = find_square_issues(squares)
+
+    assert len(issues) == 1
+    assert issues[0].code == "square_order"
+    assert "Alpha goal" in issues[0].message
+    assert "Beta goal" in issues[0].message
+
+
+def test_find_square_issues_reports_every_kind_of_issue_together():
+    squares = [
+        Square(id="id_0", text="Zulu goal", game_type=GameType.BASE),
+        Square(id="dup", text="Alpha goal", game_type=GameType.BASE),
+        Square(id="dup", text="Alpha goal", game_type=GameType.BASE),
+    ]
+
+    codes = {issue.code for issue in find_square_issues(squares)}
+
+    assert codes == {"duplicate_id", "duplicate_text", "square_order"}
 
 
 def _known(*texts: str, game_type: GameType = GameType.BASE) -> dict[GameType, list[Square]]:
