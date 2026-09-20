@@ -196,6 +196,30 @@ def _goal_count(text: str) -> str | None:
     return "5" if token in ("S", "s") else token
 
 
+def _normalize_goal_count_text(text: str) -> str:
+    """`text` with its own leading goal-count token corrected to the digit "5" it
+    represents, if that token is a standalone "S"/"s" misread rather than an actual digit
+    -- e.g. "Kill S Unique Horned Warriors" -> "Kill 5 Unique Horned Warriors". `text`
+    otherwise unchanged.
+
+    Applied only when consolidate_match_squares is about to add `text` to the reference
+    as a genuinely new square (no existing candidate to fuzzy-match/correct against) --
+    an *existing* reference entry's own text is left exactly as first recorded even if it
+    carries this same "S" misread (see
+    test_consolidate_match_squares_matches_a_correct_five_against_an_earlier_s_misread),
+    the same "whichever spelling is encountered first becomes canonical" rule
+    consolidate_match_squares already applies to every other kind of typo. This is only
+    about not letting a *new* square's very first entry in the reference perpetuate an
+    ambiguous "S" forward into every future match's fuzzy-matching pool, when it's already
+    known (see _goal_count) to mean the digit "5".
+    """
+    match = _NUMBER_RE.search(text)
+    if match is None or match.group() not in ("S", "s"):
+        return text
+    start, end = match.span()
+    return text[:start] + "5" + text[end:]
+
+
 @dataclass
 class SquareTextChange:
     """One cell of a match's square_texts that consolidate_match_squares looked at
@@ -204,7 +228,9 @@ class SquareTextChange:
     A FIX (is_new=False) corrects an OCR misread against an existing reference entry --
     resolved_text is that entry's text, and ratio records how close the match was. An ADD
     (is_new=True, ratio=None) is a square the reference had never seen before, appended to
-    it rather than silently dropped -- resolved_text is just original_text unchanged.
+    it rather than silently dropped -- resolved_text is original_text unchanged, except
+    for a standalone "S"/"s" goal-count token normalized to the digit "5" it represents
+    (see _normalize_goal_count_text) before the square is added to the reference.
 
     game_type is carried alongside game_index/row/col rather than left for a caller to
     re-derive from the match -- a CLI reporting which squares.json file an ADD landed in
@@ -320,18 +346,21 @@ def consolidate_match_squares(
                     )
                     continue
 
-                square_id = _unique_id(_slugify(text), used)
+                resolved_text = _normalize_goal_count_text(text)
+                if resolved_text != text:
+                    game.square_texts[row_index][col_index] = resolved_text
+                square_id = _unique_id(_slugify(resolved_text), used)
                 used.add(square_id)
-                pool.append(Square(id=square_id, text=text, game_type=game.game_type))
-                candidates.append(text)
-                candidate_set.add(text)
+                pool.append(Square(id=square_id, text=resolved_text, game_type=game.game_type))
+                candidates.append(resolved_text)
+                candidate_set.add(resolved_text)
                 changes.append(
                     SquareTextChange(
                         game_index=game.game_index,
                         row=row_index + 1,
                         col=col_index + 1,
                         original_text=text,
-                        resolved_text=text,
+                        resolved_text=resolved_text,
                         is_new=True,
                         ratio=None,
                         game_type=game.game_type,

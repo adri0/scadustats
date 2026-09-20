@@ -282,14 +282,38 @@ def test_consolidate_match_squares_matches_a_correct_five_against_an_earlier_s_m
 def test_consolidate_match_squares_still_distinguishes_a_different_count_misread_as_s():
     """The "S"/"5" normalization must not widen the digit gate into matching *any* count
     -- a misread "Kill S Friendly NPCs" (really "Kill 5 ...") should still be kept apart
-    from a genuinely different "Kill 3 Friendly NPCs" square."""
+    from a genuinely different "Kill 3 Friendly NPCs" square, and (being added as its own
+    new square rather than matched against anything) should have its "S" normalized to
+    "5" in the reference rather than carrying the ambiguous letter forward."""
     extraction = _extraction(_game(GameType.BASE, "Kill S Friendly NPCs (No Hermit Merchants)"))
     known = _known("Kill 3 Friendly NPCs (No Hermit Merchants)")
 
     changes = consolidate_match_squares(extraction, known)
 
     assert changes[0].is_new
-    assert changes[0].resolved_text == "Kill S Friendly NPCs (No Hermit Merchants)"
+    assert changes[0].resolved_text == "Kill 5 Friendly NPCs (No Hermit Merchants)"
+    assert extraction.games[0].square_texts[0][0] == "Kill 5 Friendly NPCs (No Hermit Merchants)"
+
+
+def test_consolidate_match_squares_adds_a_misread_s_as_its_own_new_five_count_square():
+    """A different, real square already in the reference at a count of 4 ("Kill 4 Unique
+    Horned Warriors") must not swallow an unrelated count-of-5 square whose "5" Tesseract
+    misread as "S" ("Kill S Unique Horned Warriors", i.e. "Kill 5 Unique Horned
+    Warriors") -- the two are genuinely different squares, so this should be added as its
+    own new entry, with its "S" normalized to the digit "5" it represents rather than
+    carrying the ambiguous letter forward into the reference."""
+    extraction = _extraction(_game(GameType.BASE, "Kill S Unique Horned Warriors"))
+    known = _known("Kill 4 Unique Horned Warriors")
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert changes[0].is_new
+    assert changes[0].resolved_text == "Kill 5 Unique Horned Warriors"
+    assert extraction.games[0].square_texts[0][0] == "Kill 5 Unique Horned Warriors"
+    assert [s.text for s in known[GameType.BASE]] == [
+        "Kill 4 Unique Horned Warriors",
+        "Kill 5 Unique Horned Warriors",
+    ]
 
 
 def test_consolidate_match_squares_corrects_a_missing_space():
