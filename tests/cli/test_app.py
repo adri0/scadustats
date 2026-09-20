@@ -1152,6 +1152,7 @@ def test_no_square_subcommand_prints_the_group_command_list():
 
     assert "Commands" in result.output
     assert "consolidate" in result.output
+    assert "validate" in result.output
     assert "Missing command" not in result.output
 
 
@@ -1349,6 +1350,52 @@ def test_square_consolidate_errors_on_unknown_match_id(tmp_path):
 
     assert result.exit_code != 0
     assert "nonexistent" in result.output
+
+
+def test_square_validate_reports_a_clean_reference_as_ok(tmp_path):
+    data_dir = tmp_path / "data"
+    write_squares(
+        data_dir / "squares",
+        {
+            GameType.BASE: [Square(id="alpha", text="Alpha goal", game_type=GameType.BASE)],
+            GameType.DLC: [Square(id="beta", text="Beta goal", game_type=GameType.DLC)],
+        },
+    )
+
+    result = CliRunner().invoke(app, ["square", "validate", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "base_game.json: ok" in result.output
+    assert "dlc.json: ok" in result.output
+
+
+def test_square_validate_lists_issues_and_exits_nonzero(tmp_path):
+    data_dir = tmp_path / "data"
+    write_squares(
+        data_dir / "squares",
+        {
+            GameType.BASE: [
+                Square(id="dup", text="Zulu goal", game_type=GameType.BASE),
+                Square(id="dup", text="Alpha goal", game_type=GameType.BASE),
+            ],
+            GameType.DLC: [],
+        },
+    )
+
+    result = CliRunner().invoke(app, ["square", "validate", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 1
+    assert "[duplicate_id]" in result.output
+    assert "[square_order]" in result.output
+    assert "dlc.json: ok" in result.output
+
+
+def test_square_validate_reports_an_empty_reference_as_ok(tmp_path):
+    result = CliRunner().invoke(app, ["square", "validate", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "base_game.json: ok" in result.output
+    assert "dlc.json: ok" in result.output
 
 
 def test_no_player_subcommand_prints_the_group_command_list():
