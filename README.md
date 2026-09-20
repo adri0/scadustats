@@ -13,7 +13,9 @@ Extract match data from [Bingo Brawlers](https://bingobrawlers.com/) match VODs.
 - Commentators
 - Timer
 
-From that data, derive consolidated views of each player and existing squares and statistics.
+From that data, derive consolidated views and statistics for each player, squares and game types.
+
+> **Disclaimer**: This project a fan initiative with the sole aim of providing further insights into the Bingo Brawlers tournament. It has no official relationship with Bingo Brawlers or Elden Ring, and isn't affiliated with or endorsed by FromSoftware, Bandai Namco, or the Bingo Brawlers organisers.
 
 ## Requirements
 
