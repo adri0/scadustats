@@ -357,7 +357,6 @@ wheels = [
 
 [[package]]
 name = "scadustats"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
