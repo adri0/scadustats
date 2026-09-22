@@ -1132,7 +1132,7 @@ def test_no_command_prints_the_command_list():
     result = CliRunner().invoke(app, [])
 
     assert "Commands" in result.output
-    for command in ("extract", "load-db", "match", "square"):
+    for command in ("extract", "match", "square", "player"):
         assert command in result.output
     assert "Missing command" not in result.output
 

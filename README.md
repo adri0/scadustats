@@ -25,7 +25,21 @@ From that data, derive consolidated views and statistics for each player, square
 
 ## Installation
 
-Requires Python 3.13+ and [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
+Requires Python 3.13+.
+
+```
+uvx scadustats ...
+```
+
+runs `scadustats` in a disposable, on-demand environment via [`uv`](https://docs.astral.sh/uv/getting-started/installation/) -- no separate install step. To install it instead:
+
+```
+pip install scadustats
+```
+
+### From source
+
+To work on scadustats itself, clone the repo and sync with [`uv`](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```
 git clone https://github.com/adri0/scadustats.git
