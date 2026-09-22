@@ -30,7 +30,6 @@ from scadustats.pipeline.consolidate import (
 )
 from scadustats.pipeline.extract import estimate_sample_count, extract_video
 from scadustats.rules.validation import validate_extraction
-from scadustats.storage.db import load_json_dir
 from scadustats.storage.json_export import (
     read_squares,
     read_video,
@@ -203,7 +202,7 @@ def _prompt_game_type(game: GameResult) -> GameType:
             typer.echo(f"Invalid game type {raw!r}, must be one of: {', '.join(choices)}")
 
 
-@app.command()
+@app.command(short_help="Extract match data from a video into JSON.")
 def extract(
     video_path_or_url: Annotated[
         str,
@@ -296,8 +295,7 @@ def extract(
     calibration fix. A local file with no --video-url given has no link to look itself
     up by.
 
-    This only writes JSON -- it never touches a database. Run `load-db` separately
-    (and optionally) to reflect that JSON into DuckDB.
+    This only writes JSON -- it never touches a database.
 
     On success, prints the same report as `match show` for the match just extracted.
     """
@@ -459,26 +457,6 @@ def extract(
             downloaded_path.unlink(missing_ok=True)
 
 
-@app.command("load-db")
-def load_db(
-    data_dir: Annotated[
-        Path, typer.Argument(help="Data directory written by `extract` (see extract's --data-dir)")
-    ] = Path("data"),
-    db: Annotated[Path, typer.Option(help="DuckDB database file path")] = Path("scadustats.duckdb"),
-    if_exists: Annotated[
-        IfExists,
-        typer.Option(help="Behavior when a video's JSON was already loaded into the DB"),
-    ] = IfExists.replace,
-) -> None:
-    """Reflect previously extracted JSON files into DuckDB.
-
-    Separate from, and optional after, `extract` -- run this whenever you want the
-    JSON's current contents (including any manual corrections) written into the DB.
-    """
-    match_ids = load_json_dir(db, data_dir, if_exists=if_exists.value)
-    print(f"Loaded {len(match_ids)} video(s) into {db}")
-
-
 def _matches_dir(data_dir: Path) -> Path:
     """`<data_dir>/matches` -- where json_export.video_path/write_video keep match
     files, as opposed to any other entity data_dir may hold (e.g.
@@ -556,7 +534,7 @@ def _find_existing_match(data_dir: Path, link: str) -> VideoExtraction | None:
     return None
 
 
-@match_app.command("list")
+@match_app.command("list", short_help="List every extracted match.")
 def match_list(
     data_dir: Annotated[
         Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
@@ -566,8 +544,7 @@ def match_list(
     how many games, and how the match ended.
 
     Reads the JSON files directly rather than a database -- the JSON is this project's
-    source of truth (see CLAUDE.md), so this works whether or not `load-db` has ever
-    been run.
+    source of truth (see CLAUDE.md).
     """
     extractions = _read_matches(data_dir)
     if not extractions:
@@ -607,7 +584,7 @@ def _echo_validation(extraction: VideoExtraction) -> bool:
     return True
 
 
-@match_app.command("validate")
+@match_app.command("validate", short_help="Check extracted matches against the tournament's rules.")
 def match_validate(
     match_id: Annotated[
         str | None,
@@ -654,7 +631,7 @@ def match_validate(
         raise typer.Exit(1)
 
 
-@match_app.command("show")
+@match_app.command("show", short_help="Print one match's full extraction and validation report.")
 def match_show(
     match_id: Annotated[str, typer.Argument(help="match_id to show, as printed by `match list`")],
     events: Annotated[
@@ -759,7 +736,7 @@ def _square_consolidate_match(data_dir: Path, match_id: str) -> None:
     _consolidate_one_match(data_dir, squares_dir, extraction, known_squares)
 
 
-@square_app.command("consolidate")
+@square_app.command("consolidate", short_help="Build or grow the consolidated squares reference.")
 def square_consolidate(
     match_id: Annotated[
         str | None,
@@ -809,7 +786,7 @@ def square_consolidate(
         _consolidate_one_match(data_dir, squares_dir, extraction, known_squares)
 
 
-@square_app.command("validate")
+@square_app.command("validate", short_help="Check the consolidated squares reference for issues.")
 def square_validate(
     data_dir: Annotated[
         Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
@@ -886,7 +863,7 @@ def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
         typer.echo(f"{written}: {len(profile.all_matches)} match(es)")
 
 
-@player_app.command("consolidate")
+@player_app.command("consolidate", short_help="Rebuild consolidated player profiles.")
 def player_consolidate(
     match_id: Annotated[
         str | None,
@@ -934,7 +911,9 @@ def player_consolidate(
         typer.echo(f"{path}: {len(profile.all_matches)} match(es)")
 
 
-@match_app.command("consolidate")
+@match_app.command(
+    "consolidate", short_help="Consolidate one match's squares and player profiles."
+)
 def match_consolidate(
     match_id: Annotated[
         str, typer.Argument(help="match_id to consolidate, as printed by `match list`")
