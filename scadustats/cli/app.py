@@ -272,14 +272,6 @@ def extract(
             "the reference the same mistake",
         ),
     ] = False,
-    players_dir: Annotated[
-        Path,
-        typer.Option(
-            help="Directory holding each player's hand-curated info (id/twitch/avatar/"
-            "bio, see `player consolidate`) -- meant to be committed to the repo, unlike "
-            "data_dir's disposable output. Only used when --consolidate is given"
-        ),
-    ] = Path("players"),
     cookies: Annotated[
         Path | None,
         typer.Option(
@@ -452,7 +444,7 @@ def extract(
                     typer.echo(typer.style("consolidation", bold=True))
                     _square_consolidate_match(data_dir, summary.match_id)
                     typer.echo()
-                    _player_consolidate_match(data_dir, players_dir, summary.match_id)
+                    _player_consolidate_match(data_dir, summary.match_id)
     except Exception:
         if (
             downloaded_path is not None
@@ -867,8 +859,8 @@ app.add_typer(player_app, name="player")
 
 
 def _write_new_player_info(players_dir: Path, slugs: set[str]) -> None:
-    """The identity half of consolidation (issue #82): assigns and writes a
-    PlayerInfo for every slug in `slugs` not already under players_dir, leaving every
+    """The identity half of consolidation (issue #82): assigns and writes an
+    `info.yaml` for every slug in `slugs` not already under players_dir, leaving every
     existing one untouched -- see consolidate_player_info/storage.player_info. Shared by
     both the whole-history and match_id-scoped paths below, the same "compute, then only
     narrow what gets written" split _player_consolidate_match already has for stats.
@@ -880,7 +872,7 @@ def _write_new_player_info(players_dir: Path, slugs: set[str]) -> None:
             typer.echo(f"{written}: new player, id {info.id}")
 
 
-def _player_consolidate_match(data_dir: Path, players_dir: Path, match_id: str) -> None:
+def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
     """The match_id-scoped half of `player consolidate` (issue #79): writes just the two
     players who played one match, rather than every profile under data_dir. Unlike
     _square_consolidate_match's scoped path, this still has to read every match under
@@ -901,15 +893,15 @@ def _player_consolidate_match(data_dir: Path, players_dir: Path, match_id: str) 
         typer.echo(f"{match_id}: no player names to consolidate")
         return
 
+    players_dir = Path(data_dir) / "players"
     _write_new_player_info(players_dir, slugs)
 
     extractions = _read_matches(data_dir)
-    stats_dir = Path(data_dir) / "players"
     stats = consolidate_players(extractions)
 
     for slug in sorted(slugs & stats.keys()):
         player_stats = stats[slug]
-        written = write_player_stats(stats_dir, player_stats)
+        written = write_player_stats(players_dir, player_stats)
         typer.echo(f"{written}: {len(player_stats.all_matches)} match(es)")
 
 
@@ -926,27 +918,21 @@ def player_consolidate(
     data_dir: Annotated[
         Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
     ] = Path("data"),
-    players_dir: Annotated[
-        Path,
-        typer.Option(
-            help="Directory holding each player's hand-curated info (id/twitch/avatar/"
-            "bio) -- meant to be committed to the repo, unlike data_dir's disposable "
-            "output"
-        ),
-    ] = Path("players"),
 ) -> None:
-    """Rebuild <data_dir>/players/<slug>.yaml from every match under data_dir: one file
-    per player, with their win/loss record (per season, and overall/per game type for
-    individual games), every match they've played (most recent first), and their 5
-    most-claimed squares per game type.
+    """Rebuild <data_dir>/players/<slug>/stats.yaml from every match under data_dir:
+    one file per player, with their win/loss record (per season, and overall/per game
+    type for individual games), every match they've played (most recent first), and
+    their 5 most-claimed squares per game type.
 
     slug/display_name and every tallied field are wholly regenerated from the current
     match history each run -- not something to hand-edit and expect preserved across a
     re-run (see storage.player_stats). A brand-new player also gets a
-    <players_dir>/<slug>.yaml created for them (storage.player_info), holding just their
-    id -- assigned once, the first time they're seen, and kept stable after that --
-    ready for twitch/avatar/bio to be filled in by hand; this command never touches an
-    existing player's info file again.
+    <data_dir>/players/<slug>/info.yaml created for them (storage.player_info), holding
+    just their id -- assigned once, the first time they're seen, and kept stable after
+    that -- ready for twitch/avatar/bio to be filled in by hand; this command never
+    touches an existing player's info file again. Unlike stats.yaml, info.yaml is meant
+    to be committed to the repo (see the `data/players/*/info.yaml` carve-out in
+    .gitignore), not disposable output.
 
     Given a match_id, instead writes just the two players who played that match --
     their stats are still computed across their whole match history the same way
@@ -954,7 +940,7 @@ def player_consolidate(
     only which files get written is narrowed.
     """
     if match_id is not None:
-        _player_consolidate_match(data_dir, players_dir, match_id)
+        _player_consolidate_match(data_dir, match_id)
         return
 
     extractions = _read_matches(data_dir)
@@ -963,12 +949,12 @@ def player_consolidate(
         return
 
     stats = consolidate_players(extractions)
+    players_dir = Path(data_dir) / "players"
     _write_new_player_info(players_dir, set(stats.keys()))
 
-    stats_dir = Path(data_dir) / "players"
     for slug in sorted(stats):
         player_stats = stats[slug]
-        path = write_player_stats(stats_dir, player_stats)
+        path = write_player_stats(players_dir, player_stats)
         typer.echo(f"{path}: {len(player_stats.all_matches)} match(es)")
 
 
@@ -980,14 +966,6 @@ def match_consolidate(
     data_dir: Annotated[
         Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
     ] = Path("data"),
-    players_dir: Annotated[
-        Path,
-        typer.Option(
-            help="Directory holding each player's hand-curated info (id/twitch/avatar/"
-            "bio) -- meant to be committed to the repo, unlike data_dir's disposable "
-            "output"
-        ),
-    ] = Path("players"),
 ) -> None:
     """Consolidate one match's squares and player profiles in one step (issue #79).
 
@@ -999,7 +977,7 @@ def match_consolidate(
     """
     _square_consolidate_match(data_dir, match_id)
     typer.echo()
-    _player_consolidate_match(data_dir, players_dir, match_id)
+    _player_consolidate_match(data_dir, match_id)
 
 
 def main() -> None:

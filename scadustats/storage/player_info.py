@@ -1,9 +1,13 @@
 """YAML persistence for one player's static, hand-curated identity (see
 models.PlayerInfo) -- the half of a player's profile pipeline.consolidate creates once
-and never touches again (issue #82). One file per player, meant to live under a
-directory that's committed to the repo (unlike storage.player_stats's fully-regenerated
-counterpart, which is disposable, gitignored output): twitch/avatar/bio are genuinely
-hand-authored content a contributor fills in and expects to survive forever.
+and never touches again (issue #82). One `info.yaml` per player, under
+`<players_dir>/<slug>/info.yaml` -- the same `<data_dir>/players/<slug>/` directory
+storage.player_stats writes its own `stats.yaml` into, so a player's profile lives in
+one place rather than two separate directory trees. The two files are still tracked
+completely differently, though: info.yaml is the one committed to the repo (see the
+`!data/players/*/info.yaml` carve-out in .gitignore) -- twitch/avatar/bio are genuinely
+hand-authored content a contributor fills in and expects to survive forever, unlike
+stats.yaml's disposable, gitignored output.
 
 write_player_info only ever creates a file, never overwrites one that already exists --
 there's nothing here for a re-run to legitimately change: id is assigned once and never
@@ -47,8 +51,8 @@ _PlayerInfoDumper.add_representer(str, _represent_str)
 
 def player_info_path(players_dir: str | Path, slug: str) -> Path:
     """The path write_player_info writes (or would write) one player's info to --
-    `<players_dir>/<slug>.yaml`."""
-    return Path(players_dir) / f"{slug}.yaml"
+    `<players_dir>/<slug>/info.yaml`."""
+    return Path(players_dir) / slug / "info.yaml"
 
 
 def _info_to_dict(info: PlayerInfo) -> dict:
@@ -62,14 +66,15 @@ def _info_to_dict(info: PlayerInfo) -> dict:
 
 
 def write_player_info(players_dir: str | Path, info: PlayerInfo) -> Path | None:
-    """Create `<players_dir>/<slug>.yaml` for a brand-new player (see player_info_path),
-    creating players_dir if it doesn't exist yet. Returns None without writing anything
-    if the file already exists, rather than overwriting it -- see the module docstring.
+    """Create `<players_dir>/<slug>/info.yaml` for a brand-new player (see
+    player_info_path), creating that player's directory if it doesn't exist yet.
+    Returns None without writing anything if the file already exists, rather than
+    overwriting it -- see the module docstring.
     """
     path = player_info_path(players_dir, info.slug)
     if path.exists():
         return None
-    Path(players_dir).mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     body = yaml.dump(
         _info_to_dict(info), Dumper=_PlayerInfoDumper, sort_keys=False, allow_unicode=True
     )
@@ -106,13 +111,15 @@ def read_player_info(path: str | Path) -> PlayerInfo:
 
 
 def read_players_info(players_dir: str | Path) -> dict[str, PlayerInfo]:
-    """Every player info file already on disk under players_dir, keyed by slug -- empty
-    if the directory doesn't exist yet (a fresh checkout, or one that's never had a new
-    player consolidated into it), the same "ships empty" tolerance
-    pipeline.squares/read_squares has for a data directory with no squares reference
-    yet.
+    """Every player's `info.yaml` already on disk under players_dir, keyed by its
+    parent directory's name (the slug) -- empty if players_dir doesn't exist yet (a
+    fresh checkout, or one that's never had a new player consolidated into it), the
+    same "ships empty" tolerance pipeline.squares/read_squares has for a data directory
+    with no squares reference yet.
     """
     directory = Path(players_dir)
     if not directory.is_dir():
         return {}
-    return {path.stem: read_player_info(path) for path in sorted(directory.glob("*.yaml"))}
+    return {
+        path.parent.name: read_player_info(path) for path in sorted(directory.glob("*/info.yaml"))
+    }

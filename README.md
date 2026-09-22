@@ -38,13 +38,13 @@ This installs `scadustats` and its dependencies into a local `.venv`. Run comman
 ## Usage
 
 ```
-scadustats extract <video_path_or_url> [--data-dir data] [--if-exists replace|append|error] [--consolidate] [--players-dir players]
+scadustats extract <video_path_or_url> [--data-dir data] [--if-exists replace|append|error] [--consolidate]
 scadustats match list [--data-dir data]
 scadustats match show <match_id> [--events] [--data-dir data]
 scadustats match validate [match_id] [--data-dir data]
-scadustats match consolidate <match_id> [--data-dir data] [--players-dir players]
+scadustats match consolidate <match_id> [--data-dir data]
 scadustats square consolidate [match_id] [--data-dir data]
-scadustats player consolidate [match_id] [--data-dir data] [--players-dir players]
+scadustats player consolidate [match_id] [--data-dir data]
 ```
 
 ### Extract match data
@@ -72,11 +72,12 @@ Given a `match_id`, it reconciles just that match; with none, it walks every mat
 
 ### Player data
 
-A player's profile is split across two directories: dynamically computed stats, wholly regenerated on every run, and static, hand-curated info, meant to be committed to the repo.
+`player consolidate` gives each player their own `<data_dir>/players/<slug>/` directory, holding two files:
 
-`player consolidate` rebuilds one YAML file per player under `<data_dir>/players/<slug>.yaml`: their win/loss record (per season, and overall/per game type for individual games), every match they've played (most recent first), and their 5 most-claimed squares per game type, each with its mark count and other statistics. This file is gitignored along with the rest of `data_dir` -- it's disposable output, re-derived from match history every time.
+- `stats.yaml`: their win/loss record (per season, and overall/per game type for individual games), every match they've played (most recent first), and their 5 most-claimed squares per game type, each with its mark count. Wholly regenerated every run -- this file is gitignored along with the rest of `data_dir`, it's disposable output re-derived from match history each time.
+- `info.yaml`: just an `id`, assigned once for a newly seen player and kept stable after that. `twitch`/`avatar`/`bio` are never set by the tool at all -- fill those in by hand once the file exists, and this command never touches an existing player's `info.yaml` again, so hand edits always survive a re-run. Unlike `stats.yaml`, this one file is carved back out of `.gitignore` and meant to be committed to the repo.
 
-It also creates `<players_dir>/<slug>.yaml` (`players/` by default) for any newly seen player, holding just their `id` -- assigned once, the first time they're seen, and kept stable after that. `twitch`/`avatar`/`bio` are never set by the tool at all; fill those in by hand, then commit the file -- this command never touches an existing player's info file again, so hand edits always survive a re-run. Given a `match_id`, only that match's two players are written to either directory.
+Given a `match_id`, only that match's two players get their directories written/updated.
 
 ## Troubleshooting
 

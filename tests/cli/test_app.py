@@ -1407,39 +1407,25 @@ def test_no_player_subcommand_prints_the_group_command_list():
     assert "Missing command" not in result.output
 
 
-def test_player_consolidate_writes_a_file_per_player(tmp_path):
+def test_player_consolidate_writes_a_dir_per_player(tmp_path):
     data_dir = tmp_path / "data"
-    players_dir = tmp_path / "players"
     write_video(data_dir, _sample_extraction())
 
-    result = CliRunner().invoke(
-        app,
-        ["player", "consolidate", "--data-dir", str(data_dir), "--players-dir", str(players_dir)],
-    )
+    result = CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
 
     assert result.exit_code == 0, result.output
-    stats_dir = data_dir / "players"
-    assert (stats_dir / "alice.yaml").exists()
-    assert (stats_dir / "bob.yaml").exists()
-    assert str(stats_dir / "alice.yaml") in result.output
-    assert str(stats_dir / "bob.yaml") in result.output
-    assert (players_dir / "alice.yaml").exists()
-    assert (players_dir / "bob.yaml").exists()
+    players_dir = data_dir / "players"
+    assert (players_dir / "alice" / "stats.yaml").exists()
+    assert (players_dir / "bob" / "stats.yaml").exists()
+    assert str(players_dir / "alice" / "stats.yaml") in result.output
+    assert str(players_dir / "bob" / "stats.yaml") in result.output
+    assert (players_dir / "alice" / "info.yaml").exists()
+    assert (players_dir / "bob" / "info.yaml").exists()
     assert "new player" in result.output
 
 
 def test_player_consolidate_reports_when_directory_has_no_matches(tmp_path):
-    result = CliRunner().invoke(
-        app,
-        [
-            "player",
-            "consolidate",
-            "--data-dir",
-            str(tmp_path),
-            "--players-dir",
-            str(tmp_path / "players"),
-        ],
-    )
+    result = CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "No matches found" in result.output
@@ -1447,14 +1433,11 @@ def test_player_consolidate_reports_when_directory_has_no_matches(tmp_path):
 
 def test_player_consolidate_never_overwrites_an_existing_players_info_file(tmp_path):
     data_dir = tmp_path / "data"
-    players_dir = tmp_path / "players"
+    players_dir = data_dir / "players"
     write_video(data_dir, _sample_extraction())
     write_player_info(players_dir, PlayerInfo(id=42, slug="alice", twitch="alice"))
 
-    result = CliRunner().invoke(
-        app,
-        ["player", "consolidate", "--data-dir", str(data_dir), "--players-dir", str(players_dir)],
-    )
+    result = CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
 
     assert result.exit_code == 0, result.output
     updated = read_player_info(player_info_path(players_dir, "alice"))
@@ -1470,17 +1453,7 @@ def test_player_consolidate_reflects_current_match_history(tmp_path):
     data_dir = tmp_path / "data"
     write_video(data_dir, _sample_extraction())
 
-    CliRunner().invoke(
-        app,
-        [
-            "player",
-            "consolidate",
-            "--data-dir",
-            str(data_dir),
-            "--players-dir",
-            str(tmp_path / "players"),
-        ],
-    )
+    CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
 
     players = read_players_stats(data_dir / "players")
     assert players["alice"].all_matches == ["2026-03-05-alice-vs-bob"]
@@ -1488,7 +1461,6 @@ def test_player_consolidate_reflects_current_match_history(tmp_path):
 
 def test_player_consolidate_with_a_match_id_writes_only_that_matchs_players(tmp_path):
     data_dir = tmp_path / "data"
-    players_dir = tmp_path / "players"
     write_video(data_dir, _sample_extraction())
     write_video(
         data_dir,
@@ -1501,27 +1473,16 @@ def test_player_consolidate_with_a_match_id_writes_only_that_matchs_players(tmp_
     )
 
     result = CliRunner().invoke(
-        app,
-        [
-            "player",
-            "consolidate",
-            "2026-03-05-alice-vs-bob",
-            "--data-dir",
-            str(data_dir),
-            "--players-dir",
-            str(players_dir),
-        ],
+        app, ["player", "consolidate", "2026-03-05-alice-vs-bob", "--data-dir", str(data_dir)]
     )
 
     assert result.exit_code == 0, result.output
-    stats_dir = data_dir / "players"
-    assert (stats_dir / "alice.yaml").exists()
-    assert (stats_dir / "bob.yaml").exists()
-    assert not (stats_dir / "carol.yaml").exists()
-    assert not (stats_dir / "dave.yaml").exists()
-    assert not (players_dir / "carol.yaml").exists()
-    assert not (players_dir / "dave.yaml").exists()
-    assert str(stats_dir / "alice.yaml") in result.output
+    players_dir = data_dir / "players"
+    assert (players_dir / "alice" / "stats.yaml").exists()
+    assert (players_dir / "bob" / "stats.yaml").exists()
+    assert not (players_dir / "carol").exists()
+    assert not (players_dir / "dave").exists()
+    assert str(players_dir / "alice" / "stats.yaml") in result.output
     assert "carol" not in result.output
 
 
@@ -1540,16 +1501,7 @@ def test_player_consolidate_with_a_match_id_still_reflects_full_match_history(tm
     )
 
     result = CliRunner().invoke(
-        app,
-        [
-            "player",
-            "consolidate",
-            "2026-03-05-alice-vs-bob",
-            "--data-dir",
-            str(data_dir),
-            "--players-dir",
-            str(tmp_path / "players"),
-        ],
+        app, ["player", "consolidate", "2026-03-05-alice-vs-bob", "--data-dir", str(data_dir)]
     )
 
     assert result.exit_code == 0, result.output
@@ -1562,16 +1514,7 @@ def test_player_consolidate_with_a_match_id_reports_when_no_names_to_consolidate
     write_video(data_dir, _sample_extraction(player_red_name="", player_blue_name=""))
 
     result = CliRunner().invoke(
-        app,
-        [
-            "player",
-            "consolidate",
-            "2026-03-05-alice-vs-bob",
-            "--data-dir",
-            str(data_dir),
-            "--players-dir",
-            str(tmp_path / "players"),
-        ],
+        app, ["player", "consolidate", "2026-03-05-alice-vs-bob", "--data-dir", str(data_dir)]
     )
 
     assert result.exit_code == 0, result.output
@@ -1580,16 +1523,7 @@ def test_player_consolidate_with_a_match_id_reports_when_no_names_to_consolidate
 
 def test_player_consolidate_errors_on_unknown_match_id(tmp_path):
     result = CliRunner().invoke(
-        app,
-        [
-            "player",
-            "consolidate",
-            "nonexistent",
-            "--data-dir",
-            str(tmp_path),
-            "--players-dir",
-            str(tmp_path / "players"),
-        ],
+        app, ["player", "consolidate", "nonexistent", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code != 0
@@ -1604,46 +1538,27 @@ def test_no_match_consolidate_help_lists_it_under_match(tmp_path):
 
 def test_match_consolidate_runs_square_then_player_consolidate(tmp_path):
     data_dir = tmp_path / "data"
-    players_dir = tmp_path / "players"
     extraction = _valid_match_extraction()
     write_video(data_dir, extraction)
 
     result = CliRunner().invoke(
-        app,
-        [
-            "match",
-            "consolidate",
-            extraction.match_id,
-            "--data-dir",
-            str(data_dir),
-            "--players-dir",
-            str(players_dir),
-        ],
+        app, ["match", "consolidate", extraction.match_id, "--data-dir", str(data_dir)]
     )
 
     assert result.exit_code == 0, result.output
     squares_dir = data_dir / "squares"
     assert (squares_dir / "base_game.json").exists()
     assert (squares_dir / "dlc.json").exists()
-    stats_dir = data_dir / "players"
-    assert (stats_dir / "alice.yaml").exists()
-    assert (stats_dir / "bob.yaml").exists()
-    assert (players_dir / "alice.yaml").exists()
-    assert (players_dir / "bob.yaml").exists()
+    players_dir = data_dir / "players"
+    assert (players_dir / "alice" / "stats.yaml").exists()
+    assert (players_dir / "bob" / "stats.yaml").exists()
+    assert (players_dir / "alice" / "info.yaml").exists()
+    assert (players_dir / "bob" / "info.yaml").exists()
 
 
 def test_match_consolidate_errors_on_unknown_match_id(tmp_path):
     result = CliRunner().invoke(
-        app,
-        [
-            "match",
-            "consolidate",
-            "nonexistent",
-            "--data-dir",
-            str(tmp_path),
-            "--players-dir",
-            str(tmp_path / "players"),
-        ],
+        app, ["match", "consolidate", "nonexistent", "--data-dir", str(tmp_path)]
     )
 
     assert result.exit_code != 0
@@ -1668,16 +1583,7 @@ def test_match_consolidate_reflects_square_corrections_in_player_top_squares(tmp
     write_squares(squares_dir, known)
 
     result = CliRunner().invoke(
-        app,
-        [
-            "match",
-            "consolidate",
-            extraction.match_id,
-            "--data-dir",
-            str(data_dir),
-            "--players-dir",
-            str(tmp_path / "players"),
-        ],
+        app, ["match", "consolidate", extraction.match_id, "--data-dir", str(data_dir)]
     )
 
     assert result.exit_code == 0, result.output
@@ -1689,7 +1595,6 @@ def test_match_consolidate_reflects_square_corrections_in_player_top_squares(tmp
 
 def test_extract_consolidate_runs_after_a_clean_extraction(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
-    players_dir = tmp_path / "players"
     local = tmp_path / "local.mp4"
     local.write_bytes(b"fake video")
     extraction = _valid_match_extraction()
@@ -1714,18 +1619,16 @@ def test_extract_consolidate_runs_after_a_clean_extraction(tmp_path, monkeypatch
             "--data-dir",
             str(data_dir),
             "--consolidate",
-            "--players-dir",
-            str(players_dir),
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert "consolidation" in result.output
     assert (data_dir / "squares" / "base_game.json").exists()
-    assert (data_dir / "players" / "alice.yaml").exists()
-    assert (data_dir / "players" / "bob.yaml").exists()
-    assert (players_dir / "alice.yaml").exists()
-    assert (players_dir / "bob.yaml").exists()
+    assert (data_dir / "players" / "alice" / "stats.yaml").exists()
+    assert (data_dir / "players" / "bob" / "stats.yaml").exists()
+    assert (data_dir / "players" / "alice" / "info.yaml").exists()
+    assert (data_dir / "players" / "bob" / "info.yaml").exists()
 
 
 def test_extract_consolidate_skips_when_validation_has_issues(tmp_path, monkeypatch):
@@ -1754,8 +1657,6 @@ def test_extract_consolidate_skips_when_validation_has_issues(tmp_path, monkeypa
             "--data-dir",
             str(data_dir),
             "--consolidate",
-            "--players-dir",
-            str(tmp_path / "players"),
         ],
     )
 
