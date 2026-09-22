@@ -23,6 +23,7 @@ from scadustats.models import (
 from scadustats.pipeline.consolidate import (
     SquareTextChange,
     consolidate_match_squares,
+    consolidate_player_info,
     consolidate_players,
     find_square_issues,
     slugify_name,
@@ -37,7 +38,8 @@ from scadustats.storage.json_export import (
     write_squares,
     write_video,
 )
-from scadustats.storage.player_export import read_players, write_player
+from scadustats.storage.player_info import read_players_info, write_player_info
+from scadustats.storage.player_stats import write_player_stats
 from scadustats.video.download import download_video
 
 # no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
@@ -833,14 +835,29 @@ player_app = typer.Typer(
 app.add_typer(player_app, name="player")
 
 
+def _write_new_player_info(players_dir: Path, slugs: set[str]) -> None:
+    """The identity half of consolidation (issue #82): assigns and writes an
+    `info.yaml` for every slug in `slugs` not already under players_dir, leaving every
+    existing one untouched -- see consolidate_player_info/storage.player_info. Shared by
+    both the whole-history and match_id-scoped paths below, the same "compute, then only
+    narrow what gets written" split _player_consolidate_match already has for stats.
+    """
+    existing_info = read_players_info(players_dir)
+    for _, info in sorted(consolidate_player_info(slugs, existing=existing_info).items()):
+        written = write_player_info(players_dir, info)
+        if written is not None:
+            typer.echo(f"{written}: new player, id {info.id}")
+
+
 def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
     """The match_id-scoped half of `player consolidate` (issue #79): writes just the two
     players who played one match, rather than every profile under data_dir. Unlike
     _square_consolidate_match's scoped path, this still has to read every match under
-    data_dir to compute those two profiles correctly -- a player's win/loss record and
-    top squares are tallied across their whole match history, not just this one match --
-    so only what gets *written* at the end is narrowed. Factored out of player_consolidate
-    below so `match consolidate` can run the identical step without duplicating this.
+    data_dir to compute those two players' stats correctly -- a player's win/loss record
+    and top squares are tallied across their whole match history, not just this one
+    match -- so only what gets *written* at the end is narrowed. Factored out of
+    player_consolidate below so `match consolidate` can run the identical step without
+    duplicating this.
     """
     path = _match_path(data_dir, match_id)
     extraction = read_video(path)
@@ -853,14 +870,16 @@ def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
         typer.echo(f"{match_id}: no player names to consolidate")
         return
 
-    extractions = _read_matches(data_dir)
     players_dir = Path(data_dir) / "players"
-    profiles = consolidate_players(extractions, existing=read_players(players_dir))
+    _write_new_player_info(players_dir, slugs)
 
-    for slug in sorted(slugs & profiles.keys()):
-        profile = profiles[slug]
-        written = write_player(players_dir, profile)
-        typer.echo(f"{written}: {len(profile.all_matches)} match(es)")
+    extractions = _read_matches(data_dir)
+    stats = consolidate_players(extractions)
+
+    for slug in sorted(slugs & stats.keys()):
+        player_stats = stats[slug]
+        written = write_player_stats(players_dir, player_stats)
+        typer.echo(f"{written}: {len(player_stats.all_matches)} match(es)")
 
 
 @player_app.command("consolidate", short_help="Rebuild consolidated player profiles.")
@@ -868,8 +887,8 @@ def player_consolidate(
     match_id: Annotated[
         str | None,
         typer.Argument(
-            help="match_id to write just its two players' profiles for, as printed by "
-            "`match list` (omitted rebuilds every player's profile from every match "
+            help="match_id to write just its two players' stats for, as printed by "
+            "`match list` (omitted rebuilds every player's stats from every match "
             "under data_dir)"
         ),
     ] = None,
@@ -877,19 +896,23 @@ def player_consolidate(
         Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
     ] = Path("data"),
 ) -> None:
-    """Rebuild <data_dir>/players/<slug>.yaml from every match under data_dir: one file
-    per player, with their win/loss record (per season, and overall/per game type for
-    individual games), every match they've played (most recent first), and their 5
-    most-claimed squares per game type.
+    """Rebuild <data_dir>/players/<slug>/stats.yaml from every match under data_dir:
+    one file per player, with their win/loss record (per season, and overall/per game
+    type for individual games), every match they've played (most recent first), and
+    their 5 most-claimed squares per game type.
 
     slug/display_name and every tallied field are wholly regenerated from the current
     match history each run -- not something to hand-edit and expect preserved across a
-    re-run. id is assigned once, the first time a player is seen, and kept stable after
-    that; twitch/avatar/bio are never set by this command at all -- fill those in by
-    hand in the player's YAML file, and both they and id survive every later re-run.
+    re-run (see storage.player_stats). A brand-new player also gets a
+    <data_dir>/players/<slug>/info.yaml created for them (storage.player_info), holding
+    just their id -- assigned once, the first time they're seen, and kept stable after
+    that -- ready for twitch/avatar/bio to be filled in by hand; this command never
+    touches an existing player's info file again. Unlike stats.yaml, info.yaml is meant
+    to be committed to the repo (see the `data/players/*/info.yaml` carve-out in
+    .gitignore), not disposable output.
 
     Given a match_id, instead writes just the two players who played that match --
-    their profiles are still computed across their whole match history the same way
+    their stats are still computed across their whole match history the same way
     (there's no cheaper way to get a correct win/loss record or top-squares tally),
     only which files get written is narrowed.
     """
@@ -902,13 +925,14 @@ def player_consolidate(
         typer.echo(f"No matches found in {_matches_dir(data_dir)}")
         return
 
+    stats = consolidate_players(extractions)
     players_dir = Path(data_dir) / "players"
-    profiles = consolidate_players(extractions, existing=read_players(players_dir))
+    _write_new_player_info(players_dir, set(stats.keys()))
 
-    for slug in sorted(profiles):
-        profile = profiles[slug]
-        path = write_player(players_dir, profile)
-        typer.echo(f"{path}: {len(profile.all_matches)} match(es)")
+    for slug in sorted(stats):
+        player_stats = stats[slug]
+        path = write_player_stats(players_dir, player_stats)
+        typer.echo(f"{path}: {len(player_stats.all_matches)} match(es)")
 
 
 @match_app.command(
