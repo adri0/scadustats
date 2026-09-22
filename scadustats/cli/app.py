@@ -534,7 +534,7 @@ def _find_existing_match(data_dir: Path, link: str) -> VideoExtraction | None:
     return None
 
 
-@match_app.command("list", short_help="List every extracted match.")
+@match_app.command("list", short_help="List extracted matches.")
 def match_list(
     data_dir: Annotated[
         Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
@@ -584,7 +584,7 @@ def _echo_validation(extraction: VideoExtraction) -> bool:
     return True
 
 
-@match_app.command("validate", short_help="Check extracted matches against the tournament's rules.")
+@match_app.command("validate", short_help="Check extracted matches against validation rules.")
 def match_validate(
     match_id: Annotated[
         str | None,
@@ -631,7 +631,7 @@ def match_validate(
         raise typer.Exit(1)
 
 
-@match_app.command("show", short_help="Print one match's full extraction and validation report.")
+@match_app.command("show", short_help="Print match summary and validation report.")
 def match_show(
     match_id: Annotated[str, typer.Argument(help="match_id to show, as printed by `match list`")],
     events: Annotated[
@@ -912,7 +912,7 @@ def player_consolidate(
 
 
 @match_app.command(
-    "consolidate", short_help="Consolidate one match's squares and player profiles."
+    "consolidate", short_help="Consolidate squares and player info from a match."
 )
 def match_consolidate(
     match_id: Annotated[
