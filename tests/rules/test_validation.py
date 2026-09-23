@@ -10,6 +10,7 @@ from scadustats.models import (
     VideoExtraction,
     WinLine,
     WinType,
+    format_video_timestamp,
 )
 from scadustats.rules.validation import validate_extraction, validate_game
 
@@ -21,7 +22,7 @@ def _mark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
         row=row + 1,
         col=col + 1,
         color=color,
-        video_ts_s=ts,
+        video_timestamp=format_video_timestamp(ts),
         game_elapsed_s=int(ts),
         event_type=EventType.MARK,
     )
@@ -33,7 +34,7 @@ def _unmark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
         row=row + 1,
         col=col + 1,
         color=color,
-        video_ts_s=ts,
+        video_timestamp=format_video_timestamp(ts),
         game_elapsed_s=int(ts),
         event_type=EventType.UNMARK,
     )
@@ -44,7 +45,7 @@ def _game_start(ts: float = 0.0) -> GameEvent:
         row=None,
         col=None,
         color=None,
-        video_ts_s=ts,
+        video_timestamp=format_video_timestamp(ts),
         game_elapsed_s=0,
         event_type=EventType.GAME_START,
     )

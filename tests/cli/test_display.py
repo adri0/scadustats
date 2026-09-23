@@ -24,6 +24,7 @@ from scadustats.models import (
     VideoExtraction,
     WinLine,
     WinType,
+    format_video_timestamp,
 )
 from scadustats.rules.winner import empty_board
 
@@ -39,7 +40,7 @@ def _game(game_index: int = 1, **overrides) -> GameResult:
                 row=1,
                 col=col + 1,
                 color=CellColor.RED,
-                video_ts_s=310.0 + col,
+                video_timestamp=format_video_timestamp(310.0 + col),
                 game_elapsed_s=col,
             )
             for col in range(5)
@@ -157,12 +158,18 @@ def test_render_events_orders_by_video_timestamp_not_the_game_clock():
     3-minute reading has to still come first -- sorting by the clock would bury it."""
     game = _game(
         events=[
-            GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=310.0, game_elapsed_s=10),
+            GameEvent(
+                row=1,
+                col=1,
+                color=CellColor.RED,
+                video_timestamp=format_video_timestamp(310.0),
+                game_elapsed_s=10,
+            ),
             GameEvent(
                 row=None,
                 col=None,
                 color=None,
-                video_ts_s=300.0,
+                video_timestamp=format_video_timestamp(300.0),
                 game_elapsed_s=180,
                 event_type=EventType.GAME_START,
             ),
@@ -178,12 +185,18 @@ def test_render_events_orders_by_video_timestamp_not_the_game_clock():
 def test_render_events_shows_a_game_end_event_with_no_player_or_square():
     game = _game(
         events=[
-            GameEvent(row=1, col=5, color=CellColor.RED, video_ts_s=305.0, game_elapsed_s=5),
+            GameEvent(
+                row=1,
+                col=5,
+                color=CellColor.RED,
+                video_timestamp=format_video_timestamp(305.0),
+                game_elapsed_s=5,
+            ),
             GameEvent(
                 row=None,
                 col=None,
                 color=None,
-                video_ts_s=305.0,
+                video_timestamp=format_video_timestamp(305.0),
                 game_elapsed_s=5,
                 event_type=EventType.GAME_END,
             ),

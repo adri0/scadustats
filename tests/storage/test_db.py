@@ -15,6 +15,7 @@ from scadustats.models import (
     VideoInfo,
     WinLine,
     WinType,
+    format_video_timestamp,
 )
 from scadustats.storage.db import load_json_dir, write_extraction
 from scadustats.storage.json_export import write_video
@@ -27,7 +28,15 @@ def _sample_game(game_index: int = 1) -> GameResult:
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=square_texts,
-        events=[GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
+        events=[
+            GameEvent(
+                row=1,
+                col=1,
+                color=CellColor.RED,
+                video_timestamp=format_video_timestamp(10.0),
+                game_elapsed_s=9,
+            )
+        ],
         winner_color=None,
         win_type=WinType.NONE,
         game_type=GameType.BASE,
@@ -126,7 +135,7 @@ def test_game_start_event_writes_with_null_row_col_color(tmp_path):
             row=None,
             col=None,
             color=None,
-            video_ts_s=1.0,
+            video_timestamp=format_video_timestamp(1.0),
             game_elapsed_s=0,
             event_type=EventType.GAME_START,
         ),
@@ -154,7 +163,7 @@ def test_game_end_event_writes_with_null_row_col_color(tmp_path):
             row=None,
             col=None,
             color=None,
-            video_ts_s=30.0,
+            video_timestamp=format_video_timestamp(30.0),
             game_elapsed_s=29,
             event_type=EventType.GAME_END,
         ),

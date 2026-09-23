@@ -3,7 +3,14 @@ import logging
 
 import numpy as np
 
-from scadustats.models import CellColor, EventType, MatchMetadata, MatchType, WinType
+from scadustats.models import (
+    CellColor,
+    EventType,
+    MatchMetadata,
+    MatchType,
+    WinType,
+    format_video_timestamp,
+)
 from scadustats.pipeline import extract
 from scadustats.pipeline.extract import (
     _collect_observations,
@@ -143,7 +150,7 @@ def test_detect_game_end_locates_the_mark_that_completes_the_winning_line():
     assert game_end is not None
     assert game_end.event_type is EventType.GAME_END
     assert (game_end.row, game_end.col, game_end.color) == (None, None, None)
-    assert game_end.video_ts_s == completing_mark.video_ts_s
+    assert game_end.video_timestamp == completing_mark.video_timestamp
     assert game_end.game_elapsed_s == completing_mark.game_elapsed_s
 
 
@@ -172,7 +179,7 @@ def test_detect_game_end_locates_the_settling_mark_of_a_majority_win():
     # It's timestamped off one real mark event -- the one that locked the majority in.
     assert any(
         e.event_type is EventType.MARK
-        and e.video_ts_s == game_end.video_ts_s
+        and e.video_timestamp == game_end.video_timestamp
         and e.game_elapsed_s == game_end.game_elapsed_s
         for e in events
     )
@@ -218,7 +225,7 @@ def test_detect_game_start_finds_ascent_from_countdown_minimum():
     assert event.event_type is EventType.GAME_START
     assert (event.row, event.col, event.color) == (None, None, None)
     assert event.game_elapsed_s == 0
-    assert event.video_ts_s == 3.0
+    assert event.video_timestamp == format_video_timestamp(3.0)
 
 
 def test_detect_game_start_skips_a_minimum_the_clock_does_not_continue_from():
@@ -243,7 +250,7 @@ def test_detect_game_start_skips_a_minimum_the_clock_does_not_continue_from():
 
     assert event is not None
     assert event.game_elapsed_s == 0
-    assert event.video_ts_s == 5.0
+    assert event.video_timestamp == format_video_timestamp(5.0)
 
 
 def test_detect_game_start_returns_none_without_a_local_minimum():

@@ -58,7 +58,7 @@ def _ordered_events(game: GameResult) -> list[GameEvent]:
     *down* before the game clock runs up (see extract._detect_game_start), so sorting by
     it would put a GAME_START event in the wrong place relative to the claims.
     """
-    return sorted(game.events, key=lambda event: event.video_ts_s)
+    return sorted(game.events, key=lambda event: event.video_timestamp)
 
 
 def _check_recorded_winner_matches_board(
@@ -155,8 +155,8 @@ def _check_no_marks_after_win(
             code="mark_after_win",
             message=(
                 f"{len(after)} square(s) marked after {game.winner_color.value} completed "
-                f"{line} at {events[settled].video_ts_s:.1f}s "
-                f"(first at {after[0].video_ts_s:.1f}s)"
+                f"{line} at {events[settled].video_timestamp} "
+                f"(first at {after[0].video_timestamp})"
             ),
             game_index=game.game_index,
         )

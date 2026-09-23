@@ -19,6 +19,7 @@ from scadustats.models import (
     VideoExtraction,
     WinLine,
     WinType,
+    format_video_timestamp,
 )
 
 # File a game type's consolidated squares reference is written to, keyed by GameType --
@@ -61,7 +62,7 @@ def _event_to_dict(event: GameEvent, square_texts: list[list[str]]) -> dict:
         "color": event.color.value if event.color else None,
         "event_type": event.event_type.value,
         "game_timer": _format_hms(event.game_elapsed_s),
-        "video_ts_s": event.video_ts_s,
+        "video_timestamp": event.video_timestamp,
     }
 
 
@@ -171,11 +172,19 @@ def _parse_hms(text: str) -> int:
 
 
 def _dict_to_event(data: dict) -> GameEvent:
+    # "video_timestamp" (issue #109) replaced the older "video_ts_s" raw-seconds key; a
+    # file written before the rename is reformatted on read rather than left unreadable,
+    # the same tolerance every other renamed/reshaped field in this file gets.
+    video_timestamp = (
+        data["video_timestamp"]
+        if "video_timestamp" in data
+        else format_video_timestamp(data["video_ts_s"])
+    )
     return GameEvent(
         row=data["row"],
         col=data["col"],
         color=CellColor(data["color"]) if data["color"] else None,
-        video_ts_s=data["video_ts_s"],
+        video_timestamp=video_timestamp,
         game_elapsed_s=_parse_hms(data["game_timer"]),
         event_type=EventType(data["event_type"]),
     )

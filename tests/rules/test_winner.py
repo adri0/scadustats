@@ -1,6 +1,13 @@
 import pytest
 
-from scadustats.models import CellColor, EventType, GameEvent, WinLine, WinType
+from scadustats.models import (
+    CellColor,
+    EventType,
+    GameEvent,
+    WinLine,
+    WinType,
+    format_video_timestamp,
+)
 from scadustats.rules import winner
 from scadustats.rules.winner import LINES, determine_winner, majority_winner, winning_line
 
@@ -171,13 +178,25 @@ def test_win_line_labels_read_as_prose(win_line, expected):
 
 def test_replay_applies_marks_and_unmarks_to_an_empty_board():
     events = [
-        GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=1.0, game_elapsed_s=1),
-        GameEvent(row=2, col=2, color=CellColor.BLUE, video_ts_s=2.0, game_elapsed_s=2),
         GameEvent(
             row=1,
             col=1,
             color=CellColor.RED,
-            video_ts_s=3.0,
+            video_timestamp=format_video_timestamp(1.0),
+            game_elapsed_s=1,
+        ),
+        GameEvent(
+            row=2,
+            col=2,
+            color=CellColor.BLUE,
+            video_timestamp=format_video_timestamp(2.0),
+            game_elapsed_s=2,
+        ),
+        GameEvent(
+            row=1,
+            col=1,
+            color=CellColor.RED,
+            video_timestamp=format_video_timestamp(3.0),
             game_elapsed_s=3,
             event_type=EventType.UNMARK,
         ),
@@ -196,7 +215,7 @@ def test_replay_ignores_an_event_that_is_not_about_a_square():
         row=None,
         col=None,
         color=None,
-        video_ts_s=1.0,
+        video_timestamp=format_video_timestamp(1.0),
         game_elapsed_s=180,
         event_type=EventType.GAME_START,
     )
@@ -207,7 +226,13 @@ def test_replay_ignores_an_event_that_is_not_about_a_square():
 def _mark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
     """row/col here are 0-based board positions, for readability at call sites --
     converted to the 1-based GameEvent.row/col at construction."""
-    return GameEvent(row=row + 1, col=col + 1, color=color, video_ts_s=ts, game_elapsed_s=int(ts))
+    return GameEvent(
+        row=row + 1,
+        col=col + 1,
+        color=color,
+        video_timestamp=format_video_timestamp(ts),
+        game_elapsed_s=int(ts),
+    )
 
 
 def _unmark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
@@ -215,7 +240,7 @@ def _unmark(row: int, col: int, color: CellColor, ts: float) -> GameEvent:
         row=row + 1,
         col=col + 1,
         color=color,
-        video_ts_s=ts,
+        video_timestamp=format_video_timestamp(ts),
         game_elapsed_s=int(ts),
         event_type=EventType.UNMARK,
     )

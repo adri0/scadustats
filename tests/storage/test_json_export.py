@@ -15,6 +15,7 @@ from scadustats.models import (
     VideoExtraction,
     WinLine,
     WinType,
+    format_video_timestamp,
 )
 from scadustats.storage.json_export import (
     read_squares,
@@ -33,7 +34,15 @@ def _sample_game(game_index: int = 1) -> GameResult:
         start_video_ts_s=0.0,
         end_video_ts_s=100.0,
         square_texts=square_texts,
-        events=[GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)],
+        events=[
+            GameEvent(
+                row=1,
+                col=1,
+                color=CellColor.RED,
+                video_timestamp=format_video_timestamp(10.0),
+                game_elapsed_s=9,
+            )
+        ],
         winner_color=CellColor.RED,
         win_type=WinType.LINE,
         win_line=WinLine.DIAGONAL_BL_TR,
@@ -100,9 +109,23 @@ def test_write_video_creates_file_with_expected_content(tmp_path):
             "color": "red",
             "event_type": "mark",
             "game_timer": "00:00:09",
-            "video_ts_s": 10.0,
+            "video_timestamp": "00:00:10",
         }
     ]
+
+
+def test_read_video_reformats_an_old_style_raw_video_ts_s_key(tmp_path):
+    """ "video_timestamp" (issue #109) replaced the older "video_ts_s" raw-seconds key --
+    a file written before the rename still has to read back, reformatted rather than
+    raising a KeyError."""
+    path = write_video(tmp_path, _sample_extraction())
+    data = json.loads(path.read_text())
+    event = data["games"][0]["events"][0]
+    del event["video_timestamp"]
+    event["video_ts_s"] = 10.0
+    path.write_text(json.dumps(data))
+
+    assert read_video(path).games[0].events[0].video_timestamp == "00:00:10"
 
 
 def test_write_video_includes_every_game_sorted_by_index(tmp_path):
@@ -172,9 +195,27 @@ def test_read_video_handles_a_file_without_num_games(tmp_path):
 def test_write_video_sorts_events_by_game_timer(tmp_path):
     game = _sample_game()
     game.events = [
-        GameEvent(row=2, col=2, color=CellColor.BLUE, video_ts_s=30.0, game_elapsed_s=29),
-        GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9),
-        GameEvent(row=3, col=3, color=CellColor.RED, video_ts_s=20.0, game_elapsed_s=19),
+        GameEvent(
+            row=2,
+            col=2,
+            color=CellColor.BLUE,
+            video_timestamp=format_video_timestamp(30.0),
+            game_elapsed_s=29,
+        ),
+        GameEvent(
+            row=1,
+            col=1,
+            color=CellColor.RED,
+            video_timestamp=format_video_timestamp(10.0),
+            game_elapsed_s=9,
+        ),
+        GameEvent(
+            row=3,
+            col=3,
+            color=CellColor.RED,
+            video_timestamp=format_video_timestamp(20.0),
+            game_elapsed_s=19,
+        ),
     ]
 
     path = write_video(tmp_path, _sample_extraction(games=[game]))
@@ -194,7 +235,7 @@ def test_write_video_serializes_game_start_event_with_null_fields(tmp_path):
             row=None,
             col=None,
             color=None,
-            video_ts_s=1.0,
+            video_timestamp=format_video_timestamp(1.0),
             game_elapsed_s=0,
             event_type=EventType.GAME_START,
         ),
@@ -218,7 +259,7 @@ def test_write_video_serializes_game_end_event_with_null_fields(tmp_path):
             row=None,
             col=None,
             color=None,
-            video_ts_s=30.0,
+            video_timestamp=format_video_timestamp(30.0),
             game_elapsed_s=29,
             event_type=EventType.GAME_END,
         ),
@@ -460,7 +501,7 @@ def test_read_video_round_trips_game_end_event(tmp_path):
             row=None,
             col=None,
             color=None,
-            video_ts_s=30.0,
+            video_timestamp=format_video_timestamp(30.0),
             game_elapsed_s=29,
             event_type=EventType.GAME_END,
         ),
@@ -489,7 +530,7 @@ def test_read_video_round_trips_game_start_event_and_no_url(tmp_path):
             row=None,
             col=None,
             color=None,
-            video_ts_s=1.0,
+            video_timestamp=format_video_timestamp(1.0),
             game_elapsed_s=0,
             event_type=EventType.GAME_START,
         ),

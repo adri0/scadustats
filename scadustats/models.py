@@ -115,6 +115,22 @@ class FractionalBox(NamedTuple):
     bottom: float
 
 
+def format_video_timestamp(seconds: float) -> str:
+    """Render a raw video-offset second count as `hh:mm:ss.ms` for GameEvent.video_timestamp
+    -- the format a contributor hand-reviewing the JSON reads directly, rather than a raw
+    float they'd have to convert in their head (see CLAUDE.md and issue #109). Milliseconds
+    are only appended when the value doesn't fall exactly on a whole second -- the debounced
+    ~1 sample/second events this is built from routinely do, and a trailing `.000` on every
+    one of them would be pure noise.
+    """
+    total_ms = round(seconds * 1000)
+    hours, remainder_ms = divmod(total_ms, 3_600_000)
+    minutes, remainder_ms = divmod(remainder_ms, 60_000)
+    secs, ms = divmod(remainder_ms, 1000)
+    base = f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{base}.{ms:03d}" if ms else base
+
+
 @dataclass
 class VideoInfo:
     width: int
@@ -131,7 +147,16 @@ class GameEvent:
     col: int | None
     # for an UNMARK, the color that was removed; None for GAME_START/GAME_END
     color: CellColor | None
-    video_ts_s: float
+    # `hh:mm:ss.ms` (see format_video_timestamp), milliseconds omitted when the reading
+    # falls exactly on a whole second -- e.g. "00:12:34.500" or "00:12:34". A plain string
+    # rather than a raw float: it's assigned once, at event-construction time from the raw
+    # sample timestamp (see extract.py), and every later use (sorting, JSON/DB storage,
+    # CLI display) either reads it as-is or -- for sorting -- relies on the fixed-width
+    # hh:mm:ss prefix (and the fact that a present-vs-absent `.ms` suffix only ever makes
+    # the shorter, no-milliseconds string sort first, exactly where "no fractional second"
+    # belongs) to keep chronological and lexicographic order the same, so no float version
+    # needs to survive alongside it.
+    video_timestamp: str
     game_elapsed_s: int
     event_type: EventType = EventType.MARK
 
