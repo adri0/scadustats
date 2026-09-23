@@ -155,7 +155,7 @@ def test_prompt_match_date_offers_a_default_when_given(monkeypatch):
 def test_prompt_match_metadata_requires_match_date_when_not_supplied(monkeypatch):
     monkeypatch.setattr("scadustats.cli.app.typer.prompt", lambda *a, **k: "2026-03-05")
 
-    metadata = _prompt_match_metadata(None, 6, MatchType.ROUND_ROBIN, "")
+    metadata = _prompt_match_metadata(None, "6", MatchType.ROUND_ROBIN, "")
 
     assert metadata.match_date == datetime.date(2026, 3, 5)
 

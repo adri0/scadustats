@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from scadustats.models import GameType, MatchRecord, PlayerStats, SquareMarks, WinLoss
+from scadustats.models import PlayerStats
 
 
 def player_stats_path(players_dir: str | Path, slug: str) -> Path:
@@ -24,26 +24,15 @@ def player_stats_path(players_dir: str | Path, slug: str) -> Path:
 
 
 def _stats_to_dict(stats: PlayerStats) -> dict:
-    return {
-        "slug": stats.slug,
-        "display_name": stats.display_name,
-        "season_records": {
-            season: {"wins": record.wins, "losses": record.losses, "draws": record.draws}
-            for season, record in sorted(stats.season_records.items())
-        },
-        "game_record": {"wins": stats.game_record.wins, "losses": stats.game_record.losses},
-        "game_type_records": {
-            game_type.value: {"wins": record.wins, "losses": record.losses}
-            for game_type, record in stats.game_type_records.items()
-        },
-        "all_matches": stats.all_matches,
-        "top_squares_base_game": [
-            {"text": square.text, "marks": square.marks} for square in stats.top_squares_base_game
-        ],
-        "top_squares_dlc": [
-            {"text": square.text, "marks": square.marks} for square in stats.top_squares_dlc
-        ],
-    }
+    """model_dump(mode="json") already gives every field in models.PlayerStats's own
+    declaration order (matching the sort_keys=False below) with game_type_records' GameType
+    keys turned into their plain string value -- season_records is the one thing still
+    worth a manual pass, sorted by season here rather than left in whatever order it was
+    built in, for a stable, diffable file.
+    """
+    dumped = stats.model_dump(mode="json")
+    dumped["season_records"] = dict(sorted(dumped["season_records"].items()))
+    return dumped
 
 
 def write_player_stats(players_dir: str | Path, stats: PlayerStats) -> Path:
@@ -64,45 +53,18 @@ def write_player_stats(players_dir: str | Path, stats: PlayerStats) -> Path:
     return path
 
 
-def _dict_to_square_marks(entry: dict | str) -> SquareMarks:
-    """One top_squares_base_game/top_squares_dlc entry -- a plain text string, for a file
-    written before mark counts were recorded here, reads back as an unknown (zero) count
-    rather than failing to parse; every field consolidate_players fills in here is
-    wholly regenerated on the next `player consolidate` run anyway (see PlayerStats),
-    so a stale mark count surviving even one extra run costs nothing."""
-    if isinstance(entry, str):
-        return SquareMarks(text=entry, marks=0)
-    return SquareMarks(**entry)
-
-
-def _dict_to_stats(data: dict) -> PlayerStats:
-    return PlayerStats(
-        slug=data["slug"],
-        display_name=data["display_name"],
-        season_records={
-            season: MatchRecord(**record)
-            for season, record in data.get("season_records", {}).items()
-        },
-        game_record=WinLoss(**data["game_record"]) if data.get("game_record") else WinLoss(),
-        game_type_records={
-            GameType(game_type): WinLoss(**record)
-            for game_type, record in data.get("game_type_records", {}).items()
-        },
-        all_matches=data.get("all_matches", []),
-        top_squares_base_game=[
-            _dict_to_square_marks(square) for square in data.get("top_squares_base_game", [])
-        ],
-        top_squares_dlc=[
-            _dict_to_square_marks(square) for square in data.get("top_squares_dlc", [])
-        ],
-    )
-
-
 def read_player_stats(path: str | Path) -> PlayerStats:
     """Inverse of write_player_stats: parses one player's YAML stats file back into the
-    PlayerStats it was serialized from."""
+    PlayerStats it was serialized from.
+
+    Every field but slug/display_name is optional here -- a file written before it existed
+    (season_records/game_record/game_type_records/all_matches/top_squares_base_game/
+    top_squares_dlc all postdate the very first version of this file) reads back as that
+    field's own empty default rather than a KeyError, and a legacy plain-text top_squares
+    entry is normalized to a zero mark count -- see PlayerStats's own validation.
+    """
     data = yaml.safe_load(Path(path).read_text())
-    return _dict_to_stats(data)
+    return PlayerStats.model_validate(data)
 
 
 def read_players_stats(players_dir: str | Path) -> dict[str, PlayerStats]:
