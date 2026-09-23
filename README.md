@@ -86,7 +86,12 @@ Given a `match_id`, it reconciles just that match; with none, it walks every mat
 
 ### Player data
 
-`player consolidate` rebuilds one YAML file per player under `<data_dir>/players/<slug>.yaml`: their win/loss record (per season, and overall/per game type for individual games), every match they've played (most recent first), and their 5 most-claimed squares per game type, each with its mark count and other statistics. `id` is assigned once, the first time a player is seen, and kept stable after that; `twitch`/`avatar`/`bio` are never set by the tool — fill those in by hand and they survive every later re-run. Given a `match_id`, only that match's two players are written.
+`player consolidate` gives each player their own `<data_dir>/players/<slug>/` directory, holding two files:
+
+- `stats.yaml`: their win/loss record (per season, and overall/per game type for individual games), every match they've played (most recent first), and their 5 most-claimed squares per game type, each with its mark count. Wholly regenerated every run -- this file is gitignored along with the rest of `data_dir`, it's disposable output re-derived from match history each time.
+- `info.yaml`: just an `id`, assigned once for a newly seen player and kept stable after that. `twitch`/`avatar`/`bio` are never set by the tool at all -- fill those in by hand once the file exists, and this command never touches an existing player's `info.yaml` again, so hand edits always survive a re-run. Unlike `stats.yaml`, this one file is carved back out of `.gitignore` and meant to be committed to the repo.
+
+Given a `match_id`, only that match's two players get their directories written/updated.
 
 ## Troubleshooting
 

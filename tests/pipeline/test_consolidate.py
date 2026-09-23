@@ -9,7 +9,7 @@ from scadustats.models import (
     GameResult,
     GameType,
     MatchType,
-    PlayerProfile,
+    PlayerInfo,
     Square,
     SquareMarks,
     VideoExtraction,
@@ -18,6 +18,7 @@ from scadustats.models import (
 )
 from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
+    consolidate_player_info,
     consolidate_players,
     find_square_issues,
     validate_squares,
@@ -473,15 +474,14 @@ def test_consolidate_match_squares_only_matches_within_the_games_own_game_type_p
     assert known[GameType.DLC] == [Square(id="id_0", text="Kill Borealis", game_type=GameType.DLC)]
 
 
-def test_consolidate_players_assigns_incrementing_ids_by_slug():
+def test_consolidate_players_computes_slug_and_display_name():
     extraction = _extraction(_game(GameType.BASE), player_red_name="alice", player_blue_name="bob")
 
     profiles = consolidate_players([extraction])
 
-    assert profiles["alice"].id == 1
     assert profiles["alice"].slug == "alice"
     assert profiles["alice"].display_name == "alice"
-    assert profiles["bob"].id == 2
+    assert profiles["bob"].slug == "bob"
 
 
 def test_consolidate_players_slugifies_the_name():
@@ -678,31 +678,29 @@ def test_consolidate_players_separates_top_squares_by_game_type():
     assert profiles["alice"].top_squares_dlc == [SquareMarks(text="DLC goal", marks=1)]
 
 
-def test_consolidate_players_preserves_manual_fields_from_existing_profile():
+def test_consolidate_player_info_assigns_incrementing_ids_by_slug():
+    info = consolidate_player_info({"bob", "alice"})
+
+    assert info["alice"].id == 1
+    assert info["alice"].slug == "alice"
+    assert info["bob"].id == 2
+
+
+def test_consolidate_player_info_leaves_existing_entries_untouched():
     existing = {
-        "alice": PlayerProfile(
-            id=7,
-            slug="alice",
-            display_name="alice",
-            twitch="alice",
-            avatar="alice.png",
-            bio="hand-written bio",
+        "alice": PlayerInfo(
+            id=7, slug="alice", twitch="alice", avatar="alice.png", bio="hand-written bio"
         )
     }
-    extraction = _extraction(player_blue_name=None)
 
-    profiles = consolidate_players([extraction], existing=existing)
+    info = consolidate_player_info({"alice"}, existing=existing)
 
-    assert profiles["alice"].id == 7
-    assert profiles["alice"].twitch == "alice"
-    assert profiles["alice"].avatar == "alice.png"
-    assert profiles["alice"].bio == "hand-written bio"
+    assert info == {}
 
 
-def test_consolidate_players_assigns_a_new_id_after_existing_ones():
-    existing = {"alice": PlayerProfile(id=5, slug="alice", display_name="alice")}
-    extraction = _extraction(player_red_name=None, player_blue_name="charlie")
+def test_consolidate_player_info_assigns_a_new_id_after_existing_ones():
+    existing = {"alice": PlayerInfo(id=5, slug="alice")}
 
-    profiles = consolidate_players([extraction], existing=existing)
+    info = consolidate_player_info({"alice", "charlie"}, existing=existing)
 
-    assert profiles["charlie"].id == 6
+    assert info == {"charlie": PlayerInfo(id=6, slug="charlie")}

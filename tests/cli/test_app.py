@@ -20,7 +20,7 @@ from scadustats.models import (
     GameType,
     MatchMetadata,
     MatchType,
-    PlayerProfile,
+    PlayerInfo,
     Square,
     VideoExtraction,
     WinLine,
@@ -29,7 +29,8 @@ from scadustats.models import (
 )
 from scadustats.pipeline.extract import ExtractionSummary
 from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
-from scadustats.storage.player_export import player_path, read_player, read_players, write_player
+from scadustats.storage.player_info import player_info_path, read_player_info, write_player_info
+from scadustats.storage.player_stats import player_stats_path, read_player_stats, read_players_stats
 from scadustats.video.download import DownloadResult
 
 
@@ -1413,7 +1414,7 @@ def test_no_player_subcommand_prints_the_group_command_list():
     assert "Missing command" not in result.output
 
 
-def test_player_consolidate_writes_a_file_per_player(tmp_path):
+def test_player_consolidate_writes_a_dir_per_player(tmp_path):
     data_dir = tmp_path / "data"
     write_video(data_dir, _sample_extraction())
 
@@ -1421,10 +1422,13 @@ def test_player_consolidate_writes_a_file_per_player(tmp_path):
 
     assert result.exit_code == 0, result.output
     players_dir = data_dir / "players"
-    assert (players_dir / "alice.yaml").exists()
-    assert (players_dir / "bob.yaml").exists()
-    assert str(players_dir / "alice.yaml") in result.output
-    assert str(players_dir / "bob.yaml") in result.output
+    assert (players_dir / "alice" / "stats.yaml").exists()
+    assert (players_dir / "bob" / "stats.yaml").exists()
+    assert str(players_dir / "alice" / "stats.yaml") in result.output
+    assert str(players_dir / "bob" / "stats.yaml") in result.output
+    assert (players_dir / "alice" / "info.yaml").exists()
+    assert (players_dir / "bob" / "info.yaml").exists()
+    assert "new player" in result.output
 
 
 def test_player_consolidate_reports_when_directory_has_no_matches(tmp_path):
@@ -1434,21 +1438,22 @@ def test_player_consolidate_reports_when_directory_has_no_matches(tmp_path):
     assert "No matches found" in result.output
 
 
-def test_player_consolidate_preserves_hand_filled_fields_across_a_rerun(tmp_path):
+def test_player_consolidate_never_overwrites_an_existing_players_info_file(tmp_path):
     data_dir = tmp_path / "data"
     players_dir = data_dir / "players"
     write_video(data_dir, _sample_extraction())
-    write_player(
-        players_dir,
-        PlayerProfile(id=42, slug="alice", display_name="alice", twitch="alice"),
-    )
+    write_player_info(players_dir, PlayerInfo(id=42, slug="alice", twitch="alice"))
 
     result = CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
 
     assert result.exit_code == 0, result.output
-    updated = read_player(player_path(players_dir, "alice"))
+    updated = read_player_info(player_info_path(players_dir, "alice"))
     assert updated.id == 42
     assert updated.twitch == "alice"
+    # bob is new (gets his own info file created), but alice already had one --
+    # nothing should report her as newly created.
+    assert f"{player_info_path(players_dir, 'alice')}: new player" not in result.output
+    assert f"{player_info_path(players_dir, 'bob')}: new player" in result.output
 
 
 def test_player_consolidate_reflects_current_match_history(tmp_path):
@@ -1457,7 +1462,7 @@ def test_player_consolidate_reflects_current_match_history(tmp_path):
 
     CliRunner().invoke(app, ["player", "consolidate", "--data-dir", str(data_dir)])
 
-    players = read_players(data_dir / "players")
+    players = read_players_stats(data_dir / "players")
     assert players["alice"].all_matches == ["2026-03-05-alice-vs-bob"]
 
 
@@ -1480,17 +1485,17 @@ def test_player_consolidate_with_a_match_id_writes_only_that_matchs_players(tmp_
 
     assert result.exit_code == 0, result.output
     players_dir = data_dir / "players"
-    assert (players_dir / "alice.yaml").exists()
-    assert (players_dir / "bob.yaml").exists()
-    assert not (players_dir / "carol.yaml").exists()
-    assert not (players_dir / "dave.yaml").exists()
-    assert str(players_dir / "alice.yaml") in result.output
+    assert (players_dir / "alice" / "stats.yaml").exists()
+    assert (players_dir / "bob" / "stats.yaml").exists()
+    assert not (players_dir / "carol").exists()
+    assert not (players_dir / "dave").exists()
+    assert str(players_dir / "alice" / "stats.yaml") in result.output
     assert "carol" not in result.output
 
 
 def test_player_consolidate_with_a_match_id_still_reflects_full_match_history(tmp_path):
     """The match_id-scoped path only narrows which files get *written* -- alice's
-    profile is still computed across every match she's played, not just this one."""
+    stats are still computed across every match she's played, not just this one."""
     data_dir = tmp_path / "data"
     write_video(data_dir, _sample_extraction())
     write_video(
@@ -1507,7 +1512,7 @@ def test_player_consolidate_with_a_match_id_still_reflects_full_match_history(tm
     )
 
     assert result.exit_code == 0, result.output
-    alice = read_player(player_path(data_dir / "players", "alice"))
+    alice = read_player_stats(player_stats_path(data_dir / "players", "alice"))
     assert set(alice.all_matches) == {"2026-03-05-alice-vs-bob", "2026-04-01-alice-vs-carol"}
 
 
@@ -1552,8 +1557,10 @@ def test_match_consolidate_runs_square_then_player_consolidate(tmp_path):
     assert (squares_dir / "base_game.json").exists()
     assert (squares_dir / "dlc.json").exists()
     players_dir = data_dir / "players"
-    assert (players_dir / "alice.yaml").exists()
-    assert (players_dir / "bob.yaml").exists()
+    assert (players_dir / "alice" / "stats.yaml").exists()
+    assert (players_dir / "bob" / "stats.yaml").exists()
+    assert (players_dir / "alice" / "info.yaml").exists()
+    assert (players_dir / "bob" / "info.yaml").exists()
 
 
 def test_match_consolidate_errors_on_unknown_match_id(tmp_path):
@@ -1595,7 +1602,7 @@ def test_match_consolidate_reflects_square_corrections_in_player_top_squares(tmp
     )
 
     assert result.exit_code == 0, result.output
-    alice = read_player(player_path(data_dir / "players", "alice"))
+    alice = read_player_stats(player_stats_path(data_dir / "players", "alice"))
     texts = [square.text for square in alice.top_squares_base_game]
     assert "Kill 3 Friendly NPCs (No Hermit Merchants)" in texts
     assert "Kilt 3 Friendly NPCs (No Hermit Merchants)" not in texts
@@ -1633,8 +1640,10 @@ def test_extract_consolidate_runs_after_a_clean_extraction(tmp_path, monkeypatch
     assert result.exit_code == 0, result.output
     assert "consolidation" in result.output
     assert (data_dir / "squares" / "base_game.json").exists()
-    assert (data_dir / "players" / "alice.yaml").exists()
-    assert (data_dir / "players" / "bob.yaml").exists()
+    assert (data_dir / "players" / "alice" / "stats.yaml").exists()
+    assert (data_dir / "players" / "bob" / "stats.yaml").exists()
+    assert (data_dir / "players" / "alice" / "info.yaml").exists()
+    assert (data_dir / "players" / "bob" / "info.yaml").exists()
 
 
 def test_extract_consolidate_skips_when_validation_has_issues(tmp_path, monkeypatch):

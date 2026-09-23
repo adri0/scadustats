@@ -12,7 +12,16 @@ downloads/
 .vscode
 *.duckdb
 calibration.png
-data/
+# The whole of data/ is disposable, regenerable output, except each player's own
+# info.yaml (see storage.player_info, issue #82) -- hand-curated content meant to be
+# committed. Git can't re-include a file under an excluded directory, so every
+# intermediate level has to be carved back out in turn: data/ itself, then
+# data/players/, then (once data/players/*/* has re-excluded everything inside each
+# player's own directory) info.yaml specifically.
+data/*
+!data/players/
+data/players/*/*
+!data/players/*/info.yaml
 youtube_cookies.txt
 .envrc
 .claude

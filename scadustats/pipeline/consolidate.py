@@ -16,13 +16,16 @@ from an empty reference -- cli.app.square_consolidate is what loops it, so there
 separate whole-history function here to keep in step with it.
 
 consolidate_players (issue #72) builds the analogous per-player reference -- one
-consolidated profile per player, covering every match they've appeared in -- for
-`player consolidate` (see storage.player_export).
+consolidated stats record per player, covering every match they've appeared in -- for
+`player consolidate` (see storage.player_stats). consolidate_player_info (issue #82) is
+its sibling for the hand-curated half of a player's profile (storage.player_info): it
+only ever assigns a brand-new player's id, never touching one that already exists.
 """
 
 import difflib
 import re
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
@@ -32,7 +35,8 @@ from scadustats.models import (
     GameType,
     MatchRecord,
     MatchWinner,
-    PlayerProfile,
+    PlayerInfo,
+    PlayerStats,
     Square,
     SquareMarks,
     VideoExtraction,
@@ -437,25 +441,46 @@ def _top_squares(counts: Counter[str], limit: int = 5) -> list[SquareMarks]:
     return [SquareMarks(text=text, marks=count) for text, count in ranked[:limit]]
 
 
-def consolidate_players(
-    extractions: list[VideoExtraction],
-    existing: dict[str, PlayerProfile] | None = None,
-) -> dict[str, PlayerProfile]:
-    """Every player's consolidated profile (see models.PlayerProfile) across
-    `extractions`, keyed by slug (see slugify_name) -- the source data for `player
-    consolidate` (storage.player_export.write_player, issue #72).
+def consolidate_player_info(
+    slugs: Iterable[str], existing: dict[str, PlayerInfo] | None = None
+) -> dict[str, PlayerInfo]:
+    """A freshly assigned models.PlayerInfo for every slug in `slugs` not already in
+    `existing` -- the identity half of a player's profile that, once created,
+    pipeline.consolidate never touches again (see PlayerInfo, issue #82).
+
+    Only ever returns *new* entries: a PlayerInfo already in `existing` is hand-owned
+    from the moment it was written (storage.player_info.write_player_info won't
+    overwrite one either), so a caller has nothing to do for it but leave it alone.
+
+    ids are assigned in slug order, starting one past whatever id `existing` already
+    uses (1 if `existing` is empty) -- the same scheme consolidate_players' own id
+    assignment used before this split.
+    """
+    existing = existing or {}
+    next_id = max((info.id for info in existing.values()), default=0) + 1
+
+    new_info: dict[str, PlayerInfo] = {}
+    for slug in sorted(set(slugs) - existing.keys()):
+        new_info[slug] = PlayerInfo(id=next_id, slug=slug)
+        next_id += 1
+    return new_info
+
+
+def consolidate_players(extractions: list[VideoExtraction]) -> dict[str, PlayerStats]:
+    """Every player's consolidated stats (see models.PlayerStats) across `extractions`,
+    keyed by slug (see slugify_name) -- the source data for `player consolidate`
+    (storage.player_stats.write_player_stats, issue #72).
 
     Two OCR'd name strings that slugify the same are treated as the same player, and
     display_name is that player's most commonly seen exact spelling across every match
     they appear in -- the same majority-vote shape overlay.commentators.
     majority_commentator_names uses for its own static, per-broadcast text reads.
 
-    `existing` (storage.player_export.read_players' output) carries forward the one thing
-    that can't be recomputed from match history -- id -- plus the fields the tool never
-    fills in at all (twitch/avatar/bio); a slug not already in `existing` is a new
-    player, assigned the next id after whatever's already in use (1 if `existing` is
-    empty). Everything else here is wholly regenerated from `extractions` every call, the
-    same as a from-scratch `square consolidate` run's reference.
+    Wholly regenerated from `extractions` every call, the same as a from-scratch
+    `square consolidate` run's reference -- there's no `existing` to carry anything
+    forward from, unlike consolidate_player_info's identity half of a player's profile
+    (issue #82): every field here is derived from match history, with nothing hand-owned
+    to protect.
 
     A match whose winner can't be named (VideoExtraction.winner is None -- see its own
     docstring) contributes nothing to season_records, and a game with no winner_color
@@ -463,9 +488,6 @@ def consolidate_players(
     both cases there's no result yet to attribute to either player, so guessing one would
     be inventing data the same way VideoExtraction.winner itself declines to.
     """
-    existing = existing or {}
-    next_id = max((profile.id for profile in existing.values()), default=0) + 1
-
     name_votes: dict[str, Counter[str]] = {}
     season_records: dict[str, dict[str, MatchRecord]] = {}
     game_records: dict[str, WinLoss] = {}
@@ -524,25 +546,13 @@ def consolidate_players(
                             if text:
                                 marks[text] += 1
 
-    profiles: dict[str, PlayerProfile] = {}
+    stats: dict[str, PlayerStats] = {}
     for slug in sorted(name_votes):
-        prior = existing.get(slug)
-        if prior is not None:
-            player_id = prior.id
-            twitch, avatar, bio = prior.twitch, prior.avatar, prior.bio
-        else:
-            player_id, next_id = next_id, next_id + 1
-            twitch = avatar = bio = None
-
         ordered_matches = sorted(all_matches[slug], key=lambda pair: pair[0], reverse=True)
 
-        profiles[slug] = PlayerProfile(
-            id=player_id,
+        stats[slug] = PlayerStats(
             slug=slug,
             display_name=name_votes[slug].most_common(1)[0][0],
-            twitch=twitch,
-            avatar=avatar,
-            bio=bio,
             season_records=season_records.get(slug, {}),
             game_record=game_records.get(slug, WinLoss()),
             game_type_records=game_type_records.get(slug, {}),
@@ -552,4 +562,4 @@ def consolidate_players(
             ),
             top_squares_dlc=_top_squares(square_marks.get(slug, {}).get(GameType.DLC, Counter())),
         )
-    return profiles
+    return stats
