@@ -2,6 +2,7 @@
 
 import enum
 import threading
+from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date
 from importlib.metadata import version as _pkg_version
@@ -504,13 +505,20 @@ def _read_matches(data_dir: Path) -> list[VideoExtraction]:
     season subdirectory's name (free text, not necessarily a sortable number) would not
     sort that way against another season's.
     """
-    extractions = []
+    return [extraction for _, extraction in _iter_matches(data_dir)]
+
+
+def _iter_matches(data_dir: Path) -> Iterator[tuple[Path, VideoExtraction]]:
+    """Like _read_matches, but yields each match's path alongside it -- for
+    `match validate`, which needs the path in hand to check a match's own match_id
+    against the file it's actually named (validation.validate_extraction's
+    match_id_filename_mismatch rule). Every other reader of the match history doesn't
+    need the path back, so _read_matches stays the one they call."""
     for path in sorted(_matches_dir(data_dir).rglob("*.json"), key=lambda p: p.name):
         try:
-            extractions.append(read_video(path))
+            yield path, read_video(path)
         except (KeyError, ValueError) as exc:
             typer.echo(f"Skipping {path.name}: {exc}", err=True)
-    return extractions
 
 
 def _find_existing_match(data_dir: Path, link: str) -> VideoExtraction | None:
@@ -559,7 +567,7 @@ def match_list(
     typer.echo(f"\n{count} match{'es' if count != 1 else ''}")
 
 
-def _echo_validation(extraction: VideoExtraction) -> bool:
+def _echo_validation(extraction: VideoExtraction, path: Path | None = None) -> bool:
     """Echoes one match's validation result -- green "ok", or red "N issues" with each
     issue's scope and rule code beneath it -- and reports whether any were found.
 
@@ -567,8 +575,13 @@ def _echo_validation(extraction: VideoExtraction) -> bool:
     (this one match, appended after its own report) -- built directly here rather than
     through display.py for the same reason match_validate's own output always has been:
     it's a diagnostic report on the JSON, not a presentation of it (see CLAUDE.md).
+
+    `path` is the file `extraction` was read from, passed through to
+    validate_extraction for its match_id_filename_mismatch rule -- both call sites have
+    one in hand, so it's always given in practice, but stays optional to match
+    validate_extraction's own default.
     """
-    issues = validate_extraction(extraction)
+    issues = validate_extraction(extraction, path)
     if not issues:
         mark = typer.style("✓", fg=typer.colors.GREEN)
         status = typer.style("ok", fg=typer.colors.GREEN, bold=True)
@@ -609,20 +622,55 @@ def match_validate(
     extractions. A clean match is marked green, an issue red -- typer.echo (via click)
     strips the color codes automatically when the output isn't a terminal (piped to a
     file, or under CliRunner in tests), so this doesn't need its own --no-color flag.
+
+    Rules checked, match-level ones first:
+
+    - match_id_filename_mismatch: the file's name doesn't match its own match_id
+
+    - game_count: wrong number of games for the match type
+
+    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc
+
+    - match_outcome_undetermined: some game has no winner recorded
+
+    - double_elimination_draw: a double-elimination match can't end in a draw
+
+    - missing_decider_game: the first two games split but no game 3 follows
+
+    - unnecessary_decider_game: the match was already decided but a game 3 follows
+
+    Then each game's own:
+
+    - winner_board_mismatch: the recorded result disagrees with the replayed board
+
+    - win_line_not_recorded: a line win has no win_line (re-extract to fill it in)
+
+    - game_start_count: a game doesn't have exactly one game_start event
+
+    - first_event_not_game_start: the first event isn't game_start
+
+    - last_event_not_game_end: the last event isn't game_end
+
+    - events_not_sorted: events aren't sorted by ascending video_timestamp
+
+    - game_timer_not_monotonic: game_timer decreases somewhere in the game
+
+    - mark_after_win: a square was marked after a line win completed
     """
     if match_id is not None:
-        extractions = [read_video(_match_path(data_dir, match_id))]
+        path = _match_path(data_dir, match_id)
+        extractions = [(path, read_video(path))]
     else:
-        extractions = _read_matches(data_dir)
+        extractions = list(_iter_matches(data_dir))
         if not extractions:
             typer.echo(f"No matches found in {_matches_dir(data_dir)}")
             return
 
     checked = 0
     with_issues = 0
-    for extraction in extractions:
+    for path, extraction in extractions:
         checked += 1
-        if _echo_validation(extraction):
+        if _echo_validation(extraction, path):
             with_issues += 1
 
     if checked > 1:
@@ -657,12 +705,13 @@ def match_show(
     support is visible right next to it -- the validation result at the end is what
     states that in so many words.
     """
-    extraction = read_video(_match_path(data_dir, match_id))
+    path = _match_path(data_dir, match_id)
+    extraction = read_video(path)
     for line in render_match(extraction, events=events):
         typer.echo(line)
     typer.echo()
     typer.echo(typer.style("validation", bold=True))
-    _echo_validation(extraction)
+    _echo_validation(extraction, path)
 
 
 square_app = typer.Typer(

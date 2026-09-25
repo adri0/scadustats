@@ -1034,6 +1034,14 @@ def _valid_match_extraction(**overrides) -> VideoExtraction:
                     )
                     for col in range(5)
                 ),
+                GameEvent(
+                    row=None,
+                    col=None,
+                    color=None,
+                    video_timestamp=format_video_timestamp(5.0),
+                    game_elapsed_s=4,
+                    event_type=EventType.GAME_END,
+                ),
             ],
             winner_color=color,
             win_type=WinType.LINE,
@@ -1109,6 +1117,23 @@ def test_validate_skips_unparseable_files_with_a_warning(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Skipping old-format.json" in result.output
     assert "2026-03-05-alice-vs-bob: ok" in result.output
+
+
+def test_validate_reports_a_file_renamed_out_of_sync_with_its_match_id(tmp_path):
+    """write_video always names a match's file after its own match_id (see
+    json_export.video_path) -- a mismatch only happens after the fact, e.g. a manual
+    rename or a hand-edited match_id, which this simulates by renaming the file write_video
+    just wrote."""
+    write_video(tmp_path, _valid_match_extraction())
+    original = tmp_path / "matches" / "season-6" / "2026-03-05-alice-vs-bob.json"
+    renamed = original.with_name("renamed-by-hand.json")
+    original.rename(renamed)
+
+    result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "[match_id_filename_mismatch]" in result.output
+    assert "renamed-by-hand.json" in result.output
 
 
 def test_validate_reports_when_directory_has_no_matches(tmp_path):

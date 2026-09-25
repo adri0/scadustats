@@ -12,6 +12,7 @@ match), game-level rules are about one game's own events and board.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from scadustats.models import (
     CellColor,
@@ -109,6 +110,102 @@ def _check_recorded_winner_matches_board(
     ]
 
 
+def _check_events_sorted(game: GameResult) -> list[ValidationIssue]:
+    """Rule: events must be stored in ascending video_timestamp order -- the order a
+    contributor hand-reviewing the JSON reads them in, and the order chronological
+    replay assumes. Checked against the raw, on-disk list (game.events) rather than the
+    chronologically reordered copy every other check here works from (_ordered_events):
+    this rule is specifically about that reordering being unnecessary in the first
+    place."""
+    timestamps = [event.video_timestamp for event in game.events]
+    if timestamps == sorted(timestamps):
+        return []
+    return [
+        ValidationIssue(
+            code="events_not_sorted",
+            message="events are not sorted by ascending video_timestamp",
+            game_index=game.game_index,
+        )
+    ]
+
+
+def _check_first_event_is_game_start(
+    game: GameResult, events: list[GameEvent]
+) -> list[ValidationIssue]:
+    """Rule: the first event in chronological order must be game_start -- anything
+    claimed or unclaimed before the game clock is confirmed running (see
+    extract._detect_game_start) means the segment boundary is probably wrong, or
+    game_start itself was never detected."""
+    if not events or events[0].event_type is EventType.GAME_START:
+        return []
+    return [
+        ValidationIssue(
+            code="first_event_not_game_start",
+            message=(
+                f"expected the first event to be game_start, found {events[0].event_type.value}"
+            ),
+            game_index=game.game_index,
+        )
+    ]
+
+
+def _check_last_event_is_game_end(
+    game: GameResult, events: list[GameEvent], states: list[Board]
+) -> list[ValidationIssue]:
+    """Rule: a game that ends on a completed line should end on its own GAME_END marker
+    (see extract._detect_game_end). Only checked for a LINE win, the same exemption
+    _check_no_marks_after_win has and for the same reason: a MAJORITY win is decided the
+    instant a lead becomes mathematically unbeatable, which -- unlike a completed line
+    -- isn't a structural stopping point, so marks can legitimately continue being
+    recorded after it and there's no guarantee the last event is (or should be) its
+    GAME_END. Also skipped, the same as that rule, when the settling event can't be
+    found or wasn't itself a MARK (an UNMARK can't complete a line) -- there's nothing
+    for extract._detect_game_end to have emitted a GAME_END for in the first place."""
+    if game.win_type is not WinType.LINE or game.winner_color is None:
+        return []
+    settled = winner.settled_result_index(states, game.winner_color, WinType.LINE)
+    if settled is None or events[settled].event_type is not EventType.MARK:
+        return []
+    if not events or events[-1].event_type is EventType.GAME_END:
+        return []
+    return [
+        ValidationIssue(
+            code="last_event_not_game_end",
+            message=(
+                f"expected the last event to be game_end, found {events[-1].event_type.value}"
+            ),
+            game_index=game.game_index,
+        )
+    ]
+
+
+def _check_game_timer_monotonic(game: GameResult, events: list[GameEvent]) -> list[ValidationIssue]:
+    """Rule: the overlay's stopwatch must never go backward across a game's events in
+    chronological order -- game_timer in the JSON (GameEvent.game_elapsed_s on the
+    model; see json_export._dict_to_event/_event_to_dict for the reshaping between the
+    two). The pre-game countdown that ticks down is over by game_start (see
+    extract._detect_game_start), so every event from there on should only ever read a
+    later, larger clock value -- a decrease means two events were misordered or the
+    timer was misread on one of them. Reports only the first decrease found, the same
+    "point at the one real problem" shape _check_game_count etc. already have. The
+    message names game_timer, not game_elapsed_s: that's the key a contributor
+    hand-reviewing the JSON actually sees."""
+    for prev, curr in zip(events, events[1:], strict=False):
+        if curr.game_elapsed_s < prev.game_elapsed_s:
+            return [
+                ValidationIssue(
+                    code="game_timer_not_monotonic",
+                    message=(
+                        f"game_timer went from {prev.game_elapsed_s}s at "
+                        f"{prev.video_timestamp} to {curr.game_elapsed_s}s at "
+                        f"{curr.video_timestamp}"
+                    ),
+                    game_index=game.game_index,
+                )
+            ]
+    return []
+
+
 def _check_single_game_start(game: GameResult) -> list[ValidationIssue]:
     """Rule: exactly one GAME_START event per game. Zero means the clock's countdown-to-
     game-clock turn was never seen (footage starting mid-game, or a missed dip); more than
@@ -174,6 +271,10 @@ def validate_game(game: GameResult) -> list[ValidationIssue]:
     return [
         *_check_recorded_winner_matches_board(game, states),
         *_check_single_game_start(game),
+        *_check_first_event_is_game_start(game, events),
+        *_check_last_event_is_game_end(game, events, states),
+        *_check_events_sorted(game),
+        *_check_game_timer_monotonic(game, events),
         *_check_no_marks_after_win(game, events, states),
     ]
 
@@ -289,9 +390,40 @@ def _check_decider_game(extraction: VideoExtraction) -> list[ValidationIssue]:
     return []
 
 
-def validate_extraction(extraction: VideoExtraction) -> list[ValidationIssue]:
+def _check_match_id_matches_filename(
+    extraction: VideoExtraction, path: Path | None
+) -> list[ValidationIssue]:
+    """Rule: the file's own name must match the match_id recorded inside it.
+    json_export.write_video always names a fresh extraction's file after its match_id
+    (see json_export.video_path), so a mismatch means the file was renamed, or match_id
+    was hand-edited, after the fact -- and every command that looks a match up by
+    filename (match show, match validate <match_id>, square/player consolidate
+    <match_id> -- see cli._match_path) would then silently return a VideoExtraction
+    whose own match_id disagrees with the id that was actually asked for.
+
+    Only checked when a path is given: nothing about the JSON payload itself says what
+    file it lives in, so a caller with no path in hand (a VideoExtraction built
+    in-memory, e.g. in tests) gets no complaint from this rule.
+    """
+    if path is None or path.stem == extraction.match_id:
+        return []
+    return [
+        ValidationIssue(
+            code="match_id_filename_mismatch",
+            message=f"file is named {path.name!r} but match_id is {extraction.match_id!r}",
+        )
+    ]
+
+
+def validate_extraction(
+    extraction: VideoExtraction, path: Path | None = None
+) -> list[ValidationIssue]:
     """Every rule violation found in one extracted match, match-level rules first and
     then each game's own, in game order. An empty list means the match looks valid.
+
+    `path` is the file this extraction was read from, if known -- passed through only
+    for _check_match_id_matches_filename, which is the one rule here that needs to know
+    anything about the filesystem rather than just the JSON payload.
 
     The extraction isn't mutated -- games are sorted into index order for checking (the
     order rules only mean anything against that) without touching the caller's object.
@@ -304,6 +436,7 @@ def validate_extraction(extraction: VideoExtraction) -> list[ValidationIssue]:
         update={"games": sorted(extraction.games, key=lambda g: g.game_index)}
     )
     issues = [
+        *_check_match_id_matches_filename(ordered, path),
         *_check_game_count(ordered),
         *_check_opening_game_types(ordered),
         *_check_match_outcome(ordered),
