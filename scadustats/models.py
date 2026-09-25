@@ -1,9 +1,28 @@
-"""Shared types used across the extraction pipeline."""
+"""Shared types used across the extraction pipeline.
 
-from dataclasses import dataclass, field
+The models that get persisted as JSON/YAML data files (everything from GameEvent down to
+PlayerStats below) are pydantic BaseModels rather than plain dataclasses -- validation on
+construction (an enum value that isn't one of its members, a date string that doesn't
+parse, ...) catches a malformed hand-edit or a programming mistake at the point a model is
+built, rather than letting a bad value silently ride along until something downstream
+trips over it. Pydantic's own (de)serialization (`model_dump(mode="json")`/
+`model_validate`) also replaces most of the hand-written dict-munging that used to live in
+storage/json_export.py, storage/player_info.py and storage/player_stats.py: enum <->
+string and date <-> ISO-string conversion, and Optional-field defaulting for a key an
+older file doesn't have, all happen for free instead of being spelled out per field at
+every read/write call site. Purely in-memory value objects that are never round-tripped
+through a dict/JSON/YAML (VideoInfo, segmentation.Observation, validation.ValidationIssue,
+consolidate.SquareValidationIssue/SquareTextChange, extract.ExtractionSummary,
+video.download.DownloadResult) are deliberately left as plain dataclasses -- pydantic earns
+its keep at a (de)serialization boundary, not on a value that only ever exists in Python.
+"""
+
+from dataclasses import dataclass
 from datetime import date
 from enum import Enum, StrEnum
 from typing import NamedTuple
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class CellColor(Enum):
@@ -123,8 +142,7 @@ class VideoInfo:
     duration_s: float
 
 
-@dataclass
-class GameEvent:
+class GameEvent(BaseModel):
     # 1-based (1-5), matching the board as a reviewer sees it and WinLine's own values --
     # None for a game-level event (GAME_START/GAME_END) that isn't about any one square.
     row: int | None
@@ -136,8 +154,7 @@ class GameEvent:
     event_type: EventType = EventType.MARK
 
 
-@dataclass
-class MatchMetadata:
+class MatchMetadata(BaseModel):
     """User-supplied details about a match that can't be read from the video itself --
     collected interactively by the CLI (see cli/app.py) and attached once per video, since a
     match is one video even when it contains multiple game segments."""
@@ -153,8 +170,7 @@ class MatchMetadata:
     video_url: str | None = None
 
 
-@dataclass
-class GameResult:
+class GameResult(BaseModel):
     # A game is identified by its position within the video. The overlay prints a
     # "GAME N" label too, but it isn't read: N is game_index, and OCR of that box was
     # noise in practice (a stable "GAME 2" came back as a different garbled string on
@@ -177,8 +193,7 @@ class GameResult:
     game_type: GameType | None = None
 
 
-@dataclass
-class Square:
+class Square(BaseModel):
     """One goal square in the consolidated, per-game-type reference built by
     pipeline.consolidate from previously extracted matches (see
     storage.json_export.write_squares) -- distinct from GameResult.square_texts, which is
@@ -190,8 +205,7 @@ class Square:
     game_type: GameType
 
 
-@dataclass
-class VideoExtraction:
+class VideoExtraction(BaseModel):
     """Everything extracted from one video, and the unit `json_export`/`db` persist:
     one video is one match, and a match can contain several games (GameResult), but
     player names/match metadata are read/collected once per video, not once per game --
@@ -211,7 +225,7 @@ class VideoExtraction:
     # webcam a commentator sat in isn't a property of the match. Empty when neither plate
     # read as a name -- including for a JSON file written before this was recorded, and
     # for footage whose nameplate regions are blacked out (see the test fixtures).
-    commentators: list[str] = field(default_factory=list)
+    commentators: list[str] = Field(default_factory=list)
     # The source video's full length in seconds (frames.probe), covering the whole
     # broadcast -- intros, between-game recaps and all -- not just the segments that
     # became games. Optional/defaulted since a JSON file written before this field
@@ -226,6 +240,19 @@ class VideoExtraction:
     # downloading -- a locally-supplied video has no metadata to read it from, and a JSON
     # file written before this field existed still has to read back cleanly.
     published_at: date | None = None
+
+    @field_validator("season", mode="before")
+    @classmethod
+    def _coerce_season_to_str(cls, value: object) -> object:
+        """season is free text (see MatchMetadata.season above), but a hand-edited JSON
+        file can write an all-digit season unquoted -- json.loads then hands that back as
+        a Python int, not str. Normalized here so every VideoExtraction.season really is
+        the str its type declares, regardless of how the file spelled it -- without this,
+        a match history mixing a quoted "6" (always written this way by `extract`) with an
+        unquoted 6 (a hand edit) fails to sort in pipeline.consolidate.consolidate_players,
+        which groups by season across every match.
+        """
+        return str(value) if value is not None else value
 
     @property
     def red_score(self) -> int:
@@ -267,8 +294,7 @@ class VideoExtraction:
         return len(self.games)
 
 
-@dataclass
-class MatchRecord:
+class MatchRecord(BaseModel):
     """Wins, losses and draws for one season's worth of a player's matches (see
     PlayerStats.season_records). A draw is a real *match* outcome -- a round robin
     match can end 1-1, see MatchWinner.DRAW -- unlike for a single game, where a tie can
@@ -281,8 +307,7 @@ class MatchRecord:
     draws: int = 0
 
 
-@dataclass
-class WinLoss:
+class WinLoss(BaseModel):
     """Wins and losses for one bucket of a player's individual games (see
     PlayerStats.game_record/game_type_records) -- no draws field, since a single game
     can't end in one, unlike a match (see MatchRecord)."""
@@ -291,8 +316,7 @@ class WinLoss:
     losses: int = 0
 
 
-@dataclass
-class SquareMarks:
+class SquareMarks(BaseModel):
     """One square text and how many times a player has personally marked it (see
     PlayerStats.top_squares_base_game/top_squares_dlc) -- the count travels with the
     text rather than being left for a reader to re-derive, since it's the very thing that
@@ -302,8 +326,7 @@ class SquareMarks:
     marks: int
 
 
-@dataclass
-class PlayerInfo:
+class PlayerInfo(BaseModel):
     """One player's static, hand-curated identity -- the half of a player's profile that
     pipeline.consolidate creates once and never touches again (see storage.player_info,
     issue #82). Persisted as one YAML file per player under a directory meant to be
@@ -330,8 +353,7 @@ class PlayerInfo:
     bio: str | None = None
 
 
-@dataclass
-class PlayerStats:
+class PlayerStats(BaseModel):
     """One player's dynamically computed stats, built by
     pipeline.consolidate.consolidate_players from every match they appear in and
     persisted as one YAML file per player under `<data_dir>/players` (see
@@ -349,13 +371,29 @@ class PlayerStats:
     # The exact spelling seen most often across this player's matches -- see
     # consolidate_players.
     display_name: str
-    season_records: dict[str, MatchRecord] = field(default_factory=dict)
-    game_record: WinLoss = field(default_factory=WinLoss)
-    game_type_records: dict[GameType, WinLoss] = field(default_factory=dict)
+    season_records: dict[str, MatchRecord] = Field(default_factory=dict)
+    game_record: WinLoss = Field(default_factory=WinLoss)
+    game_type_records: dict[GameType, WinLoss] = Field(default_factory=dict)
     # match_ids the player appears in, ordered by match_date descending (most recent
     # first) -- see consolidate_players.
-    all_matches: list[str] = field(default_factory=list)
+    all_matches: list[str] = Field(default_factory=list)
     # The 5 squares this player has personally marked most often, per game type, each
     # with its mark count -- see consolidate_players.
-    top_squares_base_game: list[SquareMarks] = field(default_factory=list)
-    top_squares_dlc: list[SquareMarks] = field(default_factory=list)
+    top_squares_base_game: list[SquareMarks] = Field(default_factory=list)
+    top_squares_dlc: list[SquareMarks] = Field(default_factory=list)
+
+    @field_validator("top_squares_base_game", "top_squares_dlc", mode="before")
+    @classmethod
+    def _normalize_legacy_plain_text_marks(cls, value: object) -> object:
+        """A YAML file written before mark counts were added to top_squares_base_game/dlc
+        (see storage.player_stats) holds a plain list of strings there instead of
+        {text, marks} entries -- normalized to a mark count of 0 (unknown) so it still
+        reads back rather than failing validation. Every field consolidate_players fills
+        in here is wholly regenerated on the next `player consolidate` run anyway, so a
+        stale/zeroed mark count surviving even one extra run costs nothing.
+        """
+        if not isinstance(value, list):
+            return value
+        return [
+            {"text": entry, "marks": 0} if isinstance(entry, str) else entry for entry in value
+        ]
