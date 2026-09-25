@@ -55,16 +55,6 @@ def player_info_path(players_dir: str | Path, slug: str) -> Path:
     return Path(players_dir) / slug / "info.yaml"
 
 
-def _info_to_dict(info: PlayerInfo) -> dict:
-    return {
-        "id": info.id,
-        "slug": info.slug,
-        "twitch": info.twitch,
-        "avatar": info.avatar,
-        "bio": info.bio,
-    }
-
-
 def write_player_info(players_dir: str | Path, info: PlayerInfo) -> Path | None:
     """Create `<players_dir>/<slug>/info.yaml` for a brand-new player (see
     player_info_path), creating that player's directory if it doesn't exist yet.
@@ -76,7 +66,7 @@ def write_player_info(players_dir: str | Path, info: PlayerInfo) -> Path | None:
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     body = yaml.dump(
-        _info_to_dict(info), Dumper=_PlayerInfoDumper, sort_keys=False, allow_unicode=True
+        info.model_dump(mode="json"), Dumper=_PlayerInfoDumper, sort_keys=False, allow_unicode=True
     )
     path.write_text(body)
     return path
@@ -93,21 +83,11 @@ def _twitch_handle(data: dict) -> str | None:
     return urlparse(legacy_url).path.strip("/") or None if legacy_url else None
 
 
-def _dict_to_info(data: dict) -> PlayerInfo:
-    return PlayerInfo(
-        id=data["id"],
-        slug=data["slug"],
-        twitch=_twitch_handle(data),
-        avatar=data.get("avatar"),
-        bio=data.get("bio"),
-    )
-
-
 def read_player_info(path: str | Path) -> PlayerInfo:
     """Inverse of write_player_info: parses one player's YAML info file back into the
     PlayerInfo it was serialized from."""
     data = yaml.safe_load(Path(path).read_text())
-    return _dict_to_info(data)
+    return PlayerInfo.model_validate({**data, "twitch": _twitch_handle(data)})
 
 
 def read_players_info(players_dir: str | Path) -> dict[str, PlayerInfo]:

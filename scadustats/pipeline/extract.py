@@ -328,23 +328,23 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
                 if old is CellColor.UNCLAIMED and observed is not CellColor.UNCLAIMED:
                     events.append(
                         GameEvent(
-                            r + 1,
-                            c + 1,
-                            observed,
-                            format_video_timestamp(obs.video_ts_s),
-                            game_elapsed,
-                            EventType.MARK,
+                            row=r + 1,
+                            col=c + 1,
+                            color=observed,
+                            video_timestamp=format_video_timestamp(obs.video_ts_s),
+                            game_elapsed_s=game_elapsed,
+                            event_type=EventType.MARK,
                         )
                     )
                 elif old is not CellColor.UNCLAIMED and observed is CellColor.UNCLAIMED:
                     events.append(
                         GameEvent(
-                            r + 1,
-                            c + 1,
-                            old,
-                            format_video_timestamp(obs.video_ts_s),
-                            game_elapsed,
-                            EventType.UNMARK,
+                            row=r + 1,
+                            col=c + 1,
+                            color=old,
+                            video_timestamp=format_video_timestamp(obs.video_ts_s),
+                            game_elapsed_s=game_elapsed,
+                            event_type=EventType.UNMARK,
                         )
                     )
                 else:

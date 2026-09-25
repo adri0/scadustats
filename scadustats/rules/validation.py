@@ -11,7 +11,7 @@ match-level rules are about the games as a set (how many, in what order, who too
 match), game-level rules are about one game's own events and board.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from scadustats.models import (
     CellColor,
@@ -295,8 +295,14 @@ def validate_extraction(extraction: VideoExtraction) -> list[ValidationIssue]:
 
     The extraction isn't mutated -- games are sorted into index order for checking (the
     order rules only mean anything against that) without touching the caller's object.
+    model_copy(update=...), not dataclasses.replace: VideoExtraction is a pydantic model
+    (see CLAUDE.md), and update= is a shallow, unvalidated copy -- fine here since the
+    replacement value (a re-sort of the caller's own already-valid games list) needs no
+    re-validation.
     """
-    ordered = replace(extraction, games=sorted(extraction.games, key=lambda g: g.game_index))
+    ordered = extraction.model_copy(
+        update={"games": sorted(extraction.games, key=lambda g: g.game_index)}
+    )
     issues = [
         *_check_game_count(ordered),
         *_check_opening_game_types(ordered),

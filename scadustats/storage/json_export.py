@@ -5,20 +5,14 @@ into DuckDB.
 """
 
 import json
-from datetime import date
 from pathlib import Path
 
 from scadustats.models import (
-    CellColor,
-    EventType,
     GameEvent,
     GameResult,
     GameType,
-    MatchType,
     Square,
     VideoExtraction,
-    WinLine,
-    WinType,
     format_video_timestamp,
 )
 
@@ -55,27 +49,33 @@ def _event_square_text(
 
 
 def _event_to_dict(event: GameEvent, square_texts: list[list[str]]) -> dict:
+    # model_dump(mode="json") already turns color/event_type into their JSON-safe values
+    # (None passed through as-is for color) -- game_elapsed_s is the one field that needs
+    # reshaping (formatted as game_timer) rather than carrying straight through, and
+    # square_text isn't a GameEvent field at all (see its own docstring above).
+    dumped = event.model_dump(mode="json")
     return {
-        "row": event.row,
-        "col": event.col,
+        "row": dumped["row"],
+        "col": dumped["col"],
         "square_text": _event_square_text(square_texts, event.row, event.col),
-        "color": event.color.value if event.color else None,
-        "event_type": event.event_type.value,
-        "game_timer": _format_hms(event.game_elapsed_s),
-        "video_timestamp": event.video_timestamp,
+        "color": dumped["color"],
+        "event_type": dumped["event_type"],
+        "game_timer": _format_hms(dumped["game_elapsed_s"]),
+        "video_timestamp": dumped["video_timestamp"],
     }
 
 
 def _game_to_dict(game: GameResult) -> dict:
+    dumped = game.model_dump(mode="json")
     return {
-        "game_index": game.game_index,
-        "start_video_ts_s": game.start_video_ts_s,
-        "end_video_ts_s": game.end_video_ts_s,
-        "game_type": game.game_type.value if game.game_type else None,
-        "winner_color": game.winner_color.value if game.winner_color else None,
-        "win_type": game.win_type.value,
-        "win_line": game.win_line.value if game.win_line else None,
-        "square_texts": game.square_texts,
+        "game_index": dumped["game_index"],
+        "start_video_ts_s": dumped["start_video_ts_s"],
+        "end_video_ts_s": dumped["end_video_ts_s"],
+        "game_type": dumped["game_type"],
+        "winner_color": dumped["winner_color"],
+        "win_type": dumped["win_type"],
+        "win_line": dumped["win_line"],
+        "square_texts": dumped["square_texts"],
         "events": [
             _event_to_dict(event, game.square_texts)
             for event in sorted(game.events, key=lambda event: event.game_elapsed_s)
@@ -89,28 +89,31 @@ def _metadata_to_dict(extraction: VideoExtraction) -> dict:
     match-identifying fields (match_id, players, season, ...) isn't interleaved with this
     provenance/technical detail. See CLAUDE.md and issue #47.
     """
+    dumped = extraction.model_dump(mode="json")
     return {
-        "video_url": extraction.video_url,
-        "duration_s": extraction.duration_s,
-        "published_at": extraction.published_at.isoformat() if extraction.published_at else None,
-        "extracted_at": extraction.extracted_at.isoformat(),
+        "video_url": dumped["video_url"],
+        "duration_s": dumped["duration_s"],
+        "published_at": dumped["published_at"],
+        "extracted_at": dumped["extracted_at"],
     }
 
 
 def _extraction_to_dict(extraction: VideoExtraction) -> dict:
+    dumped = extraction.model_dump(mode="json")
     return {
-        "match_id": extraction.match_id,
-        "match_date": extraction.match_date.isoformat(),
-        "season": extraction.season,
-        "match_type": extraction.match_type.value,
-        "player_red_name": extraction.player_red_name,
-        "player_blue_name": extraction.player_blue_name,
-        "commentators": extraction.commentators,
+        "match_id": dumped["match_id"],
+        "match_date": dumped["match_date"],
+        "season": dumped["season"],
+        "match_type": dumped["match_type"],
+        "player_red_name": dumped["player_red_name"],
+        "player_blue_name": dumped["player_blue_name"],
+        "commentators": dumped["commentators"],
         "metadata": _metadata_to_dict(extraction),
         # Written as a header for the list below, so a reviewer (or a SQL query against
         # the matching videos columns) sees the match's game count and result without
-        # tallying the games by hand. All four are derived from `games` every time they're
-        # written, and never read back -- see VideoExtraction.num_games and read_video.
+        # tallying the games by hand. All four are derived properties, not model fields --
+        # model_dump() above doesn't see them -- and are never read back, see
+        # VideoExtraction.num_games and read_video.
         "num_games": extraction.num_games,
         "red_score": extraction.red_score,
         "blue_score": extraction.blue_score,
@@ -172,37 +175,34 @@ def _parse_hms(text: str) -> int:
 
 
 def _dict_to_event(data: dict) -> GameEvent:
-    # "video_timestamp" (issue #109) replaced the older "video_ts_s" raw-seconds key; a
-    # file written before the rename is reformatted on read rather than left unreadable,
-    # the same tolerance every other renamed/reshaped field in this file gets.
+    """game_timer (a formatted HH:MM:SS string) is the one key that doesn't map directly
+    onto a GameEvent field -- parsed into game_elapsed_s here before handing off to
+    pydantic. "video_timestamp" (issue #109) replaced the older "video_ts_s" raw-seconds
+    key; a file written before the rename is reformatted here too, rather than left
+    unreadable. Everything else (including tolerating a missing/null color, and ignoring
+    the square_text key entirely -- it isn't a GameEvent field, see the module docstring
+    above GameEvent) is handled by GameEvent's own validation for free.
+    """
     video_timestamp = (
         data["video_timestamp"]
         if "video_timestamp" in data
         else format_video_timestamp(data["video_ts_s"])
     )
-    return GameEvent(
-        row=data["row"],
-        col=data["col"],
-        color=CellColor(data["color"]) if data["color"] else None,
-        video_timestamp=video_timestamp,
-        game_elapsed_s=_parse_hms(data["game_timer"]),
-        event_type=EventType(data["event_type"]),
+    return GameEvent.model_validate(
+        {
+            **data,
+            "video_timestamp": video_timestamp,
+            "game_elapsed_s": _parse_hms(data["game_timer"]),
+        }
     )
 
 
 def _dict_to_game(data: dict) -> GameResult:
-    return GameResult(
-        game_index=data["game_index"],
-        start_video_ts_s=data["start_video_ts_s"],
-        end_video_ts_s=data["end_video_ts_s"],
-        square_texts=data["square_texts"],
-        events=[_dict_to_event(event) for event in data["events"]],
-        winner_color=CellColor(data["winner_color"]) if data["winner_color"] else None,
-        win_type=WinType(data["win_type"]),
-        # .get for the same reason as the extraction's duration_s: a file written before
-        # win_line was recorded is still a valid current-format extraction.
-        win_line=WinLine(data["win_line"]) if data.get("win_line") else None,
-        game_type=GameType(data["game_type"]) if data["game_type"] else None,
+    """win_line/game_type missing or explicitly null (a file written before either was
+    recorded) both resolve to GameResult's own None default automatically -- no .get()
+    needed here the way the hand-written version used to."""
+    return GameResult.model_validate(
+        {**data, "events": [_dict_to_event(event) for event in data["events"]]}
     )
 
 
@@ -211,52 +211,31 @@ def read_video(path: str | Path) -> VideoExtraction:
     VideoExtraction it was serialized from.
 
     The file's `num_games`/`red_score`/`blue_score`/`winner` keys are deliberately ignored
-    (like a pre-existing file's per-game `label`): all four are derived from `games`, so a
-    hand-edited file that added a game, or corrected one's winner, is re-tallied from what
-    it actually holds rather than trusted to have had every place updated in step.
+    (like a pre-existing file's per-game `label`): all four are derived properties, not
+    VideoExtraction fields, so pydantic's default extra="ignore" already drops them here --
+    a hand-edited file that added a game, or corrected one's winner, is re-tallied from
+    what it actually holds rather than trusted to have had every place updated in step.
 
     video_url/duration_s/published_at/extracted_at moved under a "metadata" key (issue
-    #47). A file written before that lacks the key entirely; `metadata` falls
-    back to `data` itself in that case, since those fields lived at the top level there --
-    the .get() calls below then behave exactly as they did against the flat layout.
+    #47). A file written before that lacks the key entirely; `metadata` falls back to
+    `data` itself in that case, since those fields lived at the top level there -- the
+    explicit metadata.get() calls below then behave exactly as they did against the flat
+    layout, and everything else -- season's int-to-str coercion, match_date/extracted_at/
+    published_at's ISO-string parsing, match_type's enum lookup, commentators defaulting to
+    [] when absent -- is handled by VideoExtraction's own validation.
     """
     data = json.loads(Path(path).read_text())
     metadata = data.get("metadata", data)
 
-    return VideoExtraction(
-        match_id=data["match_id"],
-        # .get, unlike every other field read directly off `data` here: a pre-#47 file
-        # always had this key, but it's genuinely optional (see VideoExtraction.video_url)
-        # so there's no reason to demand it be present.
-        video_url=metadata.get("video_url"),
-        match_date=date.fromisoformat(data["match_date"]),
-        # str(...): season is free text (see models.MatchMetadata.season), but a
-        # hand-edited file can write an all-digit season unquoted, which json.loads then
-        # hands back as a Python int rather than str -- normalized here so every
-        # VideoExtraction.season is the str its type declares, regardless of how the file
-        # spelled it. Without this, a match history mixing a quoted "6" (from `extract`,
-        # which always writes a str) with an unquoted 6 (from a hand edit) fails to sort
-        # in pipeline.consolidate.consolidate_players, which groups by season across
-        # every match.
-        season=str(data["season"]),
-        match_type=MatchType(data["match_type"]),
-        player_red_name=data["player_red_name"],
-        player_blue_name=data["player_blue_name"],
-        extracted_at=date.fromisoformat(metadata["extracted_at"]),
-        games=[_dict_to_game(game) for game in data["games"]],
-        # .get, for the same reason as duration_s below: a file written before
-        # commentators were recorded reads back with none rather than a KeyError.
-        commentators=data.get("commentators", []),
-        # .get, unlike every other field here: a file written before duration_s existed
-        # is still a valid current-format extraction and reads back as "unknown length",
-        # rather than a KeyError that `match list` would report as an unparseable file.
-        duration_s=metadata.get("duration_s"),
-        # .get, for the same reason as duration_s: a file written before published_at
-        # existed (or one whose fetch failed/was never attempted) still reads back
-        # cleanly, as "unknown".
-        published_at=(
-            date.fromisoformat(metadata["published_at"]) if metadata.get("published_at") else None
-        ),
+    return VideoExtraction.model_validate(
+        {
+            **data,
+            "video_url": metadata.get("video_url"),
+            "extracted_at": metadata["extracted_at"],
+            "duration_s": metadata.get("duration_s"),
+            "published_at": metadata.get("published_at"),
+            "games": [_dict_to_game(game) for game in data["games"]],
+        }
     )
 
 
@@ -265,10 +244,6 @@ def squares_path(squares_dir: str | Path, game_type: GameType) -> Path:
     squares reference to -- `<squares_dir>/base_game.json` or `<squares_dir>/dlc.json`.
     """
     return Path(squares_dir) / _SQUARES_FILENAMES[game_type]
-
-
-def _square_to_dict(square: Square) -> dict:
-    return {"id": square.id, "text": square.text, "game_type": square.game_type.value}
 
 
 def write_squares(
@@ -294,14 +269,10 @@ def write_squares(
     for game_type, game_squares in squares.items():
         path = squares_path(squares_dir, game_type)
         ordered = sorted(game_squares, key=lambda square: square.id)
-        body = json.dumps([_square_to_dict(square) for square in ordered], indent=2)
+        body = json.dumps([square.model_dump(mode="json") for square in ordered], indent=2)
         path.write_text(body + "\n")
         written[game_type] = path
     return written
-
-
-def _dict_to_square(data: dict) -> Square:
-    return Square(id=data["id"], text=data["text"], game_type=GameType(data["game_type"]))
 
 
 def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
@@ -319,5 +290,5 @@ def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
             data = json.loads(squares_path(squares_dir, game_type).read_text())
         except FileNotFoundError:
             data = []
-        squares[game_type] = [_dict_to_square(entry) for entry in data]
+        squares[game_type] = [Square.model_validate(entry) for entry in data]
     return squares
