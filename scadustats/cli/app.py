@@ -625,21 +625,37 @@ def match_validate(
 
     Rules checked, match-level ones first:
 
-    match_id_filename_mismatch: the file's name doesn't match its own match_id.
-    game_count: wrong number of games for the match type.
-    opening_game_type: game 1 isn't base game, or game 2 isn't dlc.
-    match_outcome_undetermined: some game has no winner recorded.
-    double_elimination_draw: a double-elimination match can't end in a draw.
-    missing_decider_game: the first two games split but no game 3 follows.
-    unnecessary_decider_game: the match was already decided but a game 3 follows.
+    - match_id_filename_mismatch: the file's name doesn't match its own match_id
 
-    Then each game's own: winner_board_mismatch (the recorded result disagrees with
-    the replayed board), win_line_not_recorded (a line win has no win_line -- re-extract
-    to fill it in), game_start_count (not exactly one game_start event),
-    first_event_not_game_start, last_event_not_game_end, events_not_sorted (not
-    ascending by video_timestamp), game_timer_not_monotonic (game_elapsed_s decreases
-    somewhere in the game), and mark_after_win (a square marked after a line win
-    completed).
+    - game_count: wrong number of games for the match type
+
+    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc
+
+    - match_outcome_undetermined: some game has no winner recorded
+
+    - double_elimination_draw: a double-elimination match can't end in a draw
+
+    - missing_decider_game: the first two games split but no game 3 follows
+
+    - unnecessary_decider_game: the match was already decided but a game 3 follows
+
+    Then each game's own:
+
+    - winner_board_mismatch: the recorded result disagrees with the replayed board
+
+    - win_line_not_recorded: a line win has no win_line (re-extract to fill it in)
+
+    - game_start_count: a game doesn't have exactly one game_start event
+
+    - first_event_not_game_start: the first event isn't game_start
+
+    - last_event_not_game_end: the last event isn't game_end
+
+    - events_not_sorted: events aren't sorted by ascending video_timestamp
+
+    - game_timer_not_monotonic: game_elapsed_s decreases somewhere in the game
+
+    - mark_after_win: a square was marked after a line win completed
     """
     if match_id is not None:
         path = _match_path(data_dir, match_id)
