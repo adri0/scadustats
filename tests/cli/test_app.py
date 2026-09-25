@@ -25,6 +25,7 @@ from scadustats.models import (
     VideoExtraction,
     WinLine,
     WinType,
+    format_video_timestamp,
 )
 from scadustats.pipeline.extract import ExtractionSummary
 from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
@@ -743,12 +744,18 @@ def _match_sample_game(game_index: int = 1, **overrides) -> GameResult:
         end_video_ts_s=100.0,
         square_texts=square_texts,
         events=[
-            GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9),
+            GameEvent(
+                row=1,
+                col=1,
+                color=CellColor.RED,
+                video_timestamp=format_video_timestamp(10.0),
+                game_elapsed_s=9,
+            ),
             GameEvent(
                 row=2,
                 col=2,
                 color=CellColor.BLUE,
-                video_ts_s=20.0,
+                video_timestamp=format_video_timestamp(20.0),
                 game_elapsed_s=19,
                 event_type=EventType.UNMARK,
             ),
@@ -881,7 +888,7 @@ def test_show_match_draws_the_final_board_with_the_winning_line_marked(tmp_path)
                 row=1,
                 col=col + 1,
                 color=CellColor.RED,
-                video_ts_s=1.0 + col,
+                video_timestamp=format_video_timestamp(1.0 + col),
                 game_elapsed_s=col,
             )
             for col in range(5)
@@ -1013,7 +1020,7 @@ def _valid_match_extraction(**overrides) -> VideoExtraction:
                     row=None,
                     col=None,
                     color=None,
-                    video_ts_s=0.0,
+                    video_timestamp=format_video_timestamp(0.0),
                     game_elapsed_s=0,
                     event_type=EventType.GAME_START,
                 ),
@@ -1022,7 +1029,7 @@ def _valid_match_extraction(**overrides) -> VideoExtraction:
                         row=1,
                         col=col + 1,
                         color=color,
-                        video_ts_s=1.0 + col,
+                        video_timestamp=format_video_timestamp(1.0 + col),
                         game_elapsed_s=col,
                     )
                     for col in range(5)
@@ -1571,7 +1578,15 @@ def test_match_consolidate_reflects_square_corrections_in_player_top_squares(tmp
     data_dir = tmp_path / "data"
     squares_dir = data_dir / "squares"
     game = _match_sample_game(
-        events=[GameEvent(row=1, col=1, color=CellColor.RED, video_ts_s=10.0, game_elapsed_s=9)]
+        events=[
+            GameEvent(
+                row=1,
+                col=1,
+                color=CellColor.RED,
+                video_timestamp=format_video_timestamp(10.0),
+                game_elapsed_s=9,
+            )
+        ]
     )
     known = _known_for_grid(game.square_texts)
     game.square_texts[0][0] = "Kilt 3 Friendly NPCs (No Hermit Merchants)"

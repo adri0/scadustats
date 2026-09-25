@@ -214,7 +214,7 @@ def test_extract_video_records_a_game_end_event_at_the_settling_mark(tmp_path):
     assert len(game_ends) == 1
     row_2_marks = [e for e in game_1_events if e["event_type"] == "mark" and e["row"] == 2]
     completing_mark = max(row_2_marks, key=lambda e: e["col"])
-    assert game_ends[0]["video_ts_s"] == completing_mark["video_ts_s"]
+    assert game_ends[0]["video_timestamp"] == completing_mark["video_timestamp"]
     assert (game_ends[0]["row"], game_ends[0]["col"], game_ends[0]["color"]) == (None, None, None)
 
     game_2_events = games[1]["events"]

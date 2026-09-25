@@ -14,6 +14,7 @@ from scadustats.models import (
     SquareMarks,
     VideoExtraction,
     WinType,
+    format_video_timestamp,
 )
 from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
@@ -50,7 +51,12 @@ def _game(
 
 def _mark(row: int, col: int, color: CellColor) -> GameEvent:
     return GameEvent(
-        row=row, col=col, color=color, video_ts_s=0.0, game_elapsed_s=0, event_type=EventType.MARK
+        row=row,
+        col=col,
+        color=color,
+        video_timestamp=format_video_timestamp(0.0),
+        game_elapsed_s=0,
+        event_type=EventType.MARK,
     )
 
 

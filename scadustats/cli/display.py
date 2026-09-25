@@ -187,12 +187,12 @@ def render_events(game: GameResult, extraction: VideoExtraction) -> list[str]:
     """
     red, blue = player_names(extraction)
     rows = []
-    for event in sorted(game.events, key=lambda event: event.video_ts_s):
+    for event in sorted(game.events, key=lambda event: event.video_timestamp):
         if event.event_type in (EventType.GAME_START, EventType.GAME_END):
             label = "game start" if event.event_type is EventType.GAME_START else "game end"
             rows.append(
                 [
-                    format_duration(event.video_ts_s),
+                    event.video_timestamp,
                     format_clock(event.game_elapsed_s),
                     label,
                     "",
@@ -204,7 +204,7 @@ def render_events(game: GameResult, extraction: VideoExtraction) -> list[str]:
         player = red if event.color is CellColor.RED else blue
         rows.append(
             [
-                format_duration(event.video_ts_s),
+                event.video_timestamp,
                 format_clock(event.game_elapsed_s),
                 "mark" if event.event_type is EventType.MARK else "unmark",
                 player,

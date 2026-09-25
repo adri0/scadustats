@@ -935,9 +935,7 @@ def player_consolidate(
         typer.echo(f"{path}: {len(player_stats.all_matches)} match(es)")
 
 
-@match_app.command(
-    "consolidate", short_help="Consolidate squares and player info from a match."
-)
+@match_app.command("consolidate", short_help="Consolidate squares and player info from a match.")
 def match_consolidate(
     match_id: Annotated[
         str, typer.Argument(help="match_id to consolidate, as printed by `match list`")

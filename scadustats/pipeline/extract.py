@@ -26,6 +26,7 @@ from scadustats.models import (
     VideoExtraction,
     WinLine,
     WinType,
+    format_video_timestamp,
 )
 from scadustats.overlay import board, commentators, game_type_label, scoreboard, timer
 from scadustats.pipeline import squares
@@ -266,7 +267,7 @@ def _detect_game_start(segment: list[Observation]) -> GameEvent | None:
                 row=None,
                 col=None,
                 color=None,
-                video_ts_s=curr.video_ts_s,
+                video_timestamp=format_video_timestamp(curr.video_ts_s),
                 game_elapsed_s=curr.timer_s,
                 event_type=EventType.GAME_START,
             )
@@ -330,7 +331,7 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
                             row=r + 1,
                             col=c + 1,
                             color=observed,
-                            video_ts_s=obs.video_ts_s,
+                            video_timestamp=format_video_timestamp(obs.video_ts_s),
                             game_elapsed_s=game_elapsed,
                             event_type=EventType.MARK,
                         )
@@ -341,7 +342,7 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
                             row=r + 1,
                             col=c + 1,
                             color=old,
-                            video_ts_s=obs.video_ts_s,
+                            video_timestamp=format_video_timestamp(obs.video_ts_s),
                             game_elapsed_s=game_elapsed,
                             event_type=EventType.UNMARK,
                         )
@@ -379,7 +380,7 @@ def _detect_game_end(
     """
     if winner_color is None:
         return None
-    ordered = sorted(events, key=lambda event: event.video_ts_s)
+    ordered = sorted(events, key=lambda event: event.video_timestamp)
     states = winner.board_states(ordered)
     index = winner.settled_result_index(states, winner_color, win_type)
     if index is None or ordered[index].event_type is not EventType.MARK:
@@ -389,7 +390,7 @@ def _detect_game_end(
         row=None,
         col=None,
         color=None,
-        video_ts_s=settling.video_ts_s,
+        video_timestamp=settling.video_timestamp,
         game_elapsed_s=settling.game_elapsed_s,
         event_type=EventType.GAME_END,
     )

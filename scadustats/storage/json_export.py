@@ -7,7 +7,14 @@ into DuckDB.
 import json
 from pathlib import Path
 
-from scadustats.models import GameEvent, GameResult, GameType, Square, VideoExtraction
+from scadustats.models import (
+    GameEvent,
+    GameResult,
+    GameType,
+    Square,
+    VideoExtraction,
+    format_video_timestamp,
+)
 
 # File a game type's consolidated squares reference is written to, keyed by GameType --
 # see pipeline.consolidate.consolidate_match_squares and write_squares below.
@@ -54,7 +61,7 @@ def _event_to_dict(event: GameEvent, square_texts: list[list[str]]) -> dict:
         "color": dumped["color"],
         "event_type": dumped["event_type"],
         "game_timer": _format_hms(dumped["game_elapsed_s"]),
-        "video_ts_s": dumped["video_ts_s"],
+        "video_timestamp": dumped["video_timestamp"],
     }
 
 
@@ -170,11 +177,24 @@ def _parse_hms(text: str) -> int:
 def _dict_to_event(data: dict) -> GameEvent:
     """game_timer (a formatted HH:MM:SS string) is the one key that doesn't map directly
     onto a GameEvent field -- parsed into game_elapsed_s here before handing off to
-    pydantic. Everything else (including tolerating a missing/null color, and ignoring the
-    square_text key entirely -- it isn't a GameEvent field, see the module docstring above
-    GameEvent) is handled by GameEvent's own validation for free.
+    pydantic. "video_timestamp" (issue #109) replaced the older "video_ts_s" raw-seconds
+    key; a file written before the rename is reformatted here too, rather than left
+    unreadable. Everything else (including tolerating a missing/null color, and ignoring
+    the square_text key entirely -- it isn't a GameEvent field, see the module docstring
+    above GameEvent) is handled by GameEvent's own validation for free.
     """
-    return GameEvent.model_validate({**data, "game_elapsed_s": _parse_hms(data["game_timer"])})
+    video_timestamp = (
+        data["video_timestamp"]
+        if "video_timestamp" in data
+        else format_video_timestamp(data["video_ts_s"])
+    )
+    return GameEvent.model_validate(
+        {
+            **data,
+            "video_timestamp": video_timestamp,
+            "game_elapsed_s": _parse_hms(data["game_timer"]),
+        }
+    )
 
 
 def _dict_to_game(data: dict) -> GameResult:

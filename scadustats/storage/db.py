@@ -100,7 +100,10 @@ CREATE TABLE IF NOT EXISTS events (
     event_type VARCHAR NOT NULL
         CHECK (event_type IN ('mark', 'unmark', 'game_start', 'game_end')),
     game_elapsed_s INTEGER NOT NULL,
-    video_ts_s DOUBLE NOT NULL,
+    -- `hh:mm:ss.ms`, milliseconds omitted when the reading falls exactly on a whole
+    -- second -- mirrors models.GameEvent.video_timestamp exactly, so no parsing/formatting
+    -- happens on the way in or out (see CLAUDE.md and issue #109).
+    video_timestamp VARCHAR NOT NULL,
     FOREIGN KEY (game_id, row, col) REFERENCES squares(game_id, row, col)
 );
 
@@ -253,7 +256,7 @@ def write_extraction(
             for event in game.events:
                 con.execute(
                     """INSERT INTO events
-                       (game_id, row, col, color, event_type, game_elapsed_s, video_ts_s)
+                       (game_id, row, col, color, event_type, game_elapsed_s, video_timestamp)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     [
                         game_id,
@@ -262,7 +265,7 @@ def write_extraction(
                         event.color.value if event.color else None,
                         event.event_type.value,
                         event.game_elapsed_s,
-                        event.video_ts_s,
+                        event.video_timestamp,
                     ],
                 )
     finally:
