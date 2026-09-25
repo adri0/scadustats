@@ -653,7 +653,7 @@ def match_validate(
 
     - events_not_sorted: events aren't sorted by ascending video_timestamp
 
-    - game_timer_not_monotonic: game_elapsed_s decreases somewhere in the game
+    - game_timer_not_monotonic: game_timer decreases somewhere in the game
 
     - mark_after_win: a square was marked after a line win completed
     """

@@ -180,20 +180,23 @@ def _check_last_event_is_game_end(
 
 
 def _check_game_timer_monotonic(game: GameResult, events: list[GameEvent]) -> list[ValidationIssue]:
-    """Rule: game_elapsed_s (the overlay's stopwatch) must never go backward across a
-    game's events in chronological order. The pre-game countdown that ticks down is
-    over by game_start (see extract._detect_game_start), so every event from there on
-    should only ever read a later, larger clock value -- a decrease means two events
-    were misordered or the timer was misread on one of them. Reports only the first
-    decrease found, the same "point at the one real problem" shape _check_game_count
-    etc. already have."""
+    """Rule: the overlay's stopwatch must never go backward across a game's events in
+    chronological order -- game_timer in the JSON (GameEvent.game_elapsed_s on the
+    model; see json_export._dict_to_event/_event_to_dict for the reshaping between the
+    two). The pre-game countdown that ticks down is over by game_start (see
+    extract._detect_game_start), so every event from there on should only ever read a
+    later, larger clock value -- a decrease means two events were misordered or the
+    timer was misread on one of them. Reports only the first decrease found, the same
+    "point at the one real problem" shape _check_game_count etc. already have. The
+    message names game_timer, not game_elapsed_s: that's the key a contributor
+    hand-reviewing the JSON actually sees."""
     for prev, curr in zip(events, events[1:], strict=False):
         if curr.game_elapsed_s < prev.game_elapsed_s:
             return [
                 ValidationIssue(
                     code="game_timer_not_monotonic",
                     message=(
-                        f"game_elapsed_s went from {prev.game_elapsed_s}s at "
+                        f"game_timer went from {prev.game_elapsed_s}s at "
                         f"{prev.video_timestamp} to {curr.game_elapsed_s}s at "
                         f"{curr.video_timestamp}"
                     ),

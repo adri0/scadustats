@@ -465,8 +465,14 @@ def test_game_timer_must_not_go_backward():
     issues = validate_game(_game(events=events))
 
     assert "game_timer_not_monotonic" in _codes(issues)
-    assert "1s" in next(i for i in issues if i.code == "game_timer_not_monotonic").message
-    assert "0s" in next(i for i in issues if i.code == "game_timer_not_monotonic").message
+    message = next(i for i in issues if i.code == "game_timer_not_monotonic").message
+    assert "1s" in message
+    assert "0s" in message
+    # game_elapsed_s is the model field, but the JSON key a contributor actually sees is
+    # game_timer (see json_export._dict_to_event/_event_to_dict) -- the message should
+    # name what's on disk, not the internal attribute.
+    assert "game_timer" in message
+    assert "game_elapsed_s" not in message
 
 
 def test_game_timer_may_stay_flat():
