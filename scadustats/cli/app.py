@@ -16,6 +16,7 @@ from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import (
     GameResult,
     GameType,
+    LayoutName,
     MatchMetadata,
     MatchType,
     Square,
@@ -30,7 +31,7 @@ from scadustats.pipeline.consolidate import (
     slugify_name,
     validate_squares,
 )
-from scadustats.pipeline.extract import available_layouts, estimate_sample_count, extract_video
+from scadustats.pipeline.extract import estimate_sample_count, extract_video
 from scadustats.rules.validation import validate_extraction
 from scadustats.storage.json_export import (
     read_squares,
@@ -280,11 +281,8 @@ def extract(
         ),
     ] = None,
     layout: Annotated[
-        str | None,
-        typer.Option(
-            help="Force a specific overlay layout instead of auto-detecting it from the "
-            f"video (choices: {', '.join(available_layouts())})"
-        ),
+        LayoutName | None,
+        typer.Option(help="Force a specific overlay layout instead of auto-detecting it"),
     ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into JSON files under data_dir.
@@ -322,11 +320,6 @@ def extract(
         raise typer.BadParameter(
             f"{video_url!r} doesn't look like a youtube.com/youtu.be URL",
             param_hint="--video-url",
-        )
-    if layout is not None and layout not in available_layouts():
-        raise typer.BadParameter(
-            f"{layout!r} isn't a known layout -- choices: {', '.join(available_layouts())}",
-            param_hint="--layout",
         )
 
     # A previously-extracted match whose video_url is this exact same YouTube link -- if

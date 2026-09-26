@@ -6,7 +6,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from scadustats.models import CellColor, GameType, MatchMetadata, MatchType
+from scadustats.models import CellColor, GameType, LayoutName, MatchMetadata, MatchType
 from scadustats.overlay import board
 from scadustats.pipeline.extract import (
     _grab_frames,
@@ -388,7 +388,7 @@ def test_extract_video_layout_override_matches_auto_detection(tmp_path):
         ),
         data_dir=tmp_path / "json",
         known_squares={},
-        layout_name="layout_season_6_final",
+        layout_name=LayoutName.SEASON_6_FINAL,
     )
 
     assert summary.num_games == 1
@@ -408,24 +408,10 @@ def test_extract_video_wrong_layout_override_finds_no_games(tmp_path):
         ),
         data_dir=tmp_path / "json",
         known_squares={},
-        layout_name="standard",
+        layout_name=LayoutName.STANDARD,
     )
 
     assert summary.num_games == 0
-
-
-def test_extract_video_rejects_an_unknown_layout_name(tmp_path):
-    with pytest.raises(ValueError, match="unknown layout"):
-        extract_video(
-            _LAYOUT_SEASON_6_FINAL_CLIP_PATH,
-            match_metadata=MatchMetadata(
-                match_date=datetime.date(2026, 9, 25),
-                season="6",
-                match_type=MatchType.DOUBLE_ELIMINATION,
-            ),
-            data_dir=tmp_path / "json",
-            layout_name="not_a_real_layout",
-        )
 
 
 def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):

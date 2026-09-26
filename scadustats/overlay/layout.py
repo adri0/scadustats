@@ -27,7 +27,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from scadustats.models import FractionalBox
+from scadustats.models import FractionalBox, LayoutName
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class Layout:
     was never calibrated to hold a nameplate.
     """
 
-    name: str
+    name: LayoutName
     grid_box: FractionalBox
     timer_box: FractionalBox
     # The small "BASE GAME"/"DLC" subtitle -- see game_type_label.py. The "GAME N" label
@@ -58,7 +58,7 @@ class Layout:
 
 
 STANDARD = Layout(
-    name="standard",
+    name=LayoutName.STANDARD,
     grid_box=FractionalBox(left=0.354, top=0.504, right=0.646, bottom=0.988),
     timer_box=FractionalBox(left=0.008, top=0.878, right=0.172, bottom=0.972),
     game_type_box=FractionalBox(left=0.86, top=0.905, right=1.0, bottom=0.945),
@@ -85,7 +85,7 @@ STANDARD = Layout(
 # call's own psm/whitelist/scale), the same way the standard template's own boxes are
 # meant to be hand-tuned (see the module docstring).
 LAYOUT_SEASON_6_FINAL = Layout(
-    name="layout_season_6_final",
+    name=LayoutName.SEASON_6_FINAL,
     grid_box=FractionalBox(left=0.695, top=0.497, right=1.0, bottom=1.0),
     timer_box=FractionalBox(left=0.203, top=0.928, right=0.297, bottom=0.972),
     game_type_box=FractionalBox(left=0.104, top=0.953, right=0.166, bottom=0.982),
@@ -109,7 +109,9 @@ LAYOUT_SEASON_6_FINAL = Layout(
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy both checks favors the far more common
 # template) and a --layout CLI override looks up by name.
-LAYOUTS: dict[str, Layout] = {layout.name: layout for layout in (STANDARD, LAYOUT_SEASON_6_FINAL)}
+LAYOUTS: dict[LayoutName, Layout] = {
+    layout.name: layout for layout in (STANDARD, LAYOUT_SEASON_6_FINAL)
+}
 
 
 def to_pixel_box(box: FractionalBox, width: int, height: int) -> tuple[int, int, int, int]:

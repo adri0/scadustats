@@ -22,6 +22,7 @@ from scadustats.models import (
     GameEvent,
     GameResult,
     GameType,
+    LayoutName,
     MatchMetadata,
     VideoExtraction,
     WinLine,
@@ -99,14 +100,6 @@ class ExtractionSummary:
     # num_games/num_claims are meaningless (left at 0) in that case, since nothing was
     # written.
     skipped: bool = False
-
-
-def available_layouts() -> list[str]:
-    """Names of every registered overlay Layout, for a --layout CLI option's help text
-    and validation -- cli/app.py imports this rather than scadustats.overlay.layout
-    directly, since cli is only meant to reach overlay-namespace code through pipeline
-    (see CLAUDE.md's import-direction note)."""
-    return list(layout.LAYOUTS)
 
 
 def estimate_sample_count(video_path: str | Path, sample_rate_hz: float = 1.0) -> int:
@@ -242,9 +235,7 @@ def _collect_observations(
             len(pending),
             100 * dropped / len(pending),
         )
-    # Only reachable when the whole video ran out before _LAYOUT_DETECTION_MAX_SAMPLES did
-    # (a very short clip with no gameplay frame in it at all) -- observations is empty
-    # either way, so which Layout this names doesn't affect what was just extracted.
+    # Only reachable when the whole video ran out before _LAYOUT_DETECTION_MAX_SAMPLES.
     if selected_layout is None:
         selected_layout = layout.STANDARD
     return observations, selected_layout
@@ -500,24 +491,18 @@ def extract_video(
     # read it from, and this stays None rather than extract_video making its own separate
     # network call just to look it up.
     published_at: date | None = None,
-    # A --layout override, by name (see available_layouts()) -- None (the default) means
-    # auto-detect from the video itself (see _detect_layout). Forcing a name skips
-    # detection outright, for a broadcast whose intro is too long for
-    # _LAYOUT_DETECTION_MAX_SAMPLES to reach real gameplay, or simply to save the (cheap)
-    # probing work when the caller already knows which template applies.
-    layout_name: str | None = None,
+    # A --layout override -- None (the default) means auto-detect from the video itself
+    # (see _detect_layout). Forcing a name skips detection outright, for a broadcast
+    # whose intro is too long for _LAYOUT_DETECTION_MAX_SAMPLES to reach real gameplay,
+    # or simply to save the (cheap) probing work when the caller already knows which
+    # template applies. LayoutName (rather than a bare string) is what lets cli/app.py's
+    # --layout option validate itself natively as a Typer/Click choice.
+    layout_name: LayoutName | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     if known_squares is None:
         known_squares = squares.load_known_squares(Path(data_dir) / "squares")
-    forced_layout = None
-    if layout_name is not None:
-        try:
-            forced_layout = layout.LAYOUTS[layout_name]
-        except KeyError:
-            raise ValueError(
-                f"unknown layout {layout_name!r}; choices: {', '.join(layout.LAYOUTS)}"
-            ) from None
+    forced_layout = layout.LAYOUTS[layout_name] if layout_name is not None else None
     # The whole broadcast's length, recorded alongside the games -- a match's games only
     # cover part of it (intros, between-game recaps and post-game are all in there too),
     # so this can't be derived from the game segments after the fact. Non-positive means
