@@ -283,6 +283,29 @@ def test_extract_rejects_non_youtube_video_url_before_doing_any_work():
     assert "youtube.com" in result.output
 
 
+def test_extract_rejects_an_unknown_layout_before_doing_any_work():
+    # Same rationale as the --video-url check above: checked upfront so a typo doesn't
+    # surface after a multi-minute extraction has already run.
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            "nonexistent.mp4",
+            "--layout",
+            "not_a_real_layout",
+            "--match-date",
+            "2026-03-05",
+            "--season",
+            "6",
+            "--match-type",
+            "round_robin",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "layout_season_6_final" in result.output
+
+
 _EXTRACT_ARGS = [
     "--match-date",
     "2026-03-05",

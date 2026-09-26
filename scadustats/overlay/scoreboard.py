@@ -5,6 +5,7 @@ import re
 import numpy as np
 
 from scadustats.overlay import layout, ocr
+from scadustats.overlay.layout import Layout
 
 
 def _clean_name(text: str) -> str:
@@ -13,10 +14,10 @@ def _clean_name(text: str) -> str:
     return max(words, key=len) if words else text.strip()
 
 
-def read_player_names(frame: np.ndarray) -> tuple[str, str]:
+def read_player_names(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> tuple[str, str]:
     height, width = frame.shape[:2]
-    red_crop = layout.crop(frame, layout.NAME_BOX_RED, width, height)
-    blue_crop = layout.crop(frame, layout.NAME_BOX_BLUE, width, height)
+    red_crop = layout.crop(frame, layout_.name_box_red, width, height)
+    blue_crop = layout.crop(frame, layout_.name_box_blue, width, height)
     return (
         _clean_name(ocr.read_text(red_crop, psm=7)),
         _clean_name(ocr.read_text(blue_crop, psm=7)),
@@ -31,8 +32,10 @@ def _read_score(frame: np.ndarray, box: layout.FractionalBox) -> int | None:
     return int(match.group()) if match else None
 
 
-def read_scores(frame: np.ndarray) -> tuple[int | None, int | None]:
+def read_scores(
+    frame: np.ndarray, layout_: Layout = layout.STANDARD
+) -> tuple[int | None, int | None]:
     return (
-        _read_score(frame, layout.SCORE_BOX_RED),
-        _read_score(frame, layout.SCORE_BOX_BLUE),
+        _read_score(frame, layout_.score_box_red),
+        _read_score(frame, layout_.score_box_blue),
     )

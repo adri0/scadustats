@@ -59,7 +59,9 @@ def test_majority_vote_picks_the_most_common_reading_per_seat(monkeypatch):
         2: ("starOchris", "Captain_Domo"),
         3: ("star0chris", "Captain_Dom0"),
     }
-    monkeypatch.setattr(commentators, "read_commentator_names", lambda frame: readings[frame])
+    monkeypatch.setattr(
+        commentators, "read_commentator_names", lambda frame, layout_: readings[frame]
+    )
 
     assert majority_commentator_names([1, 2, 3]) == ["star0chris", "Captain_Domo"]
 
@@ -68,13 +70,13 @@ def test_majority_vote_drops_a_seat_that_never_read_as_a_name(monkeypatch):
     """One unreadable plate yields a shorter list, not a gap -- position in the list
     isn't a seat (see models.VideoExtraction.commentators)."""
     monkeypatch.setattr(
-        commentators, "read_commentator_names", lambda frame: (None, "Captain_Domo")
+        commentators, "read_commentator_names", lambda frame, layout_: (None, "Captain_Domo")
     )
 
     assert majority_commentator_names([1, 2]) == ["Captain_Domo"]
 
 
 def test_majority_vote_returns_nothing_when_neither_plate_reads(monkeypatch):
-    monkeypatch.setattr(commentators, "read_commentator_names", lambda frame: (None, None))
+    monkeypatch.setattr(commentators, "read_commentator_names", lambda frame, layout_: (None, None))
 
     assert majority_commentator_names([1, 2]) == []
