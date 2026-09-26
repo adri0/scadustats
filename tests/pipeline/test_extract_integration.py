@@ -6,7 +6,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from scadustats.models import CellColor, GameType, MatchMetadata, MatchType
+from scadustats.models import CellColor, GameType, LayoutName, MatchMetadata, MatchType
 from scadustats.overlay import board
 from scadustats.pipeline.extract import (
     _grab_frames,
@@ -29,6 +29,10 @@ _CLIP_PATH = "tests/fixtures/clip_claim.mp4"
 # pre-game countdown. Short enough to commit, long enough for all of segmentation's
 # signals to fire.
 _GAME_BOUNDARY_CLIP_PATH = "tests/fixtures/clip_game_boundary.mp4"
+
+# A 5s clip of the Season 6 finals broadcast's visually unrelated overlay template (see
+# tests/overlay/test_layout_season_6_final.py) -- covers layout auto-detection end to end.
+_LAYOUT_SEASON_6_FINAL_CLIP_PATH = "tests/fixtures/clip_layout_season_6_final.mp4"
 
 
 def test_extract_video_end_to_end(tmp_path):
@@ -346,6 +350,68 @@ def test_extract_video_reads_game_type_from_the_overlay_subtitle(tmp_path, clip,
 
     video_data = json.loads(video_path(data_dir, "6", summary.match_id).read_text())
     assert [game["game_type"] for game in video_data["games"]] == [expected]
+
+
+def test_extract_video_auto_detects_an_alternate_overlay_layout(tmp_path):
+    """No layout_name is given here -- the Season 6 finals broadcast's overlay is at
+    entirely different coordinates from the standard template (see
+    scadustats.overlay.layout), so this only comes out right if _detect_layout actually
+    picked LAYOUT_SEASON_6_FINAL for this video on its own."""
+    data_dir = tmp_path / "json"
+    match_metadata = MatchMetadata(
+        match_date=datetime.date(2026, 9, 25), season="6", match_type=MatchType.DOUBLE_ELIMINATION
+    )
+
+    summary = extract_video(
+        _LAYOUT_SEASON_6_FINAL_CLIP_PATH,
+        match_metadata=match_metadata,
+        data_dir=data_dir,
+        known_squares={},
+    )
+
+    assert summary.match_id == "2026-09-25-NUCLEARPASTATOM-vs-SERIOUSCHALLENGES"
+    video_data = json.loads(video_path(data_dir, "6", summary.match_id).read_text())
+    assert video_data["num_games"] == 1
+    assert video_data["games"][0]["game_type"] == "base"
+    # This layout prints no commentator nameplates at all (see
+    # tests/overlay/test_layout_season_6_final.py) -- an empty list, not a missing key.
+    assert video_data["commentators"] == []
+
+
+def test_extract_video_layout_override_matches_auto_detection(tmp_path):
+    summary = extract_video(
+        _LAYOUT_SEASON_6_FINAL_CLIP_PATH,
+        match_metadata=MatchMetadata(
+            match_date=datetime.date(2026, 9, 25),
+            season="6",
+            match_type=MatchType.DOUBLE_ELIMINATION,
+        ),
+        data_dir=tmp_path / "json",
+        known_squares={},
+        layout_name=LayoutName.SEASON_6_FINAL,
+    )
+
+    assert summary.num_games == 1
+
+
+def test_extract_video_wrong_layout_override_finds_no_games(tmp_path):
+    """Forcing the standard layout on Season 6 finals footage should read every sample
+    as a non-gameplay frame (the standard template's score-bar boxes point at completely
+    different pixels here) -- a negative control proving the layout genuinely matters,
+    not just that auto-detection happens to land somewhere reasonable regardless."""
+    summary = extract_video(
+        _LAYOUT_SEASON_6_FINAL_CLIP_PATH,
+        match_metadata=MatchMetadata(
+            match_date=datetime.date(2026, 9, 25),
+            season="6",
+            match_type=MatchType.DOUBLE_ELIMINATION,
+        ),
+        data_dir=tmp_path / "json",
+        known_squares={},
+        layout_name=LayoutName.STANDARD,
+    )
+
+    assert summary.num_games == 0
 
 
 def test_extract_video_raises_without_a_way_to_resolve_game_type(tmp_path):

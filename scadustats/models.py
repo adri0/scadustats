@@ -39,6 +39,17 @@ class MatchType(StrEnum):
     ROUND_ROBIN = "round_robin"
 
 
+class LayoutName(StrEnum):
+    """Identifies one registered overlay template (see overlay.layout.Layout/LAYOUTS) --
+    a --layout CLI override or extract_video's own layout_name parameter names one of
+    these rather than a bare string, for the same reason as MatchType: it doubles as a
+    Typer/Click CLI choice type, so an unknown name is rejected by Typer itself rather
+    than needing its own manual validation."""
+
+    STANDARD = "standard"
+    SEASON_6_FINAL = "layout_season_6_final"
+
+
 class GameType(StrEnum):
     """Whether a game's goal squares are drawn from the base game's pool or the Shadow
     of the Erdtree DLC's -- read per game directly off the overlay's own "BASE GAME"/
@@ -419,6 +430,4 @@ class PlayerStats(BaseModel):
         """
         if not isinstance(value, list):
             return value
-        return [
-            {"text": entry, "marks": 0} if isinstance(entry, str) else entry for entry in value
-        ]
+        return [{"text": entry, "marks": 0} if isinstance(entry, str) else entry for entry in value]

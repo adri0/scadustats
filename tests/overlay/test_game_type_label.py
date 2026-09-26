@@ -48,7 +48,7 @@ def test_parse_game_type_label(text, expected):
 
 def test_majority_game_type_label_returns_none_when_no_frame_votes(monkeypatch):
     monkeypatch.setattr(
-        "scadustats.overlay.game_type_label.read_game_type_label", lambda frame: None
+        "scadustats.overlay.game_type_label.read_game_type_label", lambda frame, layout_: None
     )
     assert majority_game_type_label([object(), object()]) is None
 
@@ -56,7 +56,8 @@ def test_majority_game_type_label_returns_none_when_no_frame_votes(monkeypatch):
 def test_majority_game_type_label_picks_the_most_common_vote(monkeypatch):
     votes = iter([GameType.BASE, GameType.DLC, GameType.BASE])
     monkeypatch.setattr(
-        "scadustats.overlay.game_type_label.read_game_type_label", lambda frame: next(votes)
+        "scadustats.overlay.game_type_label.read_game_type_label",
+        lambda frame, layout_: next(votes),
     )
     assert majority_game_type_label([object(), object(), object()]) is GameType.BASE
 

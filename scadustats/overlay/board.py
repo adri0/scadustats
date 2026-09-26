@@ -9,6 +9,7 @@ import numpy as np
 
 from scadustats.models import CellColor
 from scadustats.overlay import layout, ocr
+from scadustats.overlay.layout import Layout
 
 # Tesseract's PSM 6 reads square text as multiple lines wrapped to the cell width; only
 # letters, digits, spaces, apostrophes (e.g. "Rennala's"), periods (e.g. "Mt. Gelmir"),
@@ -55,9 +56,9 @@ def classify_patch(patch: np.ndarray) -> CellColor:
     return CellColor.UNCLAIMED
 
 
-def _cell_patch(frame: np.ndarray, row: int, col: int) -> np.ndarray:
+def _cell_patch(frame: np.ndarray, row: int, col: int, layout_: Layout) -> np.ndarray:
     height, width = frame.shape[:2]
-    box = layout.grid_cell_box(row, col)
+    box = layout.grid_cell_box(row, col, layout_.grid_box)
     left, top, right, bottom = layout.to_pixel_box(box, width, height)
     cell_w, cell_h = right - left, bottom - top
 
@@ -68,20 +69,24 @@ def _cell_patch(frame: np.ndarray, row: int, col: int) -> np.ndarray:
     return frame[py0:py1, px0:px1]
 
 
-def cell_colors(frame: np.ndarray) -> list[list[CellColor]]:
-    return [[classify_patch(_cell_patch(frame, r, c)) for c in range(5)] for r in range(5)]
+def cell_colors(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> list[list[CellColor]]:
+    return [[classify_patch(_cell_patch(frame, r, c, layout_)) for c in range(5)] for r in range(5)]
 
 
-def is_gameplay_frame(frame: np.ndarray) -> bool:
+def is_gameplay_frame(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> bool:
     """Whether this frame is showing the live-gameplay overlay (grid + colored score
-    bars + bottom-left timer), as opposed to e.g. a "POST GAME" recap screen that
-    reuses the same grid coordinates to cycle through completed games' final boards
-    but replaces the score bars with plain background and moves the timer elsewhere.
-    Cell colors and the timer/label crops are only meaningful when this is true.
+    bars + timer), as opposed to e.g. a "POST GAME" recap screen that reuses the same
+    grid coordinates to cycle through other completed games' final boards but replaces
+    the score bars with plain background and moves the timer elsewhere. Cell colors and
+    the timer/label crops are only meaningful when this is true.
+
+    Also doubles as `pipeline.extract`'s layout-detection probe: since each `Layout`'s
+    score-bar boxes sit at template-specific coordinates, a frame only satisfies this
+    check under the one layout whose boxes actually line up with the broadcast's overlay.
     """
     height, width = frame.shape[:2]
-    red_bar = layout.crop(frame, layout.SCORE_BOX_RED, width, height)
-    blue_bar = layout.crop(frame, layout.SCORE_BOX_BLUE, width, height)
+    red_bar = layout.crop(frame, layout_.score_box_red, width, height)
+    blue_bar = layout.crop(frame, layout_.score_box_blue, width, height)
     return classify_patch(red_bar) is CellColor.RED and classify_patch(blue_bar) is CellColor.BLUE
 
 
@@ -91,7 +96,7 @@ def is_gameplay_frame(frame: np.ndarray) -> bool:
 _SQUARE_TEXT_OCR_SCALE = 4.0
 
 
-def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
+def cell_square_texts(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> list[list[str]]:
     """OCR all 25 cells' square text.
 
     Each cell is an independent OCR call, so this is run as one bounded batch of
@@ -108,7 +113,7 @@ def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
     """
     height, width = frame.shape[:2]
     crops = [
-        layout.crop(frame, layout.grid_cell_box(r, c), width, height)
+        layout.crop(frame, layout.grid_cell_box(r, c, layout_.grid_box), width, height)
         for r in range(5)
         for c in range(5)
     ]
@@ -122,7 +127,9 @@ def cell_square_texts(frame: np.ndarray) -> list[list[str]]:
     return [flat_texts[r * 5 : r * 5 + 5] for r in range(5)]
 
 
-def cell_square_texts_majority(frames: list[np.ndarray]) -> list[list[str]]:
+def cell_square_texts_majority(
+    frames: list[np.ndarray], layout_: Layout = layout.STANDARD
+) -> list[list[str]]:
     """OCR all 25 cells across several frames of the same game and, per cell, keep
     whichever exact text was read most often.
 
@@ -132,7 +139,7 @@ def cell_square_texts_majority(frames: list[np.ndarray]) -> list[list[str]]:
     trusting whichever one frame happened to be sampled is a straightforward way to drop
     that noise.
     """
-    per_frame_texts = [cell_square_texts(frame) for frame in frames]
+    per_frame_texts = [cell_square_texts(frame, layout_) for frame in frames]
     return [
         [Counter(pf[r][c] for pf in per_frame_texts).most_common(1)[0][0] for c in range(5)]
         for r in range(5)

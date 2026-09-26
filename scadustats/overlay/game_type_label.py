@@ -10,6 +10,7 @@ import numpy as np
 
 from scadustats.models import GameType
 from scadustats.overlay import layout, ocr
+from scadustats.overlay.layout import Layout
 
 
 def parse_game_type_label(text: str) -> GameType | None:
@@ -25,18 +26,20 @@ def parse_game_type_label(text: str) -> GameType | None:
     return None
 
 
-def read_game_type_label(frame: np.ndarray) -> GameType | None:
+def read_game_type_label(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> GameType | None:
     height, width = frame.shape[:2]
-    crop = layout.crop(frame, layout.GAME_TYPE_BOX, width, height)
+    crop = layout.crop(frame, layout_.game_type_box, width, height)
     return parse_game_type_label(ocr.read_text(crop, psm=7, scale=3))
 
 
-def majority_game_type_label(frames: list[np.ndarray]) -> GameType | None:
+def majority_game_type_label(
+    frames: list[np.ndarray], layout_: Layout = layout.STANDARD
+) -> GameType | None:
     """Votes `read_game_type_label` across several frames of the same game -- same
     rationale as board.cell_square_texts_majority: a single frame's OCR can misread (or
     land on a moment the subtitle briefly isn't rendered), so whichever type comes back
     most often across a handful of frames wins. None if none of them produced a match."""
-    votes = [t for t in (read_game_type_label(frame) for frame in frames) if t is not None]
+    votes = [t for t in (read_game_type_label(frame, layout_) for frame in frames) if t is not None]
     if not votes:
         return None
     return Counter(votes).most_common(1)[0][0]

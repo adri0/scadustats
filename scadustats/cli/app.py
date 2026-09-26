@@ -16,6 +16,7 @@ from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import (
     GameResult,
     GameType,
+    LayoutName,
     MatchMetadata,
     MatchType,
     Square,
@@ -279,6 +280,10 @@ def extract(
             "to yt-dlp when video_path_or_url is a URL (ignored for a local file)"
         ),
     ] = None,
+    layout: Annotated[
+        LayoutName | None,
+        typer.Option(help="Force a specific overlay layout instead of auto-detecting it"),
+    ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into JSON files under data_dir.
 
@@ -297,6 +302,10 @@ def extract(
     usual from-scratch ones -- handy when re-extracting the same source after a
     calibration fix. A local file with no --video-url given has no link to look itself
     up by.
+
+    Which overlay layout the video uses (the standard template, or an alternate one like
+    a finals broadcast's) is auto-detected from the footage itself by default -- --layout
+    forces a specific one instead, skipping detection outright.
 
     This only writes JSON -- it never touches a database.
 
@@ -415,6 +424,7 @@ def extract(
                     on_missing_game_type=on_missing_game_type,
                     on_duplicate=on_duplicate,
                     published_at=published_at,
+                    layout_name=layout,
                 )
 
             # If extraction (typically minutes) finishes faster than the prompts (a handful

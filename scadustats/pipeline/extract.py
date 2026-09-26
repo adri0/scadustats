@@ -22,13 +22,14 @@ from scadustats.models import (
     GameEvent,
     GameResult,
     GameType,
+    LayoutName,
     MatchMetadata,
     VideoExtraction,
     WinLine,
     WinType,
     format_video_timestamp,
 )
-from scadustats.overlay import board, commentators, game_type_label, scoreboard, timer
+from scadustats.overlay import board, commentators, game_type_label, layout, scoreboard, timer
 from scadustats.pipeline import squares
 from scadustats.pipeline.segmentation import Observation, detect_boundaries
 from scadustats.rules import winner
@@ -62,6 +63,13 @@ _CLOCK_STEP_TOLERANCE_S = 30
 # the usual between-game transition (well under 1% on real videos) and starts looking
 # like the timer simply isn't being read -- see _collect_observations.
 _UNREADABLE_TIMER_WARN_FRACTION = 0.05
+
+# Samples to probe before giving up on auto-detecting which overlay Layout a video uses
+# (see _collect_observations) and falling back to layout.STANDARD -- generous enough to
+# skip past a typical intro/pre-show segment (well over a minute at the default 1Hz
+# sample rate) without decoding arbitrarily far into a video that never shows a
+# recognizable gameplay frame at all (e.g. one that isn't this broadcast's footage).
+_LAYOUT_DETECTION_MAX_SAMPLES = 180
 
 # Consecutive matching samples required to confirm a color change -- see _extract_events.
 # A claim (UNCLAIMED -> RED/BLUE) uses the baseline debounce, same as a direct color swap.
@@ -102,11 +110,24 @@ def estimate_sample_count(video_path: str | Path, sample_rate_hz: float = 1.0) -
     return math.ceil(video_info.duration_s * sample_rate_hz)
 
 
+def _detect_layout(frame: np.ndarray) -> layout.Layout | None:
+    """Whichever registered Layout this frame's overlay matches, or None if it matches
+    none of them yet (e.g. an intro/pre-show frame with no HUD at all). Reuses
+    board.is_gameplay_frame itself as the per-layout probe -- each Layout's score-bar
+    boxes sit at template-specific coordinates, so the check only passes under the one
+    Layout whose boxes actually line up with what's on screen."""
+    for candidate in layout.LAYOUTS.values():
+        if board.is_gameplay_frame(frame, candidate):
+            return candidate
+    return None
+
+
 def _collect_observations(
     video_path: Path,
     sample_rate_hz: float,
     on_progress: Callable[[], None] | None = None,
-) -> list[Observation]:
+    forced_layout: layout.Layout | None = None,
+) -> tuple[list[Observation], layout.Layout]:
     prev_counts = (0, 0)
     # (index, video_ts_s, colors, timer_future) per gameplay sample, in sample order --
     # the timer OCR runs in the background via the future, so this fills in while later
@@ -118,23 +139,47 @@ def _collect_observations(
     def _release_slot(_future: Future) -> None:
         ocr_slots.release()
 
+    # None until the first frame that matches a known Layout's overlay -- once found, it's
+    # locked in for the rest of this video (a broadcast doesn't switch templates mid-video)
+    # and every later frame is read against that same Layout rather than re-probing each
+    # one. `forced_layout` (a --layout override) skips detection outright.
+    selected_layout = forced_layout
+    probed = 0
+
     with ThreadPoolExecutor(max_workers=_OCR_WORKERS) as executor:
         for i, (video_ts_s, frame) in enumerate(frames.sample_frames(video_path, sample_rate_hz)):
             if on_progress is not None:
                 on_progress()
 
-            if not board.is_gameplay_frame(frame):
+            if selected_layout is None:
+                probed += 1
+                selected_layout = _detect_layout(frame)
+                if selected_layout is None:
+                    if probed > _LAYOUT_DETECTION_MAX_SAMPLES:
+                        logger.warning(
+                            "couldn't auto-detect an overlay layout in the first %d "
+                            "samples; assuming %s",
+                            probed,
+                            layout.STANDARD.name,
+                        )
+                        selected_layout = layout.STANDARD
+                    else:
+                        continue
+                else:
+                    logger.info("detected overlay layout: %s", selected_layout.name)
+
+            if not board.is_gameplay_frame(frame, selected_layout):
                 # Not showing the live overlay (e.g. a "POST GAME" recap screen, which
                 # reuses the same grid coordinates to cycle through other completed games'
                 # boards) -- the cell colors and the timer crop would be meaningless here.
                 continue
 
-            colors = board.cell_colors(frame)
+            colors = board.cell_colors(frame, selected_layout)
 
             red = sum(cell is CellColor.RED for row in colors for cell in row)
             blue = sum(cell is CellColor.BLUE for row in colors for cell in row)
             if (red, blue) != prev_counts:
-                board_red, board_blue = scoreboard.read_scores(frame)
+                board_red, board_blue = scoreboard.read_scores(frame, selected_layout)
                 if board_red is not None and board_red != red:
                     logger.warning(
                         "red claim count mismatch at %.1fs: board=%d scoreboard=%d",
@@ -155,7 +200,7 @@ def _collect_observations(
             # bounded pipeline instead of decoding/queueing the whole video's frames in
             # memory before OCR has processed any of them.
             ocr_slots.acquire()
-            timer_future = executor.submit(timer.read_timer, frame)
+            timer_future = executor.submit(timer.read_timer, frame, selected_layout)
             timer_future.add_done_callback(_release_slot)
 
             pending.append((i, video_ts_s, colors, timer_future))
@@ -190,7 +235,10 @@ def _collect_observations(
             len(pending),
             100 * dropped / len(pending),
         )
-    return observations
+    # Only reachable when the whole video ran out before _LAYOUT_DETECTION_MAX_SAMPLES.
+    if selected_layout is None:
+        selected_layout = layout.STANDARD
+    return observations, selected_layout
 
 
 def _segment_games(observations: list[Observation]) -> list[list[Observation]]:
@@ -443,17 +491,27 @@ def extract_video(
     # read it from, and this stays None rather than extract_video making its own separate
     # network call just to look it up.
     published_at: date | None = None,
+    # A --layout override -- None (the default) means auto-detect from the video itself
+    # (see _detect_layout). Forcing a name skips detection outright, for a broadcast
+    # whose intro is too long for _LAYOUT_DETECTION_MAX_SAMPLES to reach real gameplay,
+    # or simply to save the (cheap) probing work when the caller already knows which
+    # template applies. LayoutName (rather than a bare string) is what lets cli/app.py's
+    # --layout option validate itself natively as a Typer/Click choice.
+    layout_name: LayoutName | None = None,
 ) -> ExtractionSummary:
     video_path = Path(video_path)
     if known_squares is None:
         known_squares = squares.load_known_squares(Path(data_dir) / "squares")
+    forced_layout = layout.LAYOUTS[layout_name] if layout_name is not None else None
     # The whole broadcast's length, recorded alongside the games -- a match's games only
     # cover part of it (intros, between-game recaps and post-game are all in there too),
     # so this can't be derived from the game segments after the fact. Non-positive means
     # frames.probe couldn't read an fps to divide the frame count by; None ("unknown")
     # rather than a fabricated 0.0 in that case.
     duration_s = frames.probe(video_path).duration_s
-    observations = _collect_observations(video_path, sample_rate_hz, on_progress)
+    observations, selected_layout = _collect_observations(
+        video_path, sample_rate_hz, on_progress, forced_layout
+    )
     segments = _segment_games(observations)
 
     games = []
@@ -470,26 +528,30 @@ def extract_video(
         square_text_frames = _grab_frames(
             video_path, [obs.video_ts_s for obs in square_text_observations]
         )
-        square_texts = board.cell_square_texts_majority(square_text_frames)
+        square_texts = board.cell_square_texts_majority(square_text_frames, selected_layout)
         # The overlay's own "BASE GAME"/"DLC" subtitle (see game_type_label.py) is tried
         # first -- it's read directly off the same frames already grabbed for square-text
         # majority voting, no extra decode cost. Only falls back to inferring from square
         # texts (squares.py) if none of those frames produced a clean reading, e.g. a
         # transition moment or -- see CLAUDE.md -- source footage too compressed for this
         # small a subtitle to OCR reliably.
-        game_type = game_type_label.majority_game_type_label(square_text_frames)
+        game_type = game_type_label.majority_game_type_label(square_text_frames, selected_layout)
         if game_type is None:
             game_type = squares.infer_game_type(square_texts, known_squares)
         if game_index == 1:
             representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
-            player_red_name, player_blue_name = scoreboard.read_player_names(representative_frame)
+            player_red_name, player_blue_name = scoreboard.read_player_names(
+                representative_frame, selected_layout
+            )
             # Majority-voted over the frames already grabbed above for square text, so
             # this costs no extra decoding -- only the OCR of two small crops per frame,
             # once for the whole video. Unlike the player names, which come off one
             # frame, there are no two independent readings to cross-check a commentator
             # nameplate against (see the scoreboard count check in _collect_observations),
-            # so voting is the only guard against a single bad frame here.
-            casters = commentators.majority_commentator_names(square_text_frames)
+            # so voting is the only guard against a single bad frame here. A layout with
+            # no nameplates at all (Layout.commentator_box_left/right is None) yields an
+            # empty list here rather than a special case -- see commentators.py.
+            casters = commentators.majority_commentator_names(square_text_frames, selected_layout)
 
         events = _extract_events(segment)
         game_start = _detect_game_start(segment)

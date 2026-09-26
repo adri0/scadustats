@@ -46,10 +46,12 @@ def _stub_sampling(monkeypatch, timer_readings: list[int | None]) -> None:
         "sample_frames",
         lambda path, rate: ((float(i), frame) for i, frame in enumerate(frames)),
     )
-    monkeypatch.setattr(extract.board, "is_gameplay_frame", lambda frame: True)
-    monkeypatch.setattr(extract.board, "cell_colors", lambda frame: _board())
-    monkeypatch.setattr(extract.scoreboard, "read_scores", lambda frame: (None, None))
-    monkeypatch.setattr(extract.timer, "read_timer", lambda frame: timer_readings[frame[0, 0, 0]])
+    monkeypatch.setattr(extract.board, "is_gameplay_frame", lambda frame, layout_: True)
+    monkeypatch.setattr(extract.board, "cell_colors", lambda frame, layout_: _board())
+    monkeypatch.setattr(extract.scoreboard, "read_scores", lambda frame, layout_: (None, None))
+    monkeypatch.setattr(
+        extract.timer, "read_timer", lambda frame, layout_: timer_readings[frame[0, 0, 0]]
+    )
 
 
 def _debounced(
@@ -274,7 +276,7 @@ def test_collect_observations_drops_samples_with_an_unreadable_timer(monkeypatch
     _stub_sampling(monkeypatch, [10, None, None, 12])
 
     with caplog.at_level(logging.WARNING):
-        observations = _collect_observations("video.mp4", 1.0)
+        observations, _ = _collect_observations("video.mp4", 1.0)
 
     assert [(obs.sample_index, obs.timer_s) for obs in observations] == [(0, 10), (3, 12)]
     # Half the samples gone is far past "the usual transition" and worth flagging.
@@ -285,7 +287,7 @@ def test_collect_observations_does_not_warn_about_a_few_unreadable_timers(monkey
     _stub_sampling(monkeypatch, [*range(50), None, *range(50)])
 
     with caplog.at_level(logging.WARNING):
-        observations = _collect_observations("video.mp4", 1.0)
+        observations, _ = _collect_observations("video.mp4", 1.0)
 
     assert len(observations) == 100
     assert not caplog.records

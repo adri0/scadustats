@@ -1,5 +1,5 @@
 """Reads the commentators' names off the nameplates the broadcast prints under the two
-inner webcams (see layout.COMMENTATOR_BOX_LEFT/RIGHT).
+inner webcams (see Layout.commentator_box_left/right), for a layout that has them at all.
 
 Unlike the players, whose names are in the score strip above the grid (scoreboard.py),
 the commentators are only ever named by these plates -- which also carry a mic icon that
@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from scadustats.overlay import layout, ocr
+from scadustats.overlay.layout import Layout
 
 # A commentator's name is a streaming handle -- letters, digits, and the separators
 # Twitch/YouTube allow in one ("Captain_Domo", "star0chris") -- so the name is recovered
@@ -56,23 +57,35 @@ def _clean_name(text: str) -> str | None:
     return max(tokens, key=len) if tokens else None
 
 
-def read_commentator_names(frame: np.ndarray) -> tuple[str | None, str | None]:
+def read_commentator_names(
+    frame: np.ndarray, layout_: Layout = layout.STANDARD
+) -> tuple[str | None, str | None]:
     """The (left, right) nameplate readings, None where the frame shows no plate or none
     that reads as a name. Seat order is kept -- rather than returning just the names
     found -- so majority_commentator_names can vote per seat.
+
+    A layout with no nameplate boxes at all (Layout.commentator_box_left/right is None --
+    e.g. LAYOUT_SEASON_6_FINAL) short-circuits straight to (None, None) rather than
+    cropping and OCR'ing a region that was never calibrated to hold a nameplate -- a
+    different case from _has_nameplate's "blank crop" gate below, which is about a real
+    box that happens to show no plate in a given frame.
 
     psm 7 (one line of text) with no upscaling: the plate text is only ~10-20px tall,
     below where ocr.read_text's docstring says Tesseract gets comfortable, but upscaling
     was measured on real frames to change nothing at 2x and to start introducing stray
     punctuation at 3x ("Captain_.Domo"), so there's nothing to buy here.
     """
+    if layout_.commentator_box_left is None or layout_.commentator_box_right is None:
+        return (None, None)
     height, width = frame.shape[:2]
-    left_crop = layout.crop(frame, layout.COMMENTATOR_BOX_LEFT, width, height)
-    right_crop = layout.crop(frame, layout.COMMENTATOR_BOX_RIGHT, width, height)
+    left_crop = layout.crop(frame, layout_.commentator_box_left, width, height)
+    right_crop = layout.crop(frame, layout_.commentator_box_right, width, height)
     return (_read_nameplate(left_crop), _read_nameplate(right_crop))
 
 
-def majority_commentator_names(frames: list[np.ndarray]) -> list[str]:
+def majority_commentator_names(
+    frames: list[np.ndarray], layout_: Layout = layout.STANDARD
+) -> list[str]:
     """Vote `read_commentator_names` across several frames of the same video and return
     the winning name per seat, left to right, dropping any seat that never read as a
     name.
@@ -86,7 +99,7 @@ def majority_commentator_names(frames: list[np.ndarray]) -> list[str]:
     the way red/blue is of a player: it's just where the broadcast happened to put their
     webcam. A video with one unreadable plate yields a one-name list, not a gap.
     """
-    per_frame = [read_commentator_names(frame) for frame in frames]
+    per_frame = [read_commentator_names(frame, layout_) for frame in frames]
     names = []
     for seat in range(2):
         votes = [reading[seat] for reading in per_frame if reading[seat]]
