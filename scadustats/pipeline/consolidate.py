@@ -20,10 +20,15 @@ consolidated stats record per player, covering every match they've appeared in -
 `player consolidate` (see storage.player_stats). consolidate_player_info (issue #82) is
 its sibling for the hand-curated half of a player's profile (storage.player_info): it
 only ever assigns a brand-new player's id, never touching one that already exists.
+
+consolidate_square_stats is the per-square counterpart of consolidate_players: how often
+each reference square is dealt, marked, by whom and how quickly, for `square stats` (see
+storage.square_stats).
 """
 
 import difflib
 import re
+import statistics
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -32,13 +37,17 @@ from datetime import date
 from scadustats.models import (
     CellColor,
     EventType,
+    GameEvent,
+    GameResult,
     GameType,
     MatchRecord,
     MatchWinner,
     PlayerInfo,
+    PlayerMarks,
     PlayerStats,
     Square,
     SquareMarks,
+    SquareStats,
     VideoExtraction,
     WinLoss,
 )
@@ -562,4 +571,105 @@ def consolidate_players(extractions: list[VideoExtraction]) -> dict[str, PlayerS
             ),
             top_squares_dlc=_top_squares(square_marks.get(slug, {}).get(GameType.DLC, Counter())),
         )
+    return stats
+
+
+def _final_marks(game: GameResult) -> dict[tuple[int, int], GameEvent]:
+    """The MARK event behind every square still claimed on `game`'s final board, keyed by
+    its 1-based (row, col) -- the same replay rules.winner.replay performs, kept here
+    rather than reused because what's needed is *which event* left each cell claimed (for
+    its color and game clock), not just the resulting color grid.
+
+    Replayed in video_timestamp order, not stored order, for the same reason
+    rules.validation._ordered_events is: the stored list isn't guaranteed sorted in a
+    hand-edited file.
+    """
+    held: dict[tuple[int, int], GameEvent] = {}
+    for event in sorted(game.events, key=lambda event: event.video_timestamp):
+        if event.row is None or event.col is None:
+            continue
+        if event.event_type is EventType.MARK:
+            held[(event.row, event.col)] = event
+        elif event.event_type is EventType.UNMARK:
+            held.pop((event.row, event.col), None)
+    return held
+
+
+def consolidate_square_stats(
+    extractions: list[VideoExtraction], known_squares: dict[GameType, list[Square]]
+) -> list[SquareStats]:
+    """Every reference square's stats (see models.SquareStats) across `extractions`, in
+    the reference's own (game_type, id) order -- the source data for `square stats`
+    (storage.square_stats.write_square_stats).
+
+    A board cell counts toward a square only when its text is an *exact* match for that
+    square in its own game type's pool -- which is what `square consolidate` leaves every
+    match's square_texts as, so this deliberately doesn't fuzzy-match again: a cell that
+    still doesn't match is an unconsolidated match, and the fix is to run `square
+    consolidate` first, not to guess here. A game with no resolved game_type has no pool
+    and contributes nothing, the same tolerance consolidate_match_squares has.
+
+    Every square in known_squares gets an entry, including one no extraction deals --
+    zeroed rather than left out, so each square in the reference has a stats file.
+    """
+    by_text = {
+        (game_type, square.text): square
+        for game_type, squares in known_squares.items()
+        for square in squares
+    }
+    match_dates: dict[tuple[GameType, str], dict[str, date]] = {}
+    num_games: Counter[tuple[GameType, str]] = Counter()
+    player_marks: dict[tuple[GameType, str], Counter[str]] = {}
+    mark_times: dict[tuple[GameType, str], list[int]] = {}
+
+    for extraction in extractions:
+        names = {
+            CellColor.RED: extraction.player_red_name,
+            CellColor.BLUE: extraction.player_blue_name,
+        }
+        for game in extraction.games:
+            if game.game_type is None:
+                continue
+            held = _final_marks(game)
+            for row_index, row in enumerate(game.square_texts):
+                for col_index, text in enumerate(row):
+                    square = by_text.get((game.game_type, text))
+                    if square is None:
+                        continue
+                    key = (square.game_type, square.id)
+                    match_dates.setdefault(key, {})[extraction.match_id] = extraction.match_date
+                    num_games[key] += 1
+
+                    mark = held.get((row_index + 1, col_index + 1))
+                    if mark is None:
+                        continue
+                    mark_times.setdefault(key, []).append(mark.game_elapsed_s)
+                    name = names.get(mark.color)
+                    if name:
+                        player_marks.setdefault(key, Counter())[slugify_name(name)] += 1
+
+    stats: list[SquareStats] = []
+    for game_type, squares in sorted(known_squares.items()):
+        for square in sorted(squares, key=lambda square: square.id):
+            key = (game_type, square.id)
+            dates = match_dates.get(key, {})
+            times = sorted(mark_times.get(key, []))
+            ranked = sorted(player_marks.get(key, Counter()).items(), key=lambda i: (-i[1], i[0]))
+            stats.append(
+                SquareStats(
+                    id=square.id,
+                    text=square.text,
+                    game_type=game_type,
+                    num_matches=len(dates),
+                    matches=sorted(
+                        dates, key=lambda match_id: (dates[match_id], match_id), reverse=True
+                    ),
+                    num_games=num_games[key],
+                    games_marked=len(times),
+                    mark_rate=round(len(times) / num_games[key], 4) if num_games[key] else None,
+                    top_players=[PlayerMarks(slug=slug, marks=marks) for slug, marks in ranked[:5]],
+                    mark_times_s=times,
+                    median_mark_time_s=statistics.median(times) if times else None,
+                )
+            )
     return stats

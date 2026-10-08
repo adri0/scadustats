@@ -48,6 +48,7 @@ scadustats match show <match_id> [--events] [--data-dir data]
 scadustats match validate [match_id] [--data-dir data]
 scadustats match consolidate <match_id> [--data-dir data]
 scadustats square consolidate [match_id] [--data-dir data]
+scadustats square stats [--data-dir data]
 scadustats player consolidate [match_id] [--data-dir data]
 ```
 
@@ -73,6 +74,8 @@ The `match` sub-commands are read-only lookups over what's already been extracte
 The goal is that square texts can be manually fixed for inconsistencies. Then future extractions use `squares/base_game.json` and `squares/dlc.json` for correcting OCR misreads in matches along the way. 
 
 Given a `match_id`, it reconciles just that match; with none, it walks every match under `data_dir`, growing and correcting the reference incrementally rather than rebuilding it from scratch.
+
+`square stats` writes one `<data_dir>/square_stats/<game_type>/<id>.yaml` per square in the reference: how many matches and games it was dealt in, how many of those games ended with it marked (`mark_rate`), the 5 players who marked it most, and the game clock at each mark (`mark_times_s`, sorted, plus its median) — the time-to-mark distribution. A square only counts as marked if it was still claimed when the game ended, so a mark that was later undone doesn't count. Squares are matched to the reference by exact text, so run `square consolidate` first. Every file is regenerated on each run.
 
 ### Player data
 

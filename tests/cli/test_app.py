@@ -31,6 +31,7 @@ from scadustats.pipeline.extract import ExtractionSummary
 from scadustats.storage.json_export import read_squares, read_video, write_squares, write_video
 from scadustats.storage.player_info import player_info_path, read_player_info, write_player_info
 from scadustats.storage.player_stats import player_stats_path, read_player_stats, read_players_stats
+from scadustats.storage.square_stats import read_square_stats, square_stats_path
 from scadustats.video.download import DownloadResult
 
 
@@ -1452,6 +1453,47 @@ def test_square_validate_reports_an_empty_reference_as_ok(tmp_path):
     assert result.exit_code == 0, result.output
     assert "base_game.json: ok" in result.output
     assert "dlc.json: ok" in result.output
+
+
+def test_square_stats_writes_a_file_per_reference_square(tmp_path):
+    data_dir = tmp_path / "data"
+    extraction = _sample_extraction()
+    write_video(data_dir, extraction)
+    write_squares(data_dir / "squares", _known_for_grid(extraction.games[0].square_texts))
+
+    result = CliRunner().invoke(app, ["square", "stats", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 0, result.output
+    path = square_stats_path(data_dir / "square_stats", GameType.BASE, "goal_0_0")
+    assert f"{path}: 1/1 game(s) marked" in result.output
+    stats = read_square_stats(path)
+    assert stats.matches == ["2026-03-05-alice-vs-bob"]
+    assert stats.mark_times_s == [9]
+    assert stats.top_players[0].slug == "alice"
+    assert (
+        read_square_stats(
+            square_stats_path(data_dir / "square_stats", GameType.BASE, "goal_1_1")
+        ).mark_rate
+        == 0.0
+    )
+
+
+def test_square_stats_reports_when_directory_has_no_matches(tmp_path):
+    result = CliRunner().invoke(app, ["square", "stats", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "No matches found" in result.output
+
+
+def test_square_stats_asks_for_a_reference_when_there_is_none(tmp_path):
+    data_dir = tmp_path / "data"
+    write_video(data_dir, _sample_extraction())
+
+    result = CliRunner().invoke(app, ["square", "stats", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "square consolidate" in result.output
+    assert not (data_dir / "square_stats").exists()
 
 
 def test_no_player_subcommand_prints_the_group_command_list():
