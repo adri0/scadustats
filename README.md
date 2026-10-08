@@ -75,7 +75,7 @@ The goal is that square texts can be manually fixed for inconsistencies. Then fu
 
 Given a `match_id`, it reconciles just that match; with none, it walks every match under `data_dir`, growing and correcting the reference incrementally rather than rebuilding it from scratch.
 
-`square stats` writes one `<data_dir>/square_stats/<game_type>/<id>.yaml` per square in the reference: how many matches and games it was dealt in, how many of those games ended with it marked (`mark_rate`), the 5 players who marked it most, and the game clock at each mark (`mark_times_s`, sorted, plus its median) — the time-to-mark distribution. A square only counts as marked if it was still claimed when the game ended, so a mark that was later undone doesn't count. Squares are matched to the reference by exact text, so run `square consolidate` first. Every file is regenerated on each run.
+`square stats` writes one `<data_dir>/square_stats/<game_type>/<id>.yaml` per square in the reference: how many matches and games it was dealt in, how many of those games ended with it marked (`mark_rate`), the 5 players who marked it most, and the game clock at each mark (`mark_times_s`, sorted, plus its median) — the time-to-mark distribution — and `claims`, which gives the match, game and player behind each of those times. A square only counts as marked if it was still claimed when the game ended, so a mark that was later undone doesn't count. Squares are matched to the reference by exact text, so run `square consolidate` first. Every file is regenerated on each run.
 
 ### Player data
 

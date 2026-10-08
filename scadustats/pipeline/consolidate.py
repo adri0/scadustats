@@ -46,6 +46,7 @@ from scadustats.models import (
     PlayerMarks,
     PlayerStats,
     Square,
+    SquareClaim,
     SquareMarks,
     SquareStats,
     VideoExtraction,
@@ -620,7 +621,7 @@ def consolidate_square_stats(
     match_dates: dict[tuple[GameType, str], dict[str, date]] = {}
     num_games: Counter[tuple[GameType, str]] = Counter()
     player_marks: dict[tuple[GameType, str], Counter[str]] = {}
-    mark_times: dict[tuple[GameType, str], list[int]] = {}
+    claims: dict[tuple[GameType, str], list[SquareClaim]] = {}
 
     for extraction in extractions:
         names = {
@@ -643,17 +644,28 @@ def consolidate_square_stats(
                     mark = held.get((row_index + 1, col_index + 1))
                     if mark is None:
                         continue
-                    mark_times.setdefault(key, []).append(mark.game_elapsed_s)
                     name = names.get(mark.color)
-                    if name:
-                        player_marks.setdefault(key, Counter())[slugify_name(name)] += 1
+                    slug = slugify_name(name) if name else None
+                    if slug:
+                        player_marks.setdefault(key, Counter())[slug] += 1
+                    claims.setdefault(key, []).append(
+                        SquareClaim(
+                            match_id=extraction.match_id,
+                            game_index=game.game_index,
+                            time_s=mark.game_elapsed_s,
+                            slug=slug,
+                        )
+                    )
 
     stats: list[SquareStats] = []
     for game_type, squares in sorted(known_squares.items()):
         for square in sorted(squares, key=lambda square: square.id):
             key = (game_type, square.id)
             dates = match_dates.get(key, {})
-            times = sorted(mark_times.get(key, []))
+            held_claims = sorted(
+                claims.get(key, []), key=lambda c: (c.time_s, c.match_id, c.game_index)
+            )
+            times = [claim.time_s for claim in held_claims]
             ranked = sorted(player_marks.get(key, Counter()).items(), key=lambda i: (-i[1], i[0]))
             stats.append(
                 SquareStats(
@@ -670,6 +682,7 @@ def consolidate_square_stats(
                     top_players=[PlayerMarks(slug=slug, marks=marks) for slug, marks in ranked[:5]],
                     mark_times_s=times,
                     median_mark_time_s=statistics.median(times) if times else None,
+                    claims=held_claims,
                 )
             )
     return stats

@@ -372,6 +372,20 @@ class PlayerMarks(BaseModel):
     marks: int
 
 
+class SquareClaim(BaseModel):
+    """One game that ended with a square claimed (see SquareStats.claims): which match
+    and game it was, when the claim that stuck was made, and by whom -- the provenance of
+    one entry in SquareStats.mark_times_s."""
+
+    match_id: str
+    game_index: int
+    # GameEvent.game_elapsed_s of the persisting MARK, as in SquareStats.mark_times_s.
+    time_s: int
+    # The claiming player's slug (pipeline.consolidate.slugify_name), or None when the
+    # match doesn't name the player on that side.
+    slug: str | None = None
+
+
 class SquareStats(BaseModel):
     """One goal square's dynamically computed stats, built by
     pipeline.consolidate.consolidate_square_stats from every game it appeared in and
@@ -408,6 +422,10 @@ class SquareStats(BaseModel):
     # distribution for the site to bucket however it likes.
     mark_times_s: list[int] = Field(default_factory=list)
     median_mark_time_s: float | None = None
+    # The same claims as mark_times_s, one per marked game and in the same order (by
+    # time, then match_id, then game_index), with the match, game and player behind each
+    # -- so a consumer can link a point of the distribution back to its match.
+    claims: list[SquareClaim] = Field(default_factory=list)
 
 
 class PlayerInfo(BaseModel):

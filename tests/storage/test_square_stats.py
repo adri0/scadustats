@@ -1,4 +1,4 @@
-from scadustats.models import GameType, PlayerMarks, SquareStats
+from scadustats.models import GameType, PlayerMarks, SquareClaim, SquareStats
 from scadustats.storage.square_stats import (
     read_square_stats,
     square_stats_path,
@@ -19,6 +19,10 @@ def _stats(**overrides) -> SquareStats:
         top_players=[PlayerMarks(slug="alice", marks=2)],
         mark_times_s=[120, 480],
         median_mark_time_s=300.0,
+        claims=[
+            SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=1, time_s=120, slug="alice"),
+            SquareClaim(match_id="2026-03-06-alice-vs-carol", game_index=2, time_s=480, slug=None),
+        ],
     )
     defaults.update(overrides)
     return SquareStats(**defaults)

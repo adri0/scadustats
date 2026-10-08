@@ -12,6 +12,7 @@ from scadustats.models import (
     PlayerInfo,
     PlayerMarks,
     Square,
+    SquareClaim,
     SquareMarks,
     SquareStats,
     VideoExtraction,
@@ -848,3 +849,41 @@ def test_consolidate_square_stats_ignores_unknown_text_and_unresolved_game_type(
     )
 
     assert stats["crystalian"].num_games == 0
+
+
+def test_consolidate_square_stats_records_where_each_claim_came_from():
+    first = _extraction(
+        _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.BLUE, 700),)),
+        _game(
+            GameType.BASE,
+            "Kill a Crystalian",
+            game_index=2,
+            events=(_event(1, 1, CellColor.RED, 200),),
+        ),
+    )
+    second = _extraction(
+        _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.RED, 400),)),
+        match_id="m2",
+        player_red_name="Carol",
+    )
+
+    stats = _square_stats(first, second)["crystalian"]
+
+    assert stats.claims == [
+        SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=2, time_s=200, slug="alice"),
+        SquareClaim(match_id="m2", game_index=1, time_s=400, slug="carol"),
+        SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=1, time_s=700, slug="bob"),
+    ]
+    assert [claim.time_s for claim in stats.claims] == stats.mark_times_s
+
+
+def test_consolidate_square_stats_keeps_a_claim_by_an_unnamed_player():
+    game = _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.BLUE, 60),))
+
+    stats = _square_stats(_extraction(game, player_blue_name=None))["crystalian"]
+
+    assert stats.games_marked == 1
+    assert stats.top_players == []
+    assert stats.claims == [
+        SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=1, time_s=60, slug=None)
+    ]
