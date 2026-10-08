@@ -10,8 +10,11 @@ from scadustats.models import (
     GameType,
     MatchType,
     PlayerInfo,
+    PlayerMarks,
     Square,
+    SquareClaim,
     SquareMarks,
+    SquareStats,
     VideoExtraction,
     WinType,
     format_video_timestamp,
@@ -20,6 +23,7 @@ from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
     consolidate_player_info,
     consolidate_players,
+    consolidate_square_stats,
     find_square_issues,
     validate_squares,
 )
@@ -293,7 +297,7 @@ def test_consolidate_match_squares_corrects_a_letter_swap():
 
 
 def test_consolidate_match_squares_corrects_a_letter_misread_as_a_digit_in_a_code():
-    """"B8K" is an OCR misread of "BBK" (a boss's initials), not a second goal count --
+    """ "B8K" is an OCR misread of "BBK" (a boss's initials), not a second goal count --
     only a digit run standing on its own (the actual "Kill 4 ...") counts as a goal count
     to disagree over, so this should still be treated as an ordinary OCR typo fix."""
     extraction = _extraction(_game(GameType.BASE, "Kil 4 Unique Gargoyles B8K"))
@@ -704,3 +708,182 @@ def test_consolidate_player_info_assigns_a_new_id_after_existing_ones():
     info = consolidate_player_info({"alice", "charlie"}, existing=existing)
 
     assert info == {"charlie": PlayerInfo(id=6, slug="charlie")}
+
+
+def _event(
+    row: int, col: int, color: CellColor, elapsed: int, event_type: EventType = EventType.MARK
+) -> GameEvent:
+    return GameEvent(
+        row=row,
+        col=col,
+        color=color,
+        video_timestamp=format_video_timestamp(float(elapsed)),
+        game_elapsed_s=elapsed,
+        event_type=event_type,
+    )
+
+
+def _square_stats(*extractions: VideoExtraction, known=None) -> dict[str, SquareStats]:
+    known = known or {
+        GameType.BASE: [
+            Square(id="crystalian", text="Kill a Crystalian", game_type=GameType.BASE),
+            Square(id="merchant", text="Find a Merchant", game_type=GameType.BASE),
+        ],
+        GameType.DLC: [],
+    }
+    return {stats.id: stats for stats in consolidate_square_stats(list(extractions), known)}
+
+
+def test_consolidate_square_stats_counts_games_and_distinct_matches():
+    first = _extraction(
+        _game(GameType.BASE, "Kill a Crystalian", game_index=1),
+        _game(GameType.BASE, "Kill a Crystalian", game_index=2),
+        match_id="2026-03-05-alice-vs-bob",
+    )
+    second = _extraction(
+        _game(GameType.BASE, "Find a Merchant"),
+        match_id="2026-03-06-alice-vs-carol",
+        match_date=datetime.date(2026, 3, 6),
+    )
+
+    stats = _square_stats(first, second)
+
+    assert stats["crystalian"].num_matches == 1
+    assert stats["crystalian"].num_games == 2
+    assert stats["merchant"].matches == ["2026-03-06-alice-vs-carol"]
+
+
+def test_consolidate_square_stats_orders_matches_by_date_descending():
+    older = _extraction(_game(GameType.BASE, "Kill a Crystalian"), match_id="old")
+    newer = _extraction(
+        _game(GameType.BASE, "Kill a Crystalian"),
+        match_id="new",
+        match_date=datetime.date(2026, 4, 1),
+    )
+
+    assert _square_stats(older, newer)["crystalian"].matches == ["new", "old"]
+
+
+def test_consolidate_square_stats_mark_rate_counts_only_squares_held_at_game_end():
+    marked = _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.RED, 300),))
+    undone = _game(
+        GameType.BASE,
+        "Kill a Crystalian",
+        events=(
+            _event(1, 1, CellColor.RED, 100),
+            _event(1, 1, CellColor.RED, 110, EventType.UNMARK),
+        ),
+    )
+    untouched = _game(GameType.BASE, "Kill a Crystalian")
+
+    stats = _square_stats(_extraction(marked, undone, untouched))["crystalian"]
+
+    assert stats.num_games == 3
+    assert stats.games_marked == 1
+    assert stats.mark_rate == pytest.approx(1 / 3, abs=1e-4)
+    assert stats.mark_times_s == [300]
+
+
+def test_consolidate_square_stats_times_a_remark_from_its_persisting_mark():
+    game = _game(
+        GameType.BASE,
+        "Kill a Crystalian",
+        events=(
+            _event(1, 1, CellColor.RED, 100),
+            _event(1, 1, CellColor.RED, 110, EventType.UNMARK),
+            _event(1, 1, CellColor.BLUE, 500),
+        ),
+    )
+
+    stats = _square_stats(_extraction(game))["crystalian"]
+
+    assert stats.mark_times_s == [500]
+    assert stats.top_players == [PlayerMarks(slug="bob", marks=1)]
+
+
+def test_consolidate_square_stats_sorts_mark_times_and_reports_their_median():
+    games = [
+        _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.RED, t),))
+        for t in (900, 100, 400)
+    ]
+
+    stats = _square_stats(_extraction(*games))["crystalian"]
+
+    assert stats.mark_times_s == [100, 400, 900]
+    assert stats.median_mark_time_s == 400
+
+
+def test_consolidate_square_stats_ranks_top_players_by_marks_then_slug():
+    def held_by(color):
+        return _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, color, 60),))
+
+    first = _extraction(held_by(CellColor.BLUE), held_by(CellColor.BLUE), held_by(CellColor.RED))
+    second = _extraction(
+        held_by(CellColor.RED), player_red_name="Carol", player_blue_name="Dave", match_id="m2"
+    )
+
+    stats = _square_stats(first, second)["crystalian"]
+
+    assert stats.top_players == [
+        PlayerMarks(slug="bob", marks=2),
+        PlayerMarks(slug="alice", marks=1),
+        PlayerMarks(slug="carol", marks=1),
+    ]
+
+
+def test_consolidate_square_stats_zeroes_a_square_never_dealt():
+    stats = _square_stats(_extraction(_game(GameType.BASE, "Kill a Crystalian")))["merchant"]
+
+    assert stats.num_games == 0
+    assert stats.mark_rate is None
+    assert stats.median_mark_time_s is None
+
+
+def test_consolidate_square_stats_ignores_unknown_text_and_unresolved_game_type():
+    stats = _square_stats(
+        _extraction(
+            _game(GameType.BASE, "Kil a Crystalian"),
+            _game(None, "Kill a Crystalian"),
+            _game(GameType.DLC, "Kill a Crystalian"),
+        )
+    )
+
+    assert stats["crystalian"].num_games == 0
+
+
+def test_consolidate_square_stats_records_where_each_claim_came_from():
+    first = _extraction(
+        _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.BLUE, 700),)),
+        _game(
+            GameType.BASE,
+            "Kill a Crystalian",
+            game_index=2,
+            events=(_event(1, 1, CellColor.RED, 200),),
+        ),
+    )
+    second = _extraction(
+        _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.RED, 400),)),
+        match_id="m2",
+        player_red_name="Carol",
+    )
+
+    stats = _square_stats(first, second)["crystalian"]
+
+    assert stats.claims == [
+        SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=2, time_s=200, slug="alice"),
+        SquareClaim(match_id="m2", game_index=1, time_s=400, slug="carol"),
+        SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=1, time_s=700, slug="bob"),
+    ]
+    assert [claim.time_s for claim in stats.claims] == stats.mark_times_s
+
+
+def test_consolidate_square_stats_keeps_a_claim_by_an_unnamed_player():
+    game = _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.BLUE, 60),))
+
+    stats = _square_stats(_extraction(game, player_blue_name=None))["crystalian"]
+
+    assert stats.games_marked == 1
+    assert stats.top_players == []
+    assert stats.claims == [
+        SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=1, time_s=60, slug=None)
+    ]

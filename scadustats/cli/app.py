@@ -27,6 +27,7 @@ from scadustats.pipeline.consolidate import (
     consolidate_match_squares,
     consolidate_player_info,
     consolidate_players,
+    consolidate_square_stats,
     find_square_issues,
     slugify_name,
     validate_squares,
@@ -42,6 +43,7 @@ from scadustats.storage.json_export import (
 )
 from scadustats.storage.player_info import read_players_info, write_player_info
 from scadustats.storage.player_stats import write_player_stats
+from scadustats.storage.square_stats import write_square_stats
 from scadustats.video.download import download_video
 
 # no_args_is_help: a bare `scadustats` prints the full command list rather than Typer's
@@ -885,6 +887,40 @@ def square_validate(
 
     if with_issues:
         raise typer.Exit(1)
+
+
+@square_app.command("stats", short_help="Rebuild per-square stats from every match.")
+def square_stats(
+    data_dir: Annotated[
+        Path, typer.Option(help="Data directory written by `extract` (see extract's --data-dir)")
+    ] = Path("data"),
+) -> None:
+    """Rebuild <data_dir>/square_stats/<game_type>/<id>.yaml from every match under
+    data_dir: one file per square in the consolidated reference, with how many matches
+    and games it was dealt in, how often it ended a game marked (mark rate), the players
+    who marked it most, and the game clock at every mark (the time-to-mark
+    distribution).
+
+    A square counts as marked in a game only if it was still claimed on the final board
+    -- a mark later undone doesn't count. Squares are matched to the reference by exact
+    text, so run `square consolidate` first: a board cell the reference doesn't know
+    contributes nothing here. Every file is wholly regenerated each run (see
+    storage.square_stats).
+    """
+    extractions = _read_matches(data_dir)
+    if not extractions:
+        typer.echo(f"No matches found in {_matches_dir(data_dir)}")
+        return
+
+    known_squares = read_squares(Path(data_dir) / "squares")
+    if not any(known_squares.values()):
+        typer.echo("No squares reference found -- run `square consolidate` first")
+        return
+
+    square_stats_dir = Path(data_dir) / "square_stats"
+    for stats in consolidate_square_stats(extractions, known_squares):
+        path = write_square_stats(square_stats_dir, stats)
+        typer.echo(f"{path}: {stats.games_marked}/{stats.num_games} game(s) marked")
 
 
 player_app = typer.Typer(
