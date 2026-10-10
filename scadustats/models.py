@@ -48,6 +48,7 @@ class LayoutName(StrEnum):
 
     STANDARD = "standard"
     SEASON_6_FINAL = "layout_season_6_final"
+    PRE_SEASON_6 = "layout_pre_season_6"
 
 
 class GameType(StrEnum):

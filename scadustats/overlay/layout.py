@@ -23,6 +23,7 @@ and must be hand-tuned against real frames with scripts/calibrate_layout.py
 before anything downstream (color classification, OCR) can work.
 """
 
+import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,7 +40,10 @@ class Layout:
     blank in a given frame, which `commentators._has_nameplate` already
     handles) -- `commentators.read_commentator_names` skips straight to
     `(None, None)` in that case rather than cropping and OCR'ing a region that
-    was never calibrated to hold a nameplate.
+    was never calibrated to hold a nameplate. `game_type_box` is `None` the same
+    way for a template with no "BASE GAME"/"DLC" subtitle at all, leaving the
+    game type to be inferred from the board's square texts (see
+    pipeline.squares.infer_game_type).
     """
 
     name: LayoutName
@@ -48,7 +52,7 @@ class Layout:
     # The small "BASE GAME"/"DLC" subtitle -- see game_type_label.py. The "GAME N" label
     # itself has no box here: a game is identified by its index within the video (see
     # models.GameResult), so N is never read.
-    game_type_box: FractionalBox
+    game_type_box: FractionalBox | None
     score_box_red: FractionalBox
     score_box_blue: FractionalBox
     name_box_red: FractionalBox
@@ -106,11 +110,30 @@ LAYOUT_SEASON_6_FINAL = Layout(
     commentator_box_right=None,
 )
 
+# Pre-season 6 broadcast: the same template as STANDARD (grid, score strip, player
+# names and commentator nameplates all in the same place), except that the timer sits
+# ~28px (at 720p) higher -- with a row of per-player game-win indicators above it and an
+# empty panel below -- and there is no "BASE GAME"/"DLC" subtitle anywhere on screen
+# (the bottom-right corner holds a webcam instead), so game_type_box is None. Measured on
+# the pre-season 6 VOD star0chris vs itzCBD (youtube.com/watch?v=Wyz0jB_fQ0M, 1280x720):
+# the timer reads cleanly anywhere from 16px to 40px above STANDARD's timer_box, so this
+# box sits in the middle of that range.
+#
+# Because its score strip is STANDARD's, is_gameplay_frame can't tell the two apart, so
+# _detect_layout always picks STANDARD (registered first) on this footage. Pass
+# `--layout layout_pre_season_6` explicitly to extract a pre-season 6 VOD.
+LAYOUT_PRE_SEASON_6 = dataclasses.replace(
+    STANDARD,
+    name=LayoutName.PRE_SEASON_6,
+    timer_box=FractionalBox(left=0.008, top=0.839, right=0.172, bottom=0.933),
+    game_type_box=None,
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
-# first, so a frame that happens to satisfy both checks favors the far more common
-# template) and a --layout CLI override looks up by name.
+# first, so a frame that happens to satisfy more than one check favors the far more
+# common template) and a --layout CLI override looks up by name.
 LAYOUTS: dict[LayoutName, Layout] = {
-    layout.name: layout for layout in (STANDARD, LAYOUT_SEASON_6_FINAL)
+    layout.name: layout for layout in (STANDARD, LAYOUT_SEASON_6_FINAL, LAYOUT_PRE_SEASON_6)
 }
 
 
