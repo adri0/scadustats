@@ -27,6 +27,8 @@ def parse_game_type_label(text: str) -> GameType | None:
 
 
 def read_game_type_label(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> GameType | None:
+    if layout_.game_type_box is None:
+        return None
     height, width = frame.shape[:2]
     crop = layout.crop(frame, layout_.game_type_box, width, height)
     return parse_game_type_label(ocr.read_text(crop, psm=7, scale=3))

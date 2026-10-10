@@ -611,3 +611,31 @@ def test_read_squares_treats_a_missing_file_as_an_empty_list(tmp_path):
     type is missing, not a FileNotFoundError -- the same "ships empty" tolerance
     squares.json used to have (issue #75)."""
     assert read_squares(tmp_path) == {GameType.BASE: [], GameType.DLC: []}
+
+
+def test_write_video_overwrites_a_match_file_moved_out_of_its_default_folder(tmp_path):
+    """A match file moved by hand (e.g. into a season folder without the `season-`
+    prefix) stays where it is on a later write, rather than being duplicated back into
+    video_path's default location."""
+    extraction = _sample_extraction()
+    default = write_video(tmp_path, extraction)
+    moved = tmp_path / "matches" / "pre-season-6" / default.name
+    moved.parent.mkdir()
+    default.rename(moved)
+
+    path = write_video(tmp_path, extraction)
+
+    assert path == moved
+    assert not default.exists()
+    assert json.loads(moved.read_text())["match_id"] == extraction.match_id
+
+
+def test_write_video_error_mode_sees_a_moved_match_file(tmp_path):
+    extraction = _sample_extraction()
+    default = write_video(tmp_path, extraction)
+    moved = tmp_path / "matches" / "elsewhere" / default.name
+    moved.parent.mkdir()
+    default.rename(moved)
+
+    with pytest.raises(FileExistsError):
+        write_video(tmp_path, extraction, if_exists="error")

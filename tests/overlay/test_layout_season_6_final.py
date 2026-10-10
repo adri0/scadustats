@@ -34,7 +34,7 @@ def _frames(path: str) -> list:
 
 
 def test_layouts_registry_has_both_templates():
-    assert set(layout.LAYOUTS) == {"standard", "layout_season_6_final"}
+    assert {"standard", "layout_season_6_final"} <= set(layout.LAYOUTS)
     assert layout.LAYOUTS["layout_season_6_final"] is layout.LAYOUT_SEASON_6_FINAL
 
 

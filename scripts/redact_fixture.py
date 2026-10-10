@@ -42,15 +42,16 @@ _CRF = "16"
 def _restored_boxes(layout_: layout.Layout) -> tuple[layout.FractionalBox, ...]:
     """Every one of the layout's own boxes other than the grid (which is kept as a whole
     column, not box-by-box -- see redact()), skipping a commentator box the layout
-    doesn't have at all."""
+    doesn't have at all (and likewise the game-type box)."""
     boxes = [
         layout_.timer_box,
-        layout_.game_type_box,
         layout_.score_box_red,
         layout_.score_box_blue,
         layout_.name_box_red,
         layout_.name_box_blue,
     ]
+    if layout_.game_type_box is not None:
+        boxes.append(layout_.game_type_box)
     if layout_.commentator_box_left is not None:
         boxes.append(layout_.commentator_box_left)
     if layout_.commentator_box_right is not None:
