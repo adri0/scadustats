@@ -31,15 +31,16 @@ logger = logging.getLogger(__name__)
 
 
 def load_known_squares(squares_dir: str | Path) -> dict[str, GameType]:
-    """Every square text known so far, across both game types, flattened from
-    squares_dir/base_game.json and squares_dir/dlc.json (see
+    """Every square wording known so far (canonical texts and aliases), across both game
+    types, flattened from squares_dir/base_game.json and squares_dir/dlc.json (see
     storage.json_export.read_squares) into the single text->GameType map
     infer_game_type below expects. Either file missing contributes nothing for that game
     type -- read_squares already treats that as an empty list, not an error."""
     known: dict[str, GameType] = {}
     for game_type, squares in read_squares(squares_dir).items():
         for square in squares:
-            known[square.text] = game_type
+            for wording in square.wordings:
+                known[wording] = game_type
     return known
 
 
@@ -50,9 +51,7 @@ def infer_game_type(
     known_squares is empty) -- there's nothing to infer from. If the matched squares
     disagree (which shouldn't happen: a board's squares are drawn from one pool, not
     mixed), the majority wins and a warning is logged, rather than failing outright."""
-    matched = [
-        known_squares[text] for row in square_texts for text in row if text in known_squares
-    ]
+    matched = [known_squares[text] for row in square_texts for text in row if text in known_squares]
     if not matched:
         return None
 

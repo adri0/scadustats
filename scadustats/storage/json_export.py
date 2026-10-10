@@ -285,7 +285,10 @@ def write_squares(
     for game_type, game_squares in squares.items():
         path = squares_path(squares_dir, game_type)
         ordered = sorted(game_squares, key=lambda square: square.id)
-        body = json.dumps([square.model_dump(mode="json") for square in ordered], indent=2)
+        body = json.dumps(
+            [square.model_dump(mode="json", exclude_defaults=True) for square in ordered],
+            indent=2,
+        )
         path.write_text(body + "\n")
         written[game_type] = path
     return written

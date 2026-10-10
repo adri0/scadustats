@@ -639,3 +639,32 @@ def test_write_video_error_mode_sees_a_moved_match_file(tmp_path):
 
     with pytest.raises(FileExistsError):
         write_video(tmp_path, extraction, if_exists="error")
+
+
+def test_write_squares_omits_empty_aliases_and_round_trips_set_ones(tmp_path):
+    squares = {
+        GameType.BASE: [Square(id="wormface", text="Kill Wormface", game_type=GameType.BASE)],
+        GameType.DLC: [
+            Square(
+                id="midra",
+                text="Kill Midra",
+                game_type=GameType.DLC,
+                aliases=["Kill Midra, Lord of Frenzied Flame"],
+            )
+        ],
+    }
+
+    paths = write_squares(tmp_path, squares)
+
+    assert json.loads(paths[GameType.BASE].read_text()) == [
+        {"id": "wormface", "text": "Kill Wormface", "game_type": "base"}
+    ]
+    assert json.loads(paths[GameType.DLC].read_text()) == [
+        {
+            "id": "midra",
+            "text": "Kill Midra",
+            "game_type": "dlc",
+            "aliases": ["Kill Midra, Lord of Frenzied Flame"],
+        }
+    ]
+    assert read_squares(tmp_path) == squares

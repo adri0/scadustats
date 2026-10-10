@@ -64,3 +64,26 @@ def test_load_known_squares_handles_missing_files(tmp_path):
     checkout, or one that's never extracted anything) ships the same "empty reference"
     behavior squares.json used to -- see issue #75."""
     assert load_known_squares(tmp_path / "squares") == {}
+
+
+def test_load_known_squares_includes_aliases(tmp_path):
+    write_squares(
+        tmp_path,
+        {
+            GameType.DLC: [
+                Square(
+                    id="midra",
+                    text="Kill Midra",
+                    game_type=GameType.DLC,
+                    aliases=["Kill Midra, Lord of Frenzied Flame"],
+                )
+            ],
+        },
+    )
+
+    known = load_known_squares(tmp_path)
+
+    assert known == {
+        "Kill Midra": GameType.DLC,
+        "Kill Midra, Lord of Frenzied Flame": GameType.DLC,
+    }

@@ -235,11 +235,25 @@ class Square(BaseModel):
     pipeline.consolidate from previously extracted matches (see
     storage.json_export.write_squares) -- distinct from GameResult.square_texts, which is
     just the raw OCR text read off one game's board, with no id or cross-match dedup.
+
+    `text` is the square's canonical wording. `aliases` are other wordings of the same
+    goal seen on other broadcasts (e.g. "Kill Midra, Lord of Frenzied Flame" for "Kill
+    Midra", issue #125) -- added by hand, never by consolidation, since only a person can
+    tell a rewording from a genuinely different goal. A board cell reading any of them is
+    this square: consolidation corrects OCR towards whichever wording it's closest to,
+    leaving the cell in the wording actually shown on screen, and every stat groups the
+    wordings under this one square (see wordings / pipeline.consolidate).
     """
 
     id: str
     text: str
     game_type: GameType
+    aliases: list[str] = Field(default_factory=list)
+
+    @property
+    def wordings(self) -> list[str]:
+        """The canonical text first, then every alias."""
+        return [self.text, *self.aliases]
 
 
 class VideoExtraction(BaseModel):
