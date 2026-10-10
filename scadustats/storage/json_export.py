@@ -146,20 +146,36 @@ def video_path(data_dir: str | Path, season: str, match_id: str) -> Path:
     return Path(data_dir) / "matches" / f"season-{season}" / f"{match_id}.json"
 
 
+def existing_or_new_video_path(data_dir: str | Path, season: str, match_id: str) -> Path:
+    """Where a write of this match_id should land: the file already holding it, wherever
+    it sits under `<data_dir>/matches`, or video_path's default for a match not written
+    yet. Reads already find a match file in any subdirectory (cli.app._match_path searches
+    recursively), so a file moved by hand -- e.g. into a season folder named without the
+    `season-` prefix -- is kept there by every later write-back (`square consolidate`
+    fixing its squares, a re-extraction replacing it) instead of being duplicated into
+    video_path's default location.
+    """
+    matches_dir = Path(data_dir) / "matches"
+    existing = sorted(matches_dir.rglob(f"{match_id}.json")) if matches_dir.is_dir() else []
+    return existing[0] if existing else video_path(data_dir, season, match_id)
+
+
 def write_video(
     data_dir: str | Path,
     extraction: VideoExtraction,
     if_exists: str = "replace",
 ) -> Path:
     """Write one video's full extraction (every game it contains) to
-    `<data_dir>/matches/season-<season>/<match_id>.json` (see video_path), creating any
-    missing directories. Returns the path written.
+    `<data_dir>/matches/season-<season>/<match_id>.json` (see video_path), or over the
+    existing file for this match_id wherever it already lives (see
+    existing_or_new_video_path), creating any missing directories. Returns the path
+    written.
 
     if_exists="error" raises FileExistsError if the target file already exists.
     Any other value (including "append") overwrites unconditionally -- there's nothing
     meaningful to append into a single already-complete video's extraction file.
     """
-    path = video_path(data_dir, extraction.season, extraction.match_id)
+    path = existing_or_new_video_path(data_dir, extraction.season, extraction.match_id)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if if_exists == "error" and path.exists():
