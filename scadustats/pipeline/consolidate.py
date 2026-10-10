@@ -147,18 +147,27 @@ def _unique_id(base: str, used: set[str]) -> str:
     return f"{base}_{suffix}"
 
 
+def _wording_counts(squares: list[Square]) -> Counter[str]:
+    """How many times each wording (canonical text or alias, see Square.wordings) appears
+    across `squares` -- a wording counted more than once would make a board cell reading
+    it ambiguous between squares (or, within one square, is just a redundant alias)."""
+    return Counter(wording for square in squares for wording in square.wordings)
+
+
 def validate_squares(squares: list[Square]) -> None:
-    """Raises ValueError if `squares` holds a duplicated id or text. consolidate_match_squares'
-    own construction already prevents both within one game type -- this is the final
-    sanity check the reference is built to have (see issue #71), catching a future
-    regression in that construction rather than anything expected to fire in practice.
+    """Raises ValueError if `squares` holds a duplicated id or wording (a text or alias
+    shared by two squares, or repeated within one, see Square.aliases).
+    consolidate_match_squares' own construction already prevents both within one game
+    type -- this is the final sanity check the reference is built to have (see issue #71),
+    catching a future regression in that construction (or a hand-added alias clashing
+    with another square) rather than anything expected to fire in practice.
     """
     id_counts = Counter(square.id for square in squares)
     duplicate_ids = sorted(id for id, count in id_counts.items() if count > 1)
     if duplicate_ids:
         raise ValueError(f"duplicate square id(s): {', '.join(duplicate_ids)}")
 
-    text_counts = Counter(square.text for square in squares)
+    text_counts = _wording_counts(squares)
     duplicate_texts = sorted(text for text, count in text_counts.items() if count > 1)
     if duplicate_texts:
         raise ValueError(f"duplicate square text(s): {', '.join(duplicate_texts)}")
@@ -177,8 +186,8 @@ class SquareValidationIssue:
 
 def find_square_issues(squares: list[Square]) -> list[SquareValidationIssue]:
     """Every problem found in one game type's consolidated square list (issue #87): a
-    duplicated `id` or `text`, and any square listed out of the text's own alphabetical
-    order.
+    duplicated `id` or wording (`text` or one of its `aliases`), and any square listed out
+    of the text's own alphabetical order.
 
     This is the same duplicate check validate_squares already enforces as a hard
     regression backstop *during* consolidation (see its own docstring) -- but reported
@@ -201,7 +210,9 @@ def find_square_issues(squares: list[Square]) -> list[SquareValidationIssue]:
     for id in sorted(id for id, count in id_counts.items() if count > 1):
         issues.append(SquareValidationIssue("duplicate_id", f"duplicate square id: {id}"))
 
-    text_counts = Counter(square.text for square in squares)
+    # Aliases count too (issue #125): a wording two squares share leaves a board cell
+    # reading it ambiguous between them.
+    text_counts = _wording_counts(squares)
     for text in sorted(text for text, count in text_counts.items() if count > 1):
         issues.append(SquareValidationIssue("duplicate_text", f"duplicate square text: {text!r}"))
 
@@ -269,7 +280,8 @@ class SquareTextChange:
     because its text wasn't already an exact match in its game's reference pool.
 
     A FIX (is_new=False) corrects an OCR misread against an existing reference entry --
-    resolved_text is that entry's text, and ratio records how close the match was. An ADD
+    resolved_text is whichever of that entry's wordings (its text or an alias, see
+    Square.wordings) the cell was closest to, and ratio records how close the match was. An ADD
     (is_new=True, ratio=None) is a square the reference had never seen before, appended to
     it rather than silently dropped -- resolved_text is just original_text unchanged.
 
@@ -286,6 +298,9 @@ class SquareTextChange:
     is_new: bool
     ratio: float | None
     game_type: GameType
+    # The reference square the cell now reads as -- resolved_text alone doesn't say which
+    # square that is when it's an alias rather than the square's canonical text.
+    square_id: str
 
 
 def _best_match(text: str, candidates: list[str]) -> tuple[str, float] | None:
@@ -336,8 +351,10 @@ def consolidate_match_squares(
     forms of the command can't drift apart the way a second, independent implementation
     of "what squares exist" risked.
 
-    A cell whose text is already an exact match in its game's pool needs nothing and
-    isn't reported. Anything else is one of two things: an OCR misread of a square the
+    A cell whose text is already an exact match for any wording in its game's pool (a
+    square's text or one of its aliases, issue #125) needs nothing and isn't reported --
+    an alias is left as the wording that was on screen, not rewritten to the canonical
+    text. Anything else is one of two things: an OCR misread of a square the
     reference already knows (fuzzy-matched via _best_match and corrected in place on
     `extraction`, mutating game.square_texts -- the same object the caller goes on to
     write back with json_export.write_video), or a square the reference has never seen,
@@ -361,7 +378,10 @@ def consolidate_match_squares(
             continue
         pool = known_squares.setdefault(game.game_type, [])
         used = used_ids.setdefault(game.game_type, set())
-        candidates = [square.text for square in pool]
+        # Every wording of every square (issue #125): a cell is matched against aliases
+        # as well as canonical texts, and keeps the wording it's closest to.
+        wording_ids = {wording: square.id for square in pool for wording in square.wordings}
+        candidates = list(wording_ids)
         candidate_set = set(candidates)
 
         for row_index, row in enumerate(game.square_texts):
@@ -383,6 +403,7 @@ def consolidate_match_squares(
                             is_new=False,
                             ratio=ratio,
                             game_type=game.game_type,
+                            square_id=wording_ids[matched_text],
                         )
                     )
                     continue
@@ -390,6 +411,7 @@ def consolidate_match_squares(
                 square_id = _unique_id(_slugify(text), used)
                 used.add(square_id)
                 pool.append(Square(id=square_id, text=text, game_type=game.game_type))
+                wording_ids[text] = square_id
                 candidates.append(text)
                 candidate_set.add(text)
                 changes.append(
@@ -402,6 +424,7 @@ def consolidate_match_squares(
                         is_new=True,
                         ratio=None,
                         game_type=game.game_type,
+                        square_id=square_id,
                     )
                 )
 
@@ -476,7 +499,10 @@ def consolidate_player_info(
     return new_info
 
 
-def consolidate_players(extractions: list[VideoExtraction]) -> dict[str, PlayerStats]:
+def consolidate_players(
+    extractions: list[VideoExtraction],
+    known_squares: dict[GameType, list[Square]] | None = None,
+) -> dict[str, PlayerStats]:
     """Every player's consolidated stats (see models.PlayerStats) across `extractions`,
     keyed by slug (see slugify_name) -- the source data for `player consolidate`
     (storage.player_stats.write_player_stats, issue #72).
@@ -497,7 +523,18 @@ def consolidate_players(extractions: list[VideoExtraction]) -> dict[str, PlayerS
     contributes nothing to game_record/game_type_records/the top-squares tallies -- in
     both cases there's no result yet to attribute to either player, so guessing one would
     be inventing data the same way VideoExtraction.winner itself declines to.
+
+    Given the squares reference, a mark on a cell reading one of a square's aliases (issue
+    #125) is tallied under that square's canonical text in the top-squares lists, so every
+    wording of a goal counts as one square. A text the reference doesn't know is tallied as
+    it reads.
     """
+    canonical = {
+        (game_type, wording): square.text
+        for game_type, squares in (known_squares or {}).items()
+        for square in squares
+        for wording in square.wordings
+    }
     name_votes: dict[str, Counter[str]] = {}
     season_records: dict[str, dict[str, MatchRecord]] = {}
     game_records: dict[str, WinLoss] = {}
@@ -554,7 +591,7 @@ def consolidate_players(extractions: list[VideoExtraction]) -> dict[str, PlayerS
                         if event.event_type is EventType.MARK and event.color is color:
                             text = _event_square_text(game.square_texts, event.row, event.col)
                             if text:
-                                marks[text] += 1
+                                marks[canonical.get((game.game_type, text), text)] += 1
 
     stats: dict[str, PlayerStats] = {}
     for slug in sorted(name_votes):
@@ -603,20 +640,24 @@ def consolidate_square_stats(
     the reference's own (game_type, id) order -- the source data for `square stats`
     (storage.square_stats.write_square_stats).
 
-    A board cell counts toward a square only when its text is an *exact* match for that
-    square in its own game type's pool -- which is what `square consolidate` leaves every
-    match's square_texts as, so this deliberately doesn't fuzzy-match again: a cell that
-    still doesn't match is an unconsolidated match, and the fix is to run `square
-    consolidate` first, not to guess here. A game with no resolved game_type has no pool
-    and contributes nothing, the same tolerance consolidate_match_squares has.
+    A board cell counts toward a square only when its text is an *exact* match for one of
+    that square's wordings (its text or an alias) in its own game type's pool -- which is
+    what `square consolidate` leaves every match's square_texts as, so this deliberately
+    doesn't fuzzy-match again: a cell that still doesn't match is an unconsolidated match,
+    and the fix is to run `square consolidate` first, not to guess here. A game with no
+    resolved game_type has no pool and contributes nothing, the same tolerance
+    consolidate_match_squares has.
 
     Every square in known_squares gets an entry, including one no extraction deals --
     zeroed rather than left out, so each square in the reference has a stats file.
     """
+    # Every wording maps to its square (issue #125), so a cell reading an alias counts
+    # toward the same square as one reading its canonical text.
     by_text = {
-        (game_type, square.text): square
+        (game_type, wording): square
         for game_type, squares in known_squares.items()
         for square in squares
+        for wording in square.wordings
     }
     match_dates: dict[tuple[GameType, str], dict[str, date]] = {}
     num_games: Counter[tuple[GameType, str]] = Counter()

@@ -758,7 +758,7 @@ def _consolidate_one_match(
         else:
             typer.echo(
                 f"{scope}: {change.original_text!r} -> {change.resolved_text!r} "
-                f"({change.ratio:.0%})"
+                f"({change.ratio:.0%}, {change.square_id})"
             )
 
     fixed = sum(not change.is_new for change in changes)
@@ -905,7 +905,7 @@ def square_stats(
     -- a mark later undone doesn't count. Squares are matched to the reference by exact
     text, so run `square consolidate` first: a board cell the reference doesn't know
     contributes nothing here. Every file is wholly regenerated each run (see
-    storage.square_stats).
+    storage.square_stats), and a file for a square no longer in the reference is removed.
     """
     extractions = _read_matches(data_dir)
     if not extractions:
@@ -918,9 +918,19 @@ def square_stats(
         return
 
     square_stats_dir = Path(data_dir) / "square_stats"
+    written: set[Path] = set()
     for stats in consolidate_square_stats(extractions, known_squares):
         path = write_square_stats(square_stats_dir, stats)
+        written.add(path)
         typer.echo(f"{path}: {stats.games_marked}/{stats.num_games} game(s) marked")
+
+    # A square no longer in the reference -- e.g. merged into another as an alias (issue
+    # #125) -- would otherwise keep a stale stats file forever, since nothing rewrites it.
+    for game_type in GameType:
+        for stale in sorted((square_stats_dir / game_type.value).glob("*.yaml")):
+            if stale not in written:
+                stale.unlink()
+                typer.echo(f"{stale}: removed, no longer in the squares reference")
 
 
 player_app = typer.Typer(
@@ -969,7 +979,7 @@ def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
     _write_new_player_info(players_dir, slugs)
 
     extractions = _read_matches(data_dir)
-    stats = consolidate_players(extractions)
+    stats = consolidate_players(extractions, read_squares(Path(data_dir) / "squares"))
 
     for slug in sorted(slugs & stats.keys()):
         player_stats = stats[slug]
@@ -1020,7 +1030,7 @@ def player_consolidate(
         typer.echo(f"No matches found in {_matches_dir(data_dir)}")
         return
 
-    stats = consolidate_players(extractions)
+    stats = consolidate_players(extractions, read_squares(Path(data_dir) / "squares"))
     players_dir = Path(data_dir) / "players"
     _write_new_player_info(players_dir, set(stats.keys()))
 

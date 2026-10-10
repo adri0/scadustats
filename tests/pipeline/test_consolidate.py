@@ -887,3 +887,136 @@ def test_consolidate_square_stats_keeps_a_claim_by_an_unnamed_player():
     assert stats.claims == [
         SquareClaim(match_id="2026-03-05-alice-vs-bob", game_index=1, time_s=60, slug=None)
     ]
+
+
+# --- aliases: several wordings of one square (issue #125) ---
+
+_MIDRA = Square(
+    id="midra",
+    text="Kill Midra",
+    game_type=GameType.DLC,
+    aliases=["Kill Midra, Lord of Frenzied Flame"],
+)
+
+
+def _known_with_midra() -> dict[GameType, list[Square]]:
+    return {GameType.BASE: [], GameType.DLC: [_MIDRA.model_copy(deep=True)]}
+
+
+def test_consolidate_match_squares_leaves_an_exact_alias_as_shown():
+    extraction = _extraction(_game(GameType.DLC, "Kill Midra, Lord of Frenzied Flame"))
+    known = _known_with_midra()
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert changes == []
+    assert extraction.games[0].square_texts[0][0] == "Kill Midra, Lord of Frenzied Flame"
+    assert [square.id for square in known[GameType.DLC]] == ["midra"]
+
+
+def test_consolidate_match_squares_corrects_a_misread_alias_to_the_alias():
+    extraction = _extraction(_game(GameType.DLC, "Kill Midra, Lord of Frenzled Flame"))
+    known = _known_with_midra()
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert len(changes) == 1
+    assert not changes[0].is_new
+    assert changes[0].resolved_text == "Kill Midra, Lord of Frenzied Flame"
+    assert changes[0].square_id == "midra"
+    assert extraction.games[0].square_texts[0][0] == "Kill Midra, Lord of Frenzied Flame"
+    assert len(known[GameType.DLC]) == 1
+
+
+def test_consolidate_match_squares_reports_the_square_id_of_a_new_square():
+    extraction = _extraction(_game(GameType.BASE, "Kill Wormface"))
+
+    changes = consolidate_match_squares(extraction, _known())
+
+    assert changes[0].is_new
+    assert changes[0].square_id == "wormface"
+
+
+def test_validate_squares_rejects_an_alias_that_is_another_squares_text():
+    squares = [
+        Square(id="midra", text="Kill Midra", game_type=GameType.DLC, aliases=["Kill Devonia"]),
+        Square(id="devonia", text="Kill Devonia", game_type=GameType.DLC),
+    ]
+
+    with pytest.raises(ValueError, match="Kill Devonia"):
+        validate_squares(squares)
+
+
+def test_find_square_issues_reports_an_alias_shared_by_two_squares():
+    squares = [
+        Square(
+            id="devonia",
+            text="Kill Crucible Knight Devonia",
+            game_type=GameType.DLC,
+            aliases=["Kill Devonia"],
+        ),
+        Square(id="midra", text="Kill Midra", game_type=GameType.DLC, aliases=["Kill Devonia"]),
+    ]
+
+    issues = find_square_issues(squares)
+
+    assert [issue.code for issue in issues] == ["duplicate_text"]
+    assert "Kill Devonia" in issues[0].message
+
+
+def test_consolidate_square_stats_counts_every_wording_toward_one_square():
+    first = _extraction(
+        _game(GameType.DLC, "Kill Midra", events=(_mark(1, 1, CellColor.RED),)),
+        match_id="2026-03-05-alice-vs-bob",
+    )
+    second = _extraction(
+        _game(GameType.DLC, "Kill Midra, Lord of Frenzied Flame"),
+        match_id="2026-03-06-alice-vs-carol",
+        match_date=datetime.date(2026, 3, 6),
+    )
+
+    stats = {s.id: s for s in consolidate_square_stats([first, second], _known_with_midra())}
+
+    assert stats["midra"].text == "Kill Midra"
+    assert stats["midra"].num_games == 2
+    assert stats["midra"].games_marked == 1
+    assert stats["midra"].matches == ["2026-03-06-alice-vs-carol", "2026-03-05-alice-vs-bob"]
+
+
+def test_consolidate_players_top_squares_fold_an_alias_into_the_canonical_text():
+    extraction = _extraction(
+        _game(
+            GameType.DLC,
+            "Kill Midra, Lord of Frenzied Flame",
+            winner_color=CellColor.RED,
+            events=(_mark(1, 1, CellColor.RED),),
+        ),
+        _game(
+            GameType.DLC,
+            "Kill Midra",
+            game_index=2,
+            winner_color=CellColor.RED,
+            events=(_mark(1, 1, CellColor.RED),),
+        ),
+    )
+
+    profiles = consolidate_players([extraction], _known_with_midra())
+
+    assert profiles["alice"].top_squares_dlc == [SquareMarks(text="Kill Midra", marks=2)]
+
+
+def test_consolidate_players_top_squares_without_a_reference_count_text_as_shown():
+    extraction = _extraction(
+        _game(
+            GameType.DLC,
+            "Kill Midra, Lord of Frenzied Flame",
+            winner_color=CellColor.RED,
+            events=(_mark(1, 1, CellColor.RED),),
+        )
+    )
+
+    profiles = consolidate_players([extraction])
+
+    assert profiles["alice"].top_squares_dlc == [
+        SquareMarks(text="Kill Midra, Lord of Frenzied Flame", marks=1)
+    ]

@@ -71,7 +71,16 @@ The `match` sub-commands are read-only lookups over what's already been extracte
 
 `square consolidate` reconciles squares against `<data_dir>/squares/base_game.json` and `<data_dir>/squares/dlc.json`: every distinct square text seen, split by game type and tagged with unique slug id (e.g. `{"id": "tunnels_3", "text": "Complete 3 Tunnels or Precipices", "game_type": "base"}`).
 
-The goal is that square texts can be manually fixed for inconsistencies. Then future extractions use `squares/base_game.json` and `squares/dlc.json` for correcting OCR misreads in matches along the way. 
+The goal is that square texts can be manually fixed for inconsistencies. Then future extractions use `squares/base_game.json` and `squares/dlc.json` for correcting OCR misreads in matches along the way.
+
+The same goal is sometimes worded differently between broadcasts. List the other wordings under the square's `aliases` (edited by hand; the `text` stays the canonical one):
+
+```json
+{"id": "midra", "text": "Kill Midra", "game_type": "dlc", "aliases": ["Kill Midra, Lord of Frenzied Flame"]}
+```
+
+Consolidation then recognises every wording as that square. A match file keeps the wording that was on screen, and square and player stats count all wordings as one square. To merge a square that was added as a duplicate, move its `text` into the other square's `aliases`, delete its entry, and re-run `square stats`.
+
 
 Given a `match_id`, it reconciles just that match; with none, it walks every match under `data_dir`, growing and correcting the reference incrementally rather than rebuilding it from scratch.
 

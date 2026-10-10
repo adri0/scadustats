@@ -1794,3 +1794,20 @@ def test_extract_without_consolidate_flag_does_not_consolidate(tmp_path, monkeyp
     assert result.exit_code == 0, result.output
     assert not (data_dir / "squares").exists()
     assert not (data_dir / "players").exists()
+
+
+def test_square_stats_removes_the_file_of_a_square_no_longer_in_the_reference(tmp_path):
+    data_dir = tmp_path / "data"
+    extraction = _sample_extraction()
+    write_video(data_dir, extraction)
+    write_squares(data_dir / "squares", _known_for_grid(extraction.games[0].square_texts))
+    stale = square_stats_path(data_dir / "square_stats", GameType.BASE, "merged_away")
+    stale.parent.mkdir(parents=True)
+    stale.write_text("id: merged_away\n")
+
+    result = CliRunner().invoke(app, ["square", "stats", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert not stale.exists()
+    assert f"{stale}: removed, no longer in the squares reference" in result.output
+    assert square_stats_path(data_dir / "square_stats", GameType.BASE, "goal_0_0").exists()
