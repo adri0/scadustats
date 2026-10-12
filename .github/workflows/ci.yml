@@ -27,6 +27,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Lint and check formatting
+        run: |
+          uv run ruff check
+          uv run ruff format --check
+
       - name: Build package
         run: uv build
 
