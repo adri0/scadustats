@@ -1132,15 +1132,44 @@ def test_validate_checks_every_match_in_the_directory_by_default(tmp_path):
     assert "1 of 2 matches have issues" in result.output
 
 
-def test_validate_skips_unparseable_files_with_a_warning(tmp_path):
+def test_validate_reports_a_file_that_doesnt_fit_the_model_as_an_issue(tmp_path):
+    """Unlike the other commands, which skip such a file with a warning, `match validate`
+    counts it as an issue and fails (issue #129)."""
     write_video(tmp_path, _valid_match_extraction())
     (tmp_path / "matches" / "old-format.json").write_text('{"game_id": "x"}')
 
     result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)])
 
-    assert result.exit_code == 0, result.output
-    assert "Skipping old-format.json" in result.output
+    assert result.exit_code == 1
+    assert "old-format.json: unreadable" in result.output
+    assert "[unreadable_file]" in result.output
+    assert "Skipping" not in result.output
     assert "2026-03-05-alice-vs-bob: ok" in result.output
+    assert "1 of 2 matches have issues" in result.output
+
+
+def test_validate_reports_invalid_json_as_an_issue(tmp_path):
+    write_video(tmp_path, _valid_match_extraction())
+    (tmp_path / "matches" / "conflicted.json").write_text('{"match_id": <<<<<<< ours')
+
+    result = CliRunner().invoke(app, ["match", "validate", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "conflicted.json: unreadable" in result.output
+    assert "1 of 2 matches have issues" in result.output
+
+
+def test_validate_reports_one_unreadable_match_by_id(tmp_path):
+    write_video(tmp_path, _valid_match_extraction())
+    path = tmp_path / "matches" / "season-6" / "2026-03-05-alice-vs-bob.json"
+    path.write_text('{"match_id": "2026-03-05-alice-vs-bob"}')
+
+    result = CliRunner().invoke(
+        app, ["match", "validate", "2026-03-05-alice-vs-bob", "--data-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 1
+    assert "2026-03-05-alice-vs-bob.json: unreadable" in result.output
 
 
 def test_validate_reports_a_file_renamed_out_of_sync_with_its_match_id(tmp_path):

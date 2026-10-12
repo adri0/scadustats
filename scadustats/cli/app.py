@@ -2,7 +2,6 @@
 
 import enum
 import threading
-from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date
 from importlib.metadata import version as _pkg_version
@@ -502,11 +501,24 @@ app.add_typer(match_app, name="match")
 
 
 def _read_matches(data_dir: Path) -> list[VideoExtraction]:
-    """Every match under <data_dir>/matches, oldest first. A file that doesn't parse as
-    a current-format extraction (e.g. one of the pre-existing one-file-per-game files
-    predating the one-file-per-video format) is skipped with a warning on stderr rather
-    than aborting the whole run -- shared by `match list` and `match validate`, which
-    both walk the directory and both want that tolerance.
+    """Every match under <data_dir>/matches, oldest first (see _match_files). A file that
+    doesn't parse as a current-format extraction (e.g. one of the pre-existing
+    one-file-per-game files predating the one-file-per-video format) is skipped with a
+    warning on stderr rather than aborting the whole run -- every reader of the match
+    history wants that tolerance except `match validate`, which reads _match_files
+    itself so that such a file is one of its issues instead (issue #129).
+    """
+    extractions = []
+    for path in _match_files(data_dir):
+        try:
+            extractions.append(read_video(path))
+        except (KeyError, ValueError) as exc:
+            typer.echo(f"Skipping {path.name}: {exc}", err=True)
+    return extractions
+
+
+def _match_files(data_dir: Path) -> list[Path]:
+    """Every match file under <data_dir>/matches, oldest first, not read yet.
 
     Searches every season subdirectory (see json_export.video_path) under
     <data_dir>/matches, not data_dir itself -- data_dir can also hold other entities
@@ -517,20 +529,7 @@ def _read_matches(data_dir: Path) -> list[VideoExtraction]:
     season subdirectory's name (free text, not necessarily a sortable number) would not
     sort that way against another season's.
     """
-    return [extraction for _, extraction in _iter_matches(data_dir)]
-
-
-def _iter_matches(data_dir: Path) -> Iterator[tuple[Path, VideoExtraction]]:
-    """Like _read_matches, but yields each match's path alongside it -- for
-    `match validate`, which needs the path in hand to check a match's own match_id
-    against the file it's actually named (validation.validate_extraction's
-    match_id_filename_mismatch rule). Every other reader of the match history doesn't
-    need the path back, so _read_matches stays the one they call."""
-    for path in sorted(_matches_dir(data_dir).rglob("*.json"), key=lambda p: p.name):
-        try:
-            yield path, read_video(path)
-        except (KeyError, ValueError) as exc:
-            typer.echo(f"Skipping {path.name}: {exc}", err=True)
+    return sorted(_matches_dir(data_dir).rglob("*.json"), key=lambda p: p.name)
 
 
 def _find_existing_match(data_dir: Path, link: str) -> VideoExtraction | None:
@@ -611,6 +610,19 @@ def _echo_validation(extraction: VideoExtraction, path: Path | None = None) -> b
     return True
 
 
+def _echo_unreadable(path: Path, exc: Exception) -> None:
+    """Echoes a match file read_video couldn't load (invalid JSON, or JSON that doesn't
+    fit the model) as `match validate`'s unreadable_file issue, in _echo_validation's
+    layout. The file has no match_id to show, so it's named by its file name, and the
+    load error (several lines for a pydantic one) goes beneath it, indented."""
+    mark = typer.style("✗", fg=typer.colors.RED)
+    status = typer.style("unreadable", fg=typer.colors.RED, bold=True)
+    typer.echo(f"{mark} {path.name}: {status}")
+    for line in str(exc).splitlines():
+        typer.echo(f"    {line}")
+    typer.echo(f"    {typer.style('[unreadable_file]', dim=True)}")
+
+
 @match_app.command("validate", short_help="Check extracted matches against validation rules.")
 def match_validate(
     match_id: Annotated[
@@ -634,6 +646,12 @@ def match_validate(
     extractions. A clean match is marked green, an issue red -- typer.echo (via click)
     strips the color codes automatically when the output isn't a terminal (piped to a
     file, or under CliRunner in tests), so this doesn't need its own --no-color flag.
+
+    A file that can't be read at all (invalid JSON, or JSON that doesn't fit the match
+    model) is an issue too, rather than skipped as elsewhere -- an unreadable match is
+    exactly what this should catch (issue #129):
+
+    - unreadable_file: the file couldn't be loaded
 
     Rules checked, match-level ones first:
 
@@ -670,18 +688,23 @@ def match_validate(
     - mark_after_win: a square was marked after a line win completed
     """
     if match_id is not None:
-        path = _match_path(data_dir, match_id)
-        extractions = [(path, read_video(path))]
+        paths = [_match_path(data_dir, match_id)]
     else:
-        extractions = list(_iter_matches(data_dir))
-        if not extractions:
+        paths = _match_files(data_dir)
+        if not paths:
             typer.echo(f"No matches found in {_matches_dir(data_dir)}")
             return
 
     checked = 0
     with_issues = 0
-    for path, extraction in extractions:
+    for path in paths:
         checked += 1
+        try:
+            extraction = read_video(path)
+        except (KeyError, ValueError) as exc:
+            _echo_unreadable(path, exc)
+            with_issues += 1
+            continue
         if _echo_validation(extraction, path):
             with_issues += 1
 
