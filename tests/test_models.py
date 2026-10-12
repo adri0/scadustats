@@ -89,7 +89,7 @@ def test_team_players_for_each_pool():
     team = Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef")
     assert team.players_for(GameType.BASE) == ["star0chris"]
     assert team.players_for(GameType.DLC) == ["Adef"]
-    assert team.players_for(GameType.COOP_MIXED) == ["star0chris", "Adef"]
+    assert team.players_for(GameType.TWO_V_TWO) == ["star0chris", "Adef"]
     assert team.players_for(None) == []
 
 
@@ -103,7 +103,7 @@ def test_square_type_tag_helpers():
 
     assert square_type_tag("Kill Malenia (B)") is GameType.BASE
     assert square_type_tag("Kill Bols in front of Castle Ensis (D)") is GameType.DLC
-    assert square_type_tag("Kill Fia's Champs and Leda (C)") is GameType.COOP_MIXED
+    assert square_type_tag("Kill Fia's Champs and Leda (C)") is GameType.TWO_V_TWO
     # Only the exact form counts: an OCR misread or a longer parenthetical isn't a tag.
     assert square_type_tag("Kill Malenia (8)") is None
     assert square_type_tag("30 Faith (no rebirth or buffs)") is None
@@ -111,7 +111,7 @@ def test_square_type_tag_helpers():
     assert strip_square_type_tag("Kill Malenia (B)") == "Kill Malenia"
     assert strip_square_type_tag("Kill Malenia") == "Kill Malenia"
     assert tag_square_text("Kill Malenia", GameType.BASE) == "Kill Malenia (B)"
-    assert tag_square_text("Kill Malenia (D)", GameType.COOP_MIXED) == "Kill Malenia (C)"
+    assert tag_square_text("Kill Malenia (D)", GameType.TWO_V_TWO) == "Kill Malenia (C)"
 
 
 def _game_with(game_type, texts):
@@ -133,10 +133,10 @@ def _game_with(game_type, texts):
 def test_cell_goal_reads_a_mixed_board_cells_pool_from_its_tag():
     from scadustats.models import GameType
 
-    game = _game_with(GameType.COOP_MIXED, ["Kill Malenia (B)", "Kill a Red Wolf (C)", "Kill Bols"])
+    game = _game_with(GameType.TWO_V_TWO, ["Kill Malenia (B)", "Kill a Red Wolf (C)", "Kill Bols"])
 
     assert game.cell_goal(0, 0) == (GameType.BASE, "Kill Malenia")
-    assert game.cell_goal(0, 1) == (GameType.COOP_MIXED, "Kill a Red Wolf")
+    assert game.cell_goal(0, 1) == (GameType.TWO_V_TWO, "Kill a Red Wolf")
     assert game.cell_goal(0, 2) == (None, "Kill Bols")  # untagged: no pool
     assert game.cell_goal(9, 9) == (None, "")
 

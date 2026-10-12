@@ -640,7 +640,7 @@ def match_validate(
 
     - match_id_filename_mismatch: the file's name doesn't match its own match_id
 
-    - mixed_formats: some games are 2v2 mixed boards (coop_mixed) and others aren't
+    - mixed_formats: some games are 2v2 mixed boards and others aren't
 
     - game_count: wrong number of games for the match type and format (a 1v1 round
       robin match is 2 games, a 2v2 one is 1; double elimination is 2 or 3)

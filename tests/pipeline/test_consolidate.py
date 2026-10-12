@@ -1035,7 +1035,7 @@ def test_consolidate_match_squares_keeps_a_rune_amount_apart_from_a_different_on
     assert extraction.games[0].square_texts[0][0] == "Memory of Grace with 50k+ Runes"
 
 
-# Season 5's 2v2 format (see models.Team, GameType.COOP_MIXED).
+# Season 5's 2v2 format (see models.Team, GameType.TWO_V_TWO).
 _POSITIVE_VIBES = Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef")
 _BUSHY_STACHE = Team(name="Bushy Stache", base_player="Bushy", dlc_player="Vswed")
 
@@ -1046,7 +1046,7 @@ def _mixed_game(
     winner_color: CellColor | None = None,
 ) -> GameResult:
     """A 2v2 mixed board: each text ends in its pool's (B)/(D)/(C) tag."""
-    return _game(GameType.COOP_MIXED, *texts, events=events, winner_color=winner_color)
+    return _game(GameType.TWO_V_TWO, *texts, events=events, winner_color=winner_color)
 
 
 def _team_extraction(*games: GameResult) -> VideoExtraction:
@@ -1084,7 +1084,7 @@ def test_consolidate_match_squares_checks_each_mixed_board_cell_against_its_tags
     assert [(c.game_type, c.is_new, c.original_text, c.resolved_text) for c in changes] == [
         (GameType.BASE, False, "Kill Malenla (B)", "Kill Malenia (B)"),
         (
-            GameType.COOP_MIXED,
+            GameType.TWO_V_TWO,
             True,
             "Kill a Red Wolf and a Red Bear (C)",
             "Kill a Red Wolf and a Red Bear",
@@ -1092,7 +1092,7 @@ def test_consolidate_match_squares_checks_each_mixed_board_cell_against_its_tags
         (GameType.BASE, True, "Kill Bols (B)", "Kill Bols"),
     ]
     assert extraction.games[0].square_texts[0][0] == "Kill Malenia (B)"
-    assert [square.text for square in known[GameType.COOP_MIXED]] == [
+    assert [square.text for square in known[GameType.TWO_V_TWO]] == [
         "Kill a Red Wolf and a Red Bear"
     ]
     assert [square.text for square in known[GameType.BASE]] == ["Kill Malenia", "Kill Bols"]
@@ -1125,7 +1125,7 @@ def test_consolidate_players_credits_both_teammates_and_each_one_their_own_squar
     assert set(stats) == {"star0chris", "adef", "bushy", "vswed"}
     for slug in ("star0chris", "adef"):
         assert stats[slug].season_records["5"].wins == 1
-        assert stats[slug].game_type_records[GameType.COOP_MIXED].wins == 1
+        assert stats[slug].game_type_records[GameType.TWO_V_TWO].wins == 1
         assert stats[slug].top_squares_coop == [
             SquareMarks(text="Kill a Red Wolf and a Red Bear", marks=1)
         ]
@@ -1143,9 +1143,9 @@ def test_consolidate_square_stats_credits_the_teammate_whose_game_the_square_was
     known = {
         GameType.BASE: [Square(id="malenia", text="Kill Malenia", game_type=GameType.BASE)],
         GameType.DLC: [Square(id="bols", text="Kill Bols", game_type=GameType.DLC)],
-        GameType.COOP_MIXED: [
+        GameType.TWO_V_TWO: [
             Square(
-                id="wolf_bear", text="Kill a Red Wolf and a Red Bear", game_type=GameType.COOP_MIXED
+                id="wolf_bear", text="Kill a Red Wolf and a Red Bear", game_type=GameType.TWO_V_TWO
             )
         ],
     }
@@ -1169,7 +1169,7 @@ def test_consolidate_square_stats_credits_the_teammate_whose_game_the_square_was
         PlayerMarks(slug="star0chris", marks=1)
     ]
     assert stats[(GameType.DLC, "bols")].claims[0].slug == "vswed"
-    coop = stats[(GameType.COOP_MIXED, "wolf_bear")]
+    coop = stats[(GameType.TWO_V_TWO, "wolf_bear")]
     assert coop.top_players == [
         PlayerMarks(slug="adef", marks=1),
         PlayerMarks(slug="star0chris", marks=1),

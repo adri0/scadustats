@@ -520,7 +520,7 @@ def _coop_game(game_index: int = 1, **overrides) -> GameResult:
     """A 2v2 mixed board (Season 5), every square tagged with its pool."""
     tags = ["B", "D", "C"]
     defaults = dict(
-        game_type=GameType.COOP_MIXED,
+        game_type=GameType.TWO_V_TWO,
         square_texts=[[f"goal {r}-{c} ({tags[(r + c) % 3]})" for c in range(5)] for r in range(5)],
     )
     defaults.update(overrides)

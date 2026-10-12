@@ -553,7 +553,7 @@ def extract_video(
         )
         square_texts = board.cell_square_texts_majority(square_text_frames, selected_layout)
         if selected_layout.square_type_tags:
-            # A mixed board (Season 5): every game is COOP_MIXED, and each square's text
+            # A mixed board (Season 5): every game is TWO_V_TWO, and each square's text
             # ends in its own pool's tag -- see board.tag_square_texts_majority.
             square_texts = board.tag_square_texts_majority(
                 square_text_frames, square_texts, selected_layout
@@ -565,7 +565,7 @@ def extract_video(
         # transition moment or -- see CLAUDE.md -- source footage too compressed for this
         # small a subtitle to OCR reliably.
         if selected_layout.square_type_tags:
-            game_type = GameType.COOP_MIXED
+            game_type = GameType.TWO_V_TWO
         else:
             game_type = game_type_label.majority_game_type_label(
                 square_text_frames, selected_layout

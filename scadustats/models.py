@@ -61,7 +61,7 @@ class GameType(StrEnum):
     answer. StrEnum for the same reason as MatchType: it doubles as a Typer/Click CLI
     choice type.
 
-    COOP_MIXED is Season 5's 2v2 format: each team has one player in the base game and
+    TWO_V_TWO is Season 5's 2v2 format: each team has one player in the base game and
     one in the DLC, and the board mixes base game, DLC and co-op squares -- the overlay
     tags each square "(B)", "(D)" or "(C)", and a mixed board's square texts keep that tag
     as the last thing in the text (see square_type_tag). A co-op square needs both
@@ -72,12 +72,12 @@ class GameType(StrEnum):
 
     BASE = "base"
     DLC = "dlc"
-    COOP_MIXED = "coop_mixed"
+    TWO_V_TWO = "2v2"
 
 
-# The pool tag every square on a mixed board (GameType.COOP_MIXED) ends in, exactly as
+# The pool tag every square on a mixed board (GameType.TWO_V_TWO) ends in, exactly as
 # the overlay prints it: " (B)" base game, " (D)" DLC, " (C)" co-op.
-_SQUARE_TYPE_TAGS = {"B": GameType.BASE, "D": GameType.DLC, "C": GameType.COOP_MIXED}
+_SQUARE_TYPE_TAGS = {"B": GameType.BASE, "D": GameType.DLC, "C": GameType.TWO_V_TWO}
 _SQUARE_TYPE_TAG_LETTERS = {game_type: letter for letter, game_type in _SQUARE_TYPE_TAGS.items()}
 _SQUARE_TYPE_TAG_RE = re.compile(r" \(([BDC])\)$")
 
@@ -268,7 +268,7 @@ class GameResult(BaseModel):
 
     def cell_goal(self, row: int, col: int) -> tuple[GameType | None, str]:
         """The square at 0-based (row, col): the pool it belongs to and its text as the
-        squares reference knows it. On a mixed board (COOP_MIXED) the pool is the text's
+        squares reference knows it. On a mixed board (TWO_V_TWO) the pool is the text's
         own tag, which is stripped from the text (see square_type_tag); a cell with no tag
         has no pool. Every other game's cells are all in game_type's pool, text as is. A
         cell outside a ragged, hand-edited grid is (None, "")."""
@@ -276,7 +276,7 @@ class GameResult(BaseModel):
             text = self.square_texts[row][col]
         except IndexError:
             return None, ""
-        if self.game_type is GameType.COOP_MIXED:
+        if self.game_type is GameType.TWO_V_TWO:
             return square_type_tag(text), strip_square_type_tag(text)
         return self.game_type, text
 
@@ -308,7 +308,7 @@ class Square(BaseModel):
 
 
 class Team(BaseModel):
-    """One side of a 2v2 match (Season 5, see GameType.COOP_MIXED): the team's name, as
+    """One side of a 2v2 match (Season 5, see GameType.TWO_V_TWO): the team's name, as
     shown on the overlay, and its two players. Each team keeps the same roles for a whole
     season -- one player always plays the base game and the other the DLC -- so a claim
     on a base-game square is the base player's, a DLC square the DLC player's, and a
@@ -330,7 +330,7 @@ class Team(BaseModel):
             return [self.base_player]
         if game_type is GameType.DLC:
             return [self.dlc_player]
-        if game_type is GameType.COOP_MIXED:
+        if game_type is GameType.TWO_V_TWO:
             return self.players
         return []
 
@@ -599,7 +599,7 @@ class PlayerStats(BaseModel):
     # with its mark count -- see consolidate_players.
     top_squares_base_game: list[SquareMarks] = Field(default_factory=list)
     top_squares_dlc: list[SquareMarks] = Field(default_factory=list)
-    # Co-op squares on a 2v2 mixed board (see GameType.COOP_MIXED), which count for both
+    # Co-op squares on a 2v2 mixed board (see GameType.TWO_V_TWO), which count for both
     # teammates.
     top_squares_coop: list[SquareMarks] = Field(default_factory=list)
 

@@ -52,7 +52,7 @@ def test_split_square_type_tag_reads_each_pool_and_its_common_misreads():
     )
     assert split_square_type_tag("Kill Fia's Champs and Leda (C)") == (
         "Kill Fia's Champs and Leda",
-        GameType.COOP_MIXED,
+        GameType.TWO_V_TWO,
     )
 
 
@@ -84,7 +84,7 @@ def test_text_color_type_tells_the_three_pools_apart():
 
     assert _text_color_type(cell((110, 100, 160))) is GameType.BASE
     assert _text_color_type(cell((130, 175, 175))) is GameType.DLC
-    assert _text_color_type(cell((160, 165, 120))) is GameType.COOP_MIXED
+    assert _text_color_type(cell((160, 165, 120))) is GameType.TWO_V_TWO
     assert _text_color_type(cell((200, 200, 200))) is None  # white: no pool says
     assert _text_color_type(np.zeros((20, 20, 3), dtype=np.uint8)) is None
 
@@ -103,7 +103,7 @@ def test_tag_square_texts_prefers_the_text_color_then_the_tag(monkeypatch):
     from scadustats.overlay import board as board_module
 
     votes = [[None] * 5 for _ in range(5)]
-    votes[0][0] = GameType.COOP_MIXED  # color says co-op, the tag says base game
+    votes[0][0] = GameType.TWO_V_TWO  # color says co-op, the tag says base game
     monkeypatch.setattr(board_module, "cell_text_color_types", lambda frame, layout_: votes)
     texts = [["Kill Malenia (8)"] * 5 for _ in range(5)]
     texts[0][1] = "Kill Malenia"  # no tag, no color: left untagged

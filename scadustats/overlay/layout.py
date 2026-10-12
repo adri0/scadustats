@@ -60,7 +60,7 @@ class Layout:
     commentator_box_left: FractionalBox | None
     commentator_box_right: FractionalBox | None
     # Whether each square's text ends in a "(B)"/"(D)"/"(C)" pool tag -- a Season 5 mixed
-    # board (see board.tag_square_texts_majority and models.GameType.COOP_MIXED).
+    # board (see board.tag_square_texts_majority and models.GameType.TWO_V_TWO).
     square_type_tags: bool = False
     # Whether the name boxes hold team names (several words, e.g. "POSITIVE VIBES")
     # rather than a single player's name -- see scoreboard.read_player_names.
@@ -135,13 +135,13 @@ LAYOUT_PRE_SEASON_6 = dataclasses.replace(
     game_type_box=None,
 )
 
-# Season 5 broadcast (2v2 teams, see models.GameType.COOP_MIXED): four gameplay feeds fill
+# Season 5 broadcast (2v2 teams, see models.GameType.TWO_V_TWO): four gameplay feeds fill
 # the frame's quadrants, with the 5x5 grid in the very center between them, the timer
 # just above it under the "BINGO BRAWLERS SEASON 5" logo, and the live claim counts as two
 # badges further down the center column -- blue on the left, red on the right. A strip
 # along the bottom holds the commentators' names at its far ends (with mic icons, no
 # webcam nameplates) and the two team names in its middle, blue then red. There's no
-# "BASE GAME"/"DLC" subtitle: every game is COOP_MIXED and each square's own text ends in
+# "BASE GAME"/"DLC" subtitle: every game is TWO_V_TWO and each square's own text ends in
 # a "(B)"/"(D)"/"(C)" tag instead (see board.tag_square_texts_majority). Measured on a 1280x720
 # frame at 00:30:00 of Positive Vibes vs Bushy Stache (youtube.com/watch?v=YX3OSxKTJE8):
 # the grid sits inside a yellow border at x 510-770, y 214-452, and the badges are flat

@@ -262,12 +262,12 @@ def _check_no_marks_after_win(
 
 
 def _check_square_type_tags(game: GameResult) -> list[ValidationIssue]:
-    """Rule: on a 2v2 mixed board (COOP_MIXED), every square's text ends in its pool tag
+    """Rule: on a 2v2 mixed board (TWO_V_TWO), every square's text ends in its pool tag
     -- " (B)" base game, " (D)" DLC or " (C)" co-op, exactly as the overlay prints it.
     The tag is the only record of which pool a square is in (see
     models.GameResult.cell_goal): an untagged square isn't counted toward any square's
     stats or any player's marks, so it's reported rather than guessed."""
-    if game.game_type is not GameType.COOP_MIXED:
+    if game.game_type is not GameType.TWO_V_TWO:
         return []
     untagged = [
         f"[{r + 1},{c + 1}]"
@@ -309,35 +309,35 @@ def validate_game(game: GameResult) -> list[ValidationIssue]:
 
 
 def _is_coop(extraction: VideoExtraction) -> bool:
-    """A 2v2 match (Season 5): every game a mixed board, see GameType.COOP_MIXED."""
+    """A 2v2 match (Season 5): every game a mixed board, see GameType.TWO_V_TWO."""
     return bool(extraction.games) and all(
-        game.game_type is GameType.COOP_MIXED for game in extraction.games
+        game.game_type is GameType.TWO_V_TWO for game in extraction.games
     )
 
 
 def _is_mixed_format(extraction: VideoExtraction) -> bool:
     """Some games are 2v2 mixed boards and others aren't -- a match is one format or
     the other, so the format-dependent rules can't tell which to apply."""
-    coop = [game.game_type is GameType.COOP_MIXED for game in extraction.games]
+    coop = [game.game_type is GameType.TWO_V_TWO for game in extraction.games]
     return any(coop) and not all(coop)
 
 
 def _check_single_format(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: a match's games are all 2v2 mixed boards (Season 5, COOP_MIXED) or none of
+    """Rule: a match's games are all 2v2 mixed boards (Season 5, TWO_V_TWO) or none of
     them are. A mix means a game type was misread or mis-entered; until it's fixed the
     game count and opening game types can't be checked (they differ by format), so
     those rules are skipped rather than guessing which format was meant."""
     if not _is_mixed_format(extraction):
         return []
-    coop = [game.game_index for game in extraction.games if game.game_type is GameType.COOP_MIXED]
+    coop = [game.game_index for game in extraction.games if game.game_type is GameType.TWO_V_TWO]
     other = [
-        game.game_index for game in extraction.games if game.game_type is not GameType.COOP_MIXED
+        game.game_index for game in extraction.games if game.game_type is not GameType.TWO_V_TWO
     ]
     return [
         ValidationIssue(
             code="mixed_formats",
             message=(
-                f"game(s) {', '.join(map(str, coop))} are 2v2 mixed boards (coop_mixed) but "
+                f"game(s) {', '.join(map(str, coop))} are 2v2 mixed boards but "
                 f"game(s) {', '.join(map(str, other))} aren't -- a match is one format"
             ),
         )
@@ -347,7 +347,7 @@ def _check_single_format(extraction: VideoExtraction) -> list[ValidationIssue]:
 def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: how many games a match has depends on its type and format. A 1v1 round robin
     match (Season 6) is exactly 2 games, a base game and a DLC game; a 2v2 round robin
-    match (Season 5, every game COOP_MIXED) is a single game. A double-elimination match
+    match (Season 5, every game TWO_V_TWO) is a single game. A double-elimination match
     (best of 3) is 2 or 3 games in either format. A wrong count is the loudest sign of a
     segmentation problem -- games merged together, or a recap segment read as a game of
     its own. Skipped for a match mixing both formats (see _check_single_format)."""

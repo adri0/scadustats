@@ -372,7 +372,7 @@ def consolidate_match_squares(
     full consolidate run would have had.
 
     A game with no resolved game_type is skipped entirely -- there's no pool to check or
-    add its squares to. A mixed board (Season 5, GameType.COOP_MIXED) checks each cell
+    add its squares to. A mixed board (Season 5, GameType.TWO_V_TWO) checks each cell
     against the pool its "(B)"/"(D)"/"(C)" tag names, by its text without the tag -- a
     fixed cell keeps its tag, a new square is added without one -- and skips an untagged
     cell (see GameResult.cell_goal).
@@ -396,7 +396,7 @@ def consolidate_match_squares(
         return wording_ids[game_type]
 
     for game in extraction.games:
-        mixed = game.game_type is GameType.COOP_MIXED
+        mixed = game.game_type is GameType.TWO_V_TWO
         for row_index, row in enumerate(game.square_texts):
             for col_index, cell_text in enumerate(row):
                 # The cell's own pool and its text as the reference knows it -- on a mixed
@@ -639,7 +639,7 @@ def consolidate_players(
             ),
             top_squares_dlc=_top_squares(square_marks.get(slug, {}).get(GameType.DLC, Counter())),
             top_squares_coop=_top_squares(
-                square_marks.get(slug, {}).get(GameType.COOP_MIXED, Counter())
+                square_marks.get(slug, {}).get(GameType.TWO_V_TWO, Counter())
             ),
         )
     return stats
@@ -697,7 +697,7 @@ def consolidate_square_stats(
     Every square in known_squares gets an entry, including one no extraction deals --
     zeroed rather than left out, so each square in the reference has a stats file.
 
-    On a mixed board (GameType.COOP_MIXED) each cell counts toward its tag's pool's
+    On a mixed board (GameType.TWO_V_TWO) each cell counts toward its tag's pool's
     square, and in a 2v2 match a claim is the teammate's whose game the square was in --
     a co-op square's is both players', who each count in top_players and are listed
     together in the claim's `slugs`.

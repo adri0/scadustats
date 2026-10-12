@@ -16,7 +16,7 @@ from scadustats.pipeline import extract
 # Vibes (red) hold 5 squares and Bushy Stache (blue) 3.
 _CLIP = "tests/fixtures/clip_layout_season_5.mp4"
 
-B, D, C = GameType.BASE, GameType.DLC, GameType.COOP_MIXED
+B, D, C = GameType.BASE, GameType.DLC, GameType.TWO_V_TWO
 # Each square's pool, as tagged on screen.
 _TYPES = [
     [D, B, C, B, B],

@@ -20,11 +20,11 @@ from scadustats.models import (
 # see pipeline.consolidate.consolidate_match_squares and write_squares below.
 # "base_game.json" rather than "base.json" so the filename reads unambiguously on its
 # own, next to "dlc.json", in a directory listing.
-# A mixed board's co-op squares (see GameType.COOP_MIXED) get their own pool, "coop.json".
+# A mixed board's co-op squares (see GameType.TWO_V_TWO) get their own pool, "coop.json".
 _SQUARES_FILENAMES = {
     GameType.BASE: "base_game.json",
     GameType.DLC: "dlc.json",
-    GameType.COOP_MIXED: "coop.json",
+    GameType.TWO_V_TWO: "coop.json",
 }
 
 
@@ -323,7 +323,7 @@ def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
         except FileNotFoundError:
             # The co-op pool only exists once a mixed board has been consolidated, so a
             # match history without one reads back as just the base game and DLC.
-            if game_type is GameType.COOP_MIXED:
+            if game_type is GameType.TWO_V_TWO:
                 continue
             data = []
         squares[game_type] = [Square.model_validate(entry) for entry in data]

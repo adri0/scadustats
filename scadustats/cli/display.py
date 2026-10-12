@@ -40,7 +40,7 @@ _CELL_SYMBOLS = {CellColor.RED: "🟥", CellColor.BLUE: "🟦", CellColor.UNCLAI
 _GAME_TYPE_LABELS = {
     GameType.BASE: "base game",
     GameType.DLC: "DLC game",
-    GameType.COOP_MIXED: "co-op mixed game",
+    GameType.TWO_V_TWO: "2v2 game",
 }
 
 # Goal texts run long (a full sentence, sometimes an OCR'd mess); an events listing is

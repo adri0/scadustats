@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS games (
     -- Nullable: extract_video always resolves this before writing JSON (inferred, or
     -- supplied when inference fails), but a hand-edited JSON file could clear it back
     -- to unknown, and that should load cleanly rather than fail a NOT NULL constraint.
-    game_type VARCHAR CHECK (game_type IN ('base', 'dlc', 'coop_mixed')),
+    game_type VARCHAR CHECK (game_type IN ('base', 'dlc', '2v2')),
     winner_color VARCHAR CHECK (winner_color IN ('red', 'blue')),
     win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'tie', 'none')),
     -- Which line a win_type='line' win was completed on; NULL for every other win type,

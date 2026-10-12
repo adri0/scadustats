@@ -674,7 +674,7 @@ def test_write_and_read_video_round_trip_a_2v2_mixed_board(tmp_path):
     from scadustats.models import Team
 
     game = _sample_game()
-    game.game_type = GameType.COOP_MIXED
+    game.game_type = GameType.TWO_V_TWO
     game.square_texts[0][0] = "Kill Malenia (B)"
     extraction = _sample_extraction(
         games=[game],
@@ -705,13 +705,13 @@ def test_write_video_leaves_teams_out_of_a_1v1_match(tmp_path):
 
 def test_coop_squares_round_trip_and_an_empty_pool_writes_no_file(tmp_path):
     coop = Square(
-        id="wolf_bear", text="Kill a Red Wolf and a Red Bear", game_type=GameType.COOP_MIXED
+        id="wolf_bear", text="Kill a Red Wolf and a Red Bear", game_type=GameType.TWO_V_TWO
     )
 
-    write_squares(tmp_path, {GameType.BASE: [], GameType.COOP_MIXED: []})
-    assert not squares_path(tmp_path, GameType.COOP_MIXED).exists()
-    assert GameType.COOP_MIXED not in read_squares(tmp_path)
+    write_squares(tmp_path, {GameType.BASE: [], GameType.TWO_V_TWO: []})
+    assert not squares_path(tmp_path, GameType.TWO_V_TWO).exists()
+    assert GameType.TWO_V_TWO not in read_squares(tmp_path)
 
-    write_squares(tmp_path, {GameType.COOP_MIXED: [coop]})
-    assert squares_path(tmp_path, GameType.COOP_MIXED).name == "coop.json"
-    assert read_squares(tmp_path)[GameType.COOP_MIXED] == [coop]
+    write_squares(tmp_path, {GameType.TWO_V_TWO: [coop]})
+    assert squares_path(tmp_path, GameType.TWO_V_TWO).name == "coop.json"
+    assert read_squares(tmp_path)[GameType.TWO_V_TWO] == [coop]

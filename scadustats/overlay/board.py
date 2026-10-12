@@ -153,7 +153,7 @@ def _majority_text(readings: list[str]) -> str:
     return counts.most_common(1)[0][0] if counts else ""
 
 
-# Season 5's mixed boards (see models.GameType.COOP_MIXED) end every square's text in a
+# Season 5's mixed boards (see models.GameType.TWO_V_TWO) end every square's text in a
 # pool tag: "(B)" base game, "(D)" DLC, "(C)" co-op. At the glyph size square text is read
 # at, Tesseract often gets the letter wrong -- "(B)" comes back "(8)" or "(6)", "(D)" as
 # "(0)" -- or drops it, so a one- or two-character parenthesized token at the very end is
@@ -167,7 +167,7 @@ _TAG_READINGS = {
     "D": GameType.DLC,
     "0": GameType.DLC,
     "O": GameType.DLC,
-    "C": GameType.COOP_MIXED,
+    "C": GameType.TWO_V_TWO,
 }
 
 
@@ -200,7 +200,7 @@ def _text_color_type(crop: np.ndarray) -> GameType | None:
     scores = {
         GameType.BASE: red - (green + blue) / 2,
         GameType.DLC: (red + green) / 2 - blue,
-        GameType.COOP_MIXED: (green + blue) / 2 - red,
+        GameType.TWO_V_TWO: (green + blue) / 2 - red,
     }
     best = max(scores, key=lambda game_type: scores[game_type])
     return best if scores[best] > _TEXT_COLOR_MARGIN else None
