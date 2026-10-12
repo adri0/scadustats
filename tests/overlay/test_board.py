@@ -94,3 +94,23 @@ def test_majority_text_ignores_empty_readings():
 
     assert _majority_text(["", "", "Kill Malenia", ""]) == "Kill Malenia"
     assert _majority_text(["", ""]) == ""
+
+
+def test_square_types_prefer_the_text_color_then_the_tag(monkeypatch):
+    import numpy as np
+
+    from scadustats.models import GameType
+    from scadustats.overlay import board as board_module
+
+    votes = [[None] * 5 for _ in range(5)]
+    votes[0][0] = GameType.COOP_MIXED  # color says co-op, the tag says base game
+    monkeypatch.setattr(board_module, "cell_text_color_types", lambda frame, layout_: votes)
+    texts = [["Kill Malenia (B)"] * 5 for _ in range(5)]
+    texts[0][1] = "Kill Malenia"  # no tag, no color: unknown
+
+    stripped, types = board_module.cell_square_types_majority([np.zeros((1, 1, 3))], texts)
+
+    assert types[0][0] is GameType.COOP_MIXED
+    assert types[0][1] is None
+    assert types[0][2] is GameType.BASE
+    assert stripped[0][0] == "Kill Malenia"
