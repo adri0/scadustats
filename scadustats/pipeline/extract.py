@@ -3,6 +3,7 @@ claim detection -> winner determination -> JSON. Writing that JSON into DuckDB i
 separate, optional step -- see db.load_json_dir -- not something extract_video does.
 """
 
+import difflib
 import logging
 import math
 import os
@@ -24,6 +25,7 @@ from scadustats.models import (
     GameType,
     LayoutName,
     MatchMetadata,
+    Team,
     VideoExtraction,
     WinLine,
     WinType,
@@ -33,7 +35,7 @@ from scadustats.overlay import board, commentators, game_type_label, layout, sco
 from scadustats.pipeline import squares
 from scadustats.pipeline.segmentation import Observation, detect_boundaries
 from scadustats.rules import winner
-from scadustats.storage import json_export
+from scadustats.storage import json_export, teams
 from scadustats.video import frames
 
 logger = logging.getLogger(__name__)
@@ -467,11 +469,32 @@ def _match_id(match_metadata: MatchMetadata, red_name: str | None, blue_name: st
     back to "unknown" for an empty/failed OCR read (scoreboard.read_player_names can
     return "" but never None) or when a segment has no games at all, rather than leaving
     the id with a blank component. "/" is replaced since it would otherwise split into a
-    spurious path segment when used as a filename.
+    spurious path segment when used as a filename, and a run of whitespace (inside a
+    team's name, e.g. "Positive Vibes") becomes "_".
     """
-    red = (red_name or "unknown").strip().replace("/", "-")
-    blue = (blue_name or "unknown").strip().replace("/", "-")
+    red = "_".join((red_name or "unknown").replace("/", "-").split())
+    blue = "_".join((blue_name or "unknown").replace("/", "-").split())
     return f"{match_metadata.match_date.isoformat()}-{red}-vs-{blue}"
+
+
+# How close an OCR'd team name must read to a roster entry (case-insensitively) to be
+# taken as that team -- the overlay's names are large and read cleanly in practice, so
+# this only has to absorb a stray letter or two.
+_TEAM_NAME_CUTOFF = 0.8
+
+
+def _find_team(name: str | None, roster: list[Team]) -> Team | None:
+    """The roster's team whose name the overlay's reading is closest to, or None (with a
+    warning) when nothing is close enough -- the match is then written with the name as
+    read and no players, for a contributor to fix in teams.yaml and re-extract."""
+    if not name or not roster:
+        return None
+    by_name = {team.name.lower(): team for team in roster}
+    matches = difflib.get_close_matches(name.lower(), by_name, n=1, cutoff=_TEAM_NAME_CUTOFF)
+    if not matches:
+        logger.warning("team %r isn't in the season's roster (teams.yaml)", name)
+        return None
+    return by_name[matches[0]]
 
 
 def extract_video(
@@ -529,13 +552,25 @@ def extract_video(
             video_path, [obs.video_ts_s for obs in square_text_observations]
         )
         square_texts = board.cell_square_texts_majority(square_text_frames, selected_layout)
+        square_types = None
+        if selected_layout.square_type_tags:
+            # A mixed board (Season 5): every game is COOP_MIXED, and each cell's own pool
+            # comes from its tag/text color instead -- see board.cell_square_types_majority.
+            square_texts, square_types = board.cell_square_types_majority(
+                square_text_frames, square_texts, selected_layout
+            )
         # The overlay's own "BASE GAME"/"DLC" subtitle (see game_type_label.py) is tried
         # first -- it's read directly off the same frames already grabbed for square-text
         # majority voting, no extra decode cost. Only falls back to inferring from square
         # texts (squares.py) if none of those frames produced a clean reading, e.g. a
         # transition moment or -- see CLAUDE.md -- source footage too compressed for this
         # small a subtitle to OCR reliably.
-        game_type = game_type_label.majority_game_type_label(square_text_frames, selected_layout)
+        if square_types is not None:
+            game_type = GameType.COOP_MIXED
+        else:
+            game_type = game_type_label.majority_game_type_label(
+                square_text_frames, selected_layout
+            )
         if game_type is None:
             game_type = squares.infer_game_type(square_texts, known_squares)
         if game_index == 1:
@@ -573,6 +608,7 @@ def extract_video(
                 win_type=win_type,
                 win_line=win_line,
                 game_type=game_type,
+                square_types=square_types,
             )
         )
 
@@ -597,6 +633,17 @@ def extract_video(
                 )
             game.game_type = on_missing_game_type(game)
 
+    team_red = team_blue = None
+    if selected_layout.team_names:
+        roster = teams.read_teams(data_dir).get(match_metadata.season, [])
+        team_red = _find_team(player_red_name, roster)
+        team_blue = _find_team(player_blue_name, roster)
+        # The roster's spelling rather than the overlay's capitals ("POSITIVE VIBES").
+        if team_red is not None:
+            player_red_name = team_red.name
+        if team_blue is not None:
+            player_blue_name = team_blue.name
+
     match_id = _match_id(match_metadata, player_red_name, player_blue_name)
     extraction = VideoExtraction(
         match_id=match_id,
@@ -611,6 +658,8 @@ def extract_video(
         commentators=casters,
         duration_s=duration_s if duration_s > 0 else None,
         published_at=published_at,
+        team_red=team_red,
+        team_blue=team_blue,
     )
     # A match is unique by match_date + player names (see _match_id), which match_id
     # already encodes -- so a same-name file here means this exact match was already

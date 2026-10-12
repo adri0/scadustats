@@ -14,13 +14,24 @@ def _clean_name(text: str) -> str:
     return max(words, key=len) if words else text.strip()
 
 
+def _clean_team_name(text: str) -> str:
+    """Every word of a team name ("POSITIVE VIBES"), dropping one-letter noise -- a
+    single longest word, as _clean_name keeps, would cut it to "POSITIVE". The overlay
+    prints it in capitals; storage.teams matches it against the roster's own spelling."""
+    words = re.findall(r"[A-Za-z']{2,}", text)
+    return " ".join(words) if words else text.strip()
+
+
 def read_player_names(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> tuple[str, str]:
+    """The two sides' names as (red, blue): players' names, or teams' when the layout
+    shows team names (Layout.team_names)."""
     height, width = frame.shape[:2]
     red_crop = layout.crop(frame, layout_.name_box_red, width, height)
     blue_crop = layout.crop(frame, layout_.name_box_blue, width, height)
+    clean = _clean_team_name if layout_.team_names else _clean_name
     return (
-        _clean_name(ocr.read_text(red_crop, psm=7)),
-        _clean_name(ocr.read_text(blue_crop, psm=7)),
+        clean(ocr.read_text(red_crop, psm=7)),
+        clean(ocr.read_text(blue_crop, psm=7)),
     )
 
 

@@ -514,3 +514,12 @@ def test_issue_scope_labels_match_and_game_level_rules():
 
     assert issues[0].scope == "match"
     assert issues[0].game_index is None
+
+
+def test_a_2v2_round_robin_match_is_one_mixed_game():
+    game = _game(1, game_type=GameType.COOP_MIXED)
+
+    assert validate_extraction(_extraction(games=[game])) == []
+    assert _codes(
+        validate_extraction(_extraction(games=[game, _game(2, game_type=GameType.COOP_MIXED)]))
+    ) == ["game_count"]

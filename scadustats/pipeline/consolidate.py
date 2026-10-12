@@ -259,7 +259,12 @@ _FUZZY_MATCH_CUTOFF = 0.85
 # case this guards). Normalizing a standalone "S"/"s" to "5" (_goal_count, below) treats
 # both readings of the same square as agreeing, while still keeping them apart from any
 # other, genuinely different count.
-_NUMBER_RE = re.compile(r"\b(?:\d+|[Ss])\b")
+#
+# A rune amount's "k" suffix ("50k", "65k+") is kept as part of the count: without it the
+# digits never stand alone (no boundary between "0" and "k"), so "Memory of Grace with
+# 50k+ Runes" had no goal count at all and fuzzy-matched "...65k+ Runes", a different
+# square (Season 5, 2026-10-12).
+_NUMBER_RE = re.compile(r"\b(?:\d+k?|[Ss])\b")
 
 
 def _goal_count(text: str) -> str | None:
@@ -366,30 +371,42 @@ def consolidate_match_squares(
     full consolidate run would have had.
 
     A game with no resolved game_type is skipped entirely -- there's no pool to check or
-    add its squares to.
+    add its squares to. A mixed board (Season 5, see GameResult.square_types) checks each
+    cell against its own pool -- base game, DLC or co-op -- and skips a cell whose pool
+    isn't known.
     """
     changes: list[SquareTextChange] = []
     used_ids = {
         game_type: {square.id for square in squares} for game_type, squares in known_squares.items()
     }
+    # Per pool, every wording of every square (issue #125) -> its square's id: a cell is
+    # matched against aliases as well as canonical texts, and keeps the wording it's
+    # closest to. Built lazily, since a mixed board (GameResult.square_types) draws on
+    # several pools at once.
+    wording_ids: dict[GameType, dict[str, str]] = {}
+
+    def _wordings(game_type: GameType) -> dict[str, str]:
+        if game_type not in wording_ids:
+            wording_ids[game_type] = {
+                wording: square.id
+                for square in known_squares.setdefault(game_type, [])
+                for wording in square.wordings
+            }
+        return wording_ids[game_type]
 
     for game in extraction.games:
-        if game.game_type is None:
-            continue
-        pool = known_squares.setdefault(game.game_type, [])
-        used = used_ids.setdefault(game.game_type, set())
-        # Every wording of every square (issue #125): a cell is matched against aliases
-        # as well as canonical texts, and keeps the wording it's closest to.
-        wording_ids = {wording: square.id for square in pool for wording in square.wordings}
-        candidates = list(wording_ids)
-        candidate_set = set(candidates)
-
         for row_index, row in enumerate(game.square_texts):
             for col_index, text in enumerate(row):
-                if not text or text in candidate_set:
+                # The cell's own pool: the game's type, or a mixed board's per-cell type.
+                # None (an unresolved game, or an untagged cell) has no pool to check.
+                game_type = game.cell_game_type(row_index, col_index)
+                if game_type is None:
+                    continue
+                pool_wordings = _wordings(game_type)
+                if not text or text in pool_wordings:
                     continue
 
-                match = _best_match(text, candidates)
+                match = _best_match(text, list(pool_wordings))
                 if match is not None:
                     matched_text, ratio = match
                     game.square_texts[row_index][col_index] = matched_text
@@ -402,18 +419,19 @@ def consolidate_match_squares(
                             resolved_text=matched_text,
                             is_new=False,
                             ratio=ratio,
-                            game_type=game.game_type,
-                            square_id=wording_ids[matched_text],
+                            game_type=game_type,
+                            square_id=pool_wordings[matched_text],
                         )
                     )
                     continue
 
+                used = used_ids.setdefault(game_type, set())
                 square_id = _unique_id(_slugify(text), used)
                 used.add(square_id)
-                pool.append(Square(id=square_id, text=text, game_type=game.game_type))
-                wording_ids[text] = square_id
-                candidates.append(text)
-                candidate_set.add(text)
+                known_squares[game_type].append(
+                    Square(id=square_id, text=text, game_type=game_type)
+                )
+                pool_wordings[text] = square_id
                 changes.append(
                     SquareTextChange(
                         game_index=game.game_index,
@@ -423,7 +441,7 @@ def consolidate_match_squares(
                         resolved_text=text,
                         is_new=True,
                         ratio=None,
-                        game_type=game.game_type,
+                        game_type=game_type,
                         square_id=square_id,
                     )
                 )
@@ -528,6 +546,12 @@ def consolidate_players(
     #125) is tallied under that square's canonical text in the top-squares lists, so every
     wording of a goal counts as one square. A text the reference doesn't know is tallied as
     it reads.
+
+    A 2v2 match (VideoExtraction.team_red/team_blue) counts for both of a team's players:
+    the match and every game are theirs to win or lose together. A mark, though, is only
+    the teammate's whose game the square was in -- a base-game square the base player's,
+    a DLC square the DLC player's -- and a co-op square both players' (see
+    models.Team.players_for), tallied in top_squares_coop.
     """
     canonical = {
         (game_type, wording): square.text
@@ -543,41 +567,43 @@ def consolidate_players(
     square_marks: dict[str, dict[GameType, Counter[str]]] = {}
 
     for extraction in extractions:
-        for color, name in (
-            (CellColor.RED, extraction.player_red_name),
-            (CellColor.BLUE, extraction.player_blue_name),
-        ):
-            if not name:
-                continue
-            slug = slugify_name(name)
-            name_votes.setdefault(slug, Counter())[name] += 1
-            all_matches.setdefault(slug, []).append((extraction.match_date, extraction.match_id))
-
-            if extraction.winner is not None:
-                record = season_records.setdefault(slug, {}).setdefault(
-                    extraction.season, MatchRecord()
+        for color in (CellColor.RED, CellColor.BLUE):
+            # A 2v2 match credits both of a team's players (see models.Team); a 1v1
+            # match, the side's own player.
+            team = extraction.team(color)
+            for name in extraction.side_players(color):
+                slug = slugify_name(name)
+                name_votes.setdefault(slug, Counter())[name] += 1
+                all_matches.setdefault(slug, []).append(
+                    (extraction.match_date, extraction.match_id)
                 )
-                if extraction.winner is MatchWinner.DRAW:
-                    record.draws += 1
-                elif (extraction.winner is MatchWinner.RED and color is CellColor.RED) or (
-                    extraction.winner is MatchWinner.BLUE and color is CellColor.BLUE
-                ):
-                    record.wins += 1
-                else:
-                    record.losses += 1
 
-            for game in extraction.games:
-                if game.winner_color is None:
-                    continue
-                won = game.winner_color is color
+                if extraction.winner is not None:
+                    record = season_records.setdefault(slug, {}).setdefault(
+                        extraction.season, MatchRecord()
+                    )
+                    if extraction.winner is MatchWinner.DRAW:
+                        record.draws += 1
+                    elif (extraction.winner is MatchWinner.RED and color is CellColor.RED) or (
+                        extraction.winner is MatchWinner.BLUE and color is CellColor.BLUE
+                    ):
+                        record.wins += 1
+                    else:
+                        record.losses += 1
 
-                overall = game_records.setdefault(slug, WinLoss())
-                if won:
-                    overall.wins += 1
-                else:
-                    overall.losses += 1
+                for game in extraction.games:
+                    if game.winner_color is None:
+                        continue
+                    won = game.winner_color is color
 
-                if game.game_type is not None:
+                    overall = game_records.setdefault(slug, WinLoss())
+                    if won:
+                        overall.wins += 1
+                    else:
+                        overall.losses += 1
+
+                    if game.game_type is None:
+                        continue
                     by_type = game_type_records.setdefault(slug, {}).setdefault(
                         game.game_type, WinLoss()
                     )
@@ -586,12 +612,24 @@ def consolidate_players(
                     else:
                         by_type.losses += 1
 
-                    marks = square_marks.setdefault(slug, {}).setdefault(game.game_type, Counter())
                     for event in game.events:
-                        if event.event_type is EventType.MARK and event.color is color:
-                            text = _event_square_text(game.square_texts, event.row, event.col)
-                            if text:
-                                marks[canonical.get((game.game_type, text), text)] += 1
+                        if event.event_type is not EventType.MARK or event.color is not color:
+                            continue
+                        if event.row is None or event.col is None:
+                            continue
+                        # The square's own pool (a mixed board's per-cell type), and in a
+                        # 2v2 match only the teammate(s) that pool belongs to.
+                        cell_type = game.cell_game_type(event.row - 1, event.col - 1)
+                        if cell_type is None:
+                            continue
+                        if team is not None and name not in team.players_for(cell_type):
+                            continue
+                        text = _event_square_text(game.square_texts, event.row, event.col)
+                        if text:
+                            marks = square_marks.setdefault(slug, {}).setdefault(
+                                cell_type, Counter()
+                            )
+                            marks[canonical.get((cell_type, text), text)] += 1
 
     stats: dict[str, PlayerStats] = {}
     for slug in sorted(name_votes):
@@ -608,6 +646,9 @@ def consolidate_players(
                 square_marks.get(slug, {}).get(GameType.BASE, Counter())
             ),
             top_squares_dlc=_top_squares(square_marks.get(slug, {}).get(GameType.DLC, Counter())),
+            top_squares_coop=_top_squares(
+                square_marks.get(slug, {}).get(GameType.COOP_MIXED, Counter())
+            ),
         )
     return stats
 
@@ -633,6 +674,19 @@ def _final_marks(game: GameResult) -> dict[tuple[int, int], GameEvent]:
     return held
 
 
+def _claimant_slugs(
+    extraction: VideoExtraction, color: CellColor | None, cell_type: GameType
+) -> list[str]:
+    """Whose claim a held square was: the player on that side, or in a 2v2 match the
+    teammate(s) the square's pool belongs to (see models.Team.players_for) -- both, for a
+    co-op square. Empty when the side's player isn't known."""
+    if color is None:
+        return []
+    team = extraction.team(color)
+    names = team.players_for(cell_type) if team is not None else extraction.side_players(color)
+    return [slug for name in names if (slug := slugify_name(name))]
+
+
 def consolidate_square_stats(
     extractions: list[VideoExtraction], known_squares: dict[GameType, list[Square]]
 ) -> list[SquareStats]:
@@ -650,6 +704,11 @@ def consolidate_square_stats(
 
     Every square in known_squares gets an entry, including one no extraction deals --
     zeroed rather than left out, so each square in the reference has a stats file.
+
+    On a mixed board (GameResult.square_types) each cell counts toward its own pool's
+    square, and in a 2v2 match a claim is the teammate's whose game the square was in --
+    a co-op square's is both players', who each count in top_players and are listed
+    together in the claim's `slugs`.
     """
     # Every wording maps to its square (issue #125), so a cell reading an alias counts
     # toward the same square as one reading its canonical text.
@@ -665,17 +724,14 @@ def consolidate_square_stats(
     claims: dict[tuple[GameType, str], list[SquareClaim]] = {}
 
     for extraction in extractions:
-        names = {
-            CellColor.RED: extraction.player_red_name,
-            CellColor.BLUE: extraction.player_blue_name,
-        }
         for game in extraction.games:
-            if game.game_type is None:
-                continue
             held = _final_marks(game)
             for row_index, row in enumerate(game.square_texts):
                 for col_index, text in enumerate(row):
-                    square = by_text.get((game.game_type, text))
+                    # The cell's own pool -- a mixed board's per-cell type, see
+                    # GameResult.cell_game_type.
+                    cell_type = game.cell_game_type(row_index, col_index)
+                    square = by_text.get((cell_type, text)) if cell_type is not None else None
                     if square is None:
                         continue
                     key = (square.game_type, square.id)
@@ -685,16 +741,16 @@ def consolidate_square_stats(
                     mark = held.get((row_index + 1, col_index + 1))
                     if mark is None:
                         continue
-                    name = names.get(mark.color)
-                    slug = slugify_name(name) if name else None
-                    if slug:
+                    slugs = _claimant_slugs(extraction, mark.color, cell_type)
+                    for slug in slugs:
                         player_marks.setdefault(key, Counter())[slug] += 1
                     claims.setdefault(key, []).append(
                         SquareClaim(
                             match_id=extraction.match_id,
                             game_index=game.game_index,
                             time_s=mark.game_elapsed_s,
-                            slug=slug,
+                            slug=slugs[0] if len(slugs) == 1 else None,
+                            slugs=slugs if len(slugs) > 1 else [],
                         )
                     )
 

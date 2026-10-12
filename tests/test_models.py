@@ -81,3 +81,36 @@ def test_a_match_with_no_games_has_no_winner():
 
     assert (extraction.red_score, extraction.blue_score, extraction.num_games) == (0, 0, 0)
     assert extraction.winner is None
+
+
+def test_team_players_for_each_pool():
+    from scadustats.models import GameType, Team
+
+    team = Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef")
+    assert team.players_for(GameType.BASE) == ["star0chris"]
+    assert team.players_for(GameType.DLC) == ["Adef"]
+    assert team.players_for(GameType.COOP_MIXED) == ["star0chris", "Adef"]
+    assert team.players_for(None) == []
+
+
+def test_cell_game_type_uses_square_types_on_a_mixed_board():
+    from scadustats.models import GameResult, GameType, WinType
+
+    types = [[GameType.BASE] * 5 for _ in range(5)]
+    types[2][3] = GameType.COOP_MIXED
+    game = GameResult(
+        game_index=1,
+        start_video_ts_s=0.0,
+        end_video_ts_s=1.0,
+        square_texts=[[""] * 5 for _ in range(5)],
+        events=[],
+        winner_color=None,
+        win_type=WinType.NONE,
+        game_type=GameType.COOP_MIXED,
+        square_types=types,
+    )
+    assert game.cell_game_type(2, 3) is GameType.COOP_MIXED
+    assert game.cell_game_type(0, 0) is GameType.BASE
+    assert game.model_copy(update={"square_types": None}).cell_game_type(2, 3) is (
+        GameType.COOP_MIXED
+    )

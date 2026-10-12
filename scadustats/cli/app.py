@@ -14,6 +14,7 @@ import typer
 
 from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import (
+    CellColor,
     GameResult,
     GameType,
     LayoutName,
@@ -867,7 +868,8 @@ def square_validate(
     known_squares = read_squares(squares_dir)
 
     with_issues = 0
-    for game_type in GameType:
+    # Every pool read back -- the co-op pool only when its file exists (see read_squares).
+    for game_type in known_squares:
         path = squares_path(squares_dir, game_type)
         issues = find_square_issues(known_squares.get(game_type, []))
         if not issues:
@@ -966,10 +968,11 @@ def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
     """
     path = _match_path(data_dir, match_id)
     extraction = read_video(path)
+    # A 2v2 match's four players, not its two team names (see VideoExtraction.side_players).
     slugs = {
         slugify_name(name)
-        for name in (extraction.player_red_name, extraction.player_blue_name)
-        if name
+        for color in (CellColor.RED, CellColor.BLUE)
+        for name in extraction.side_players(color)
     }
     if not slugs:
         typer.echo(f"{match_id}: no player names to consolidate")

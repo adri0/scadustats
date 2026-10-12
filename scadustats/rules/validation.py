@@ -279,12 +279,23 @@ def validate_game(game: GameResult) -> list[ValidationIssue]:
     ]
 
 
+def _is_coop(extraction: VideoExtraction) -> bool:
+    """A 2v2 match (Season 5): every game a mixed board, see GameType.COOP_MIXED."""
+    return bool(extraction.games) and all(
+        game.game_type is GameType.COOP_MIXED for game in extraction.games
+    )
+
+
 def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: a round robin match is exactly 2 games; a double-elimination match (best of 3)
     is 2 or 3. A wrong count is the loudest sign of a segmentation problem -- games merged
-    together, or a recap segment read as a game of its own."""
+    together, or a recap segment read as a game of its own. A 2v2 round robin match
+    (Season 5, every game COOP_MIXED) is a single game."""
     count = extraction.num_games
-    if extraction.match_type is MatchType.ROUND_ROBIN:
+    if extraction.match_type is MatchType.ROUND_ROBIN and _is_coop(extraction):
+        expected = "exactly 1 game (2v2)"
+        ok = count == 1
+    elif extraction.match_type is MatchType.ROUND_ROBIN:
         expected = "exactly 2 games"
         ok = count == 2
     else:
@@ -302,7 +313,10 @@ def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
 
 def _check_opening_game_types(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: game 1 is the base game and game 2 is DLC, in both formats. (A
-    double-elimination decider -- game 3 -- can be either, so it isn't checked.)"""
+    double-elimination decider -- game 3 -- can be either, so it isn't checked.) Not
+    checked for a 2v2 match, whose games all mix both."""
+    if _is_coop(extraction):
+        return []
     issues = []
     for game, expected in zip(extraction.games, _OPENING_GAME_TYPES, strict=False):
         if game.game_type is expected:

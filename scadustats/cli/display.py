@@ -37,7 +37,11 @@ from scadustats.rules import winner
 # (unlike ANSI codes, which typer.echo strips outside a terminal).
 _CELL_SYMBOLS = {CellColor.RED: "🟥", CellColor.BLUE: "🟦", CellColor.UNCLAIMED: "⬛"}
 
-_GAME_TYPE_LABELS = {GameType.BASE: "base game", GameType.DLC: "DLC game"}
+_GAME_TYPE_LABELS = {
+    GameType.BASE: "base game",
+    GameType.DLC: "DLC game",
+    GameType.COOP_MIXED: "co-op mixed game",
+}
 
 # Goal texts run long (a full sentence, sometimes an OCR'd mess); an events listing is
 # read as a column, so they're cut to keep the rows scannable. The JSON has the full text.

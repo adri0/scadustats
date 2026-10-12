@@ -668,3 +668,50 @@ def test_write_squares_omits_empty_aliases_and_round_trips_set_ones(tmp_path):
         }
     ]
     assert read_squares(tmp_path) == squares
+
+
+def test_write_and_read_video_round_trip_a_2v2_mixed_board(tmp_path):
+    from scadustats.models import Team
+
+    game = _sample_game()
+    game.game_type = GameType.COOP_MIXED
+    game.square_types = [
+        [GameType.BASE, GameType.DLC, GameType.COOP_MIXED, None, GameType.BASE]
+    ] * 5
+    extraction = _sample_extraction(
+        games=[game],
+        team_red=Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef"),
+        team_blue=Team(name="Bushy Stache", base_player="Bushy", dlc_player="Vswed"),
+    )
+
+    path = write_video(tmp_path, extraction)
+    data = json.loads(path.read_text())
+
+    assert data["team_red"] == {
+        "name": "Positive Vibes",
+        "base_player": "star0chris",
+        "dlc_player": "Adef",
+    }
+    assert data["games"][0]["square_types"][0] == ["base", "dlc", "coop_mixed", None, "base"]
+    assert read_video(path) == extraction
+
+
+def test_write_video_leaves_teams_and_square_types_out_of_a_1v1_match(tmp_path):
+    data = json.loads(write_video(tmp_path, _sample_extraction()).read_text())
+
+    assert "team_red" not in data and "team_blue" not in data
+    assert "square_types" not in data["games"][0]
+
+
+def test_coop_squares_round_trip_and_an_empty_pool_writes_no_file(tmp_path):
+    coop = Square(
+        id="wolf_bear", text="Kill a Red Wolf and a Red Bear", game_type=GameType.COOP_MIXED
+    )
+
+    write_squares(tmp_path, {GameType.BASE: [], GameType.COOP_MIXED: []})
+    assert not squares_path(tmp_path, GameType.COOP_MIXED).exists()
+    assert GameType.COOP_MIXED not in read_squares(tmp_path)
+
+    write_squares(tmp_path, {GameType.COOP_MIXED: [coop]})
+    assert squares_path(tmp_path, GameType.COOP_MIXED).name == "coop.json"
+    assert read_squares(tmp_path)[GameType.COOP_MIXED] == [coop]

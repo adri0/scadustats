@@ -329,3 +329,24 @@ def test_match_id_falls_back_to_unknown_for_missing_names():
 
 def test_match_id_strips_slashes_from_names():
     assert _match_id(_MATCH_METADATA, "blanxz/2", "Serious") == "2026-03-05-blanxz-2-vs-Serious"
+
+
+def test_match_id_joins_a_team_name_with_underscores():
+    assert (
+        _match_id(_MATCH_METADATA, "Positive Vibes", "Bushy  Stache")
+        == "2026-03-05-Positive_Vibes-vs-Bushy_Stache"
+    )
+
+
+def test_find_team_matches_the_overlays_capitals_and_a_stray_misread():
+    from scadustats.models import Team
+
+    roster = [
+        Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef"),
+        Team(name="Bushy Stache", base_player="Bushy", dlc_player="Vswed"),
+    ]
+
+    assert extract._find_team("POSITIVE VIBES", roster) is roster[0]
+    assert extract._find_team("BUSHY STACHF", roster) is roster[1]
+    assert extract._find_team("MONKEY BUSINESS", roster) is None
+    assert extract._find_team("POSITIVE VIBES", []) is None
