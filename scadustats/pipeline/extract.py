@@ -552,11 +552,10 @@ def extract_video(
             video_path, [obs.video_ts_s for obs in square_text_observations]
         )
         square_texts = board.cell_square_texts_majority(square_text_frames, selected_layout)
-        square_types = None
         if selected_layout.square_type_tags:
-            # A mixed board (Season 5): every game is COOP_MIXED, and each cell's own pool
-            # comes from its tag/text color instead -- see board.cell_square_types_majority.
-            square_texts, square_types = board.cell_square_types_majority(
+            # A mixed board (Season 5): every game is COOP_MIXED, and each square's text
+            # ends in its own pool's tag -- see board.tag_square_texts_majority.
+            square_texts = board.tag_square_texts_majority(
                 square_text_frames, square_texts, selected_layout
             )
         # The overlay's own "BASE GAME"/"DLC" subtitle (see game_type_label.py) is tried
@@ -565,7 +564,7 @@ def extract_video(
         # texts (squares.py) if none of those frames produced a clean reading, e.g. a
         # transition moment or -- see CLAUDE.md -- source footage too compressed for this
         # small a subtitle to OCR reliably.
-        if square_types is not None:
+        if selected_layout.square_type_tags:
             game_type = GameType.COOP_MIXED
         else:
             game_type = game_type_label.majority_game_type_label(
@@ -608,7 +607,6 @@ def extract_video(
                 win_type=win_type,
                 win_line=win_line,
                 game_type=game_type,
-                square_types=square_types,
             )
         )
 

@@ -51,6 +51,7 @@ from scadustats.models import (
     SquareStats,
     VideoExtraction,
     WinLoss,
+    tag_square_text,
 )
 
 # Filler verbs and connectors common to Bingo Brawlers' goal-text phrasing ("Acquire 3
@@ -371,9 +372,10 @@ def consolidate_match_squares(
     full consolidate run would have had.
 
     A game with no resolved game_type is skipped entirely -- there's no pool to check or
-    add its squares to. A mixed board (Season 5, see GameResult.square_types) checks each
-    cell against its own pool -- base game, DLC or co-op -- and skips a cell whose pool
-    isn't known.
+    add its squares to. A mixed board (Season 5, GameType.COOP_MIXED) checks each cell
+    against the pool its "(B)"/"(D)"/"(C)" tag names, by its text without the tag -- a
+    fixed cell keeps its tag, a new square is added without one -- and skips an untagged
+    cell (see GameResult.cell_goal).
     """
     changes: list[SquareTextChange] = []
     used_ids = {
@@ -381,8 +383,7 @@ def consolidate_match_squares(
     }
     # Per pool, every wording of every square (issue #125) -> its square's id: a cell is
     # matched against aliases as well as canonical texts, and keeps the wording it's
-    # closest to. Built lazily, since a mixed board (GameResult.square_types) draws on
-    # several pools at once.
+    # closest to. Built lazily, since a mixed board draws on several pools at once.
     wording_ids: dict[GameType, dict[str, str]] = {}
 
     def _wordings(game_type: GameType) -> dict[str, str]:
@@ -395,11 +396,14 @@ def consolidate_match_squares(
         return wording_ids[game_type]
 
     for game in extraction.games:
+        mixed = game.game_type is GameType.COOP_MIXED
         for row_index, row in enumerate(game.square_texts):
-            for col_index, text in enumerate(row):
-                # The cell's own pool: the game's type, or a mixed board's per-cell type.
-                # None (an unresolved game, or an untagged cell) has no pool to check.
-                game_type = game.cell_game_type(row_index, col_index)
+            for col_index, cell_text in enumerate(row):
+                # The cell's own pool and its text as the reference knows it -- on a mixed
+                # board, read off and stripped of its "(B)"/"(D)"/"(C)" tag (see
+                # GameResult.cell_goal). No pool (an unresolved game, an untagged cell):
+                # nothing to check against.
+                game_type, text = game.cell_goal(row_index, col_index)
                 if game_type is None:
                     continue
                 pool_wordings = _wordings(game_type)
@@ -409,14 +413,16 @@ def consolidate_match_squares(
                 match = _best_match(text, list(pool_wordings))
                 if match is not None:
                     matched_text, ratio = match
-                    game.square_texts[row_index][col_index] = matched_text
+                    # A mixed board's fixed text keeps its tag.
+                    fixed = tag_square_text(matched_text, game_type) if mixed else matched_text
+                    game.square_texts[row_index][col_index] = fixed
                     changes.append(
                         SquareTextChange(
                             game_index=game.game_index,
                             row=row_index + 1,
                             col=col_index + 1,
-                            original_text=text,
-                            resolved_text=matched_text,
+                            original_text=cell_text,
+                            resolved_text=fixed,
                             is_new=False,
                             ratio=ratio,
                             game_type=game_type,
@@ -437,7 +443,8 @@ def consolidate_match_squares(
                         game_index=game.game_index,
                         row=row_index + 1,
                         col=col_index + 1,
-                        original_text=text,
+                        original_text=cell_text,
+                        # The square as added to the reference: no tag.
                         resolved_text=text,
                         is_new=True,
                         ratio=None,
@@ -466,21 +473,6 @@ def slugify_name(name: str) -> str:
     keyed by slug -- belong to one match's two players.
     """
     return _NAME_SLUG_RE.sub("_", name.strip().lower()).strip("_")
-
-
-def _event_square_text(square_texts: list[list[str]], row: int | None, col: int | None) -> str:
-    """The goal text at one event's square, or "" when there isn't one -- the same lookup
-    as storage.json_export._event_square_text/cli.display._square_text, duplicated here
-    for the same reason those two already are rather than shared: it's a couple of lines,
-    and none of these three modules should import each other just for it.
-    """
-    if row is None or col is None:
-        return ""
-    try:
-        # row/col are 1-based (see models.GameEvent); square_texts is a plain 0-based grid.
-        return square_texts[row - 1][col - 1]
-    except IndexError:
-        return ""
 
 
 def _top_squares(counts: Counter[str], limit: int = 5) -> list[SquareMarks]:
@@ -617,14 +609,14 @@ def consolidate_players(
                             continue
                         if event.row is None or event.col is None:
                             continue
-                        # The square's own pool (a mixed board's per-cell type), and in a
-                        # 2v2 match only the teammate(s) that pool belongs to.
-                        cell_type = game.cell_game_type(event.row - 1, event.col - 1)
+                        # The square's own pool (a mixed board's tag, see
+                        # GameResult.cell_goal), and in a 2v2 match only the teammate(s)
+                        # that pool belongs to.
+                        cell_type, text = game.cell_goal(event.row - 1, event.col - 1)
                         if cell_type is None:
                             continue
                         if team is not None and name not in team.players_for(cell_type):
                             continue
-                        text = _event_square_text(game.square_texts, event.row, event.col)
                         if text:
                             marks = square_marks.setdefault(slug, {}).setdefault(
                                 cell_type, Counter()
@@ -705,7 +697,7 @@ def consolidate_square_stats(
     Every square in known_squares gets an entry, including one no extraction deals --
     zeroed rather than left out, so each square in the reference has a stats file.
 
-    On a mixed board (GameResult.square_types) each cell counts toward its own pool's
+    On a mixed board (GameType.COOP_MIXED) each cell counts toward its tag's pool's
     square, and in a 2v2 match a claim is the teammate's whose game the square was in --
     a co-op square's is both players', who each count in top_players and are listed
     together in the claim's `slugs`.
@@ -727,10 +719,10 @@ def consolidate_square_stats(
         for game in extraction.games:
             held = _final_marks(game)
             for row_index, row in enumerate(game.square_texts):
-                for col_index, text in enumerate(row):
-                    # The cell's own pool -- a mixed board's per-cell type, see
-                    # GameResult.cell_game_type.
-                    cell_type = game.cell_game_type(row_index, col_index)
+                for col_index in range(len(row)):
+                    # The cell's own pool and text -- on a mixed board, its tag's pool and
+                    # its text without the tag (see GameResult.cell_goal).
+                    cell_type, text = game.cell_goal(row_index, col_index)
                     square = by_text.get((cell_type, text)) if cell_type is not None else None
                     if square is None:
                         continue

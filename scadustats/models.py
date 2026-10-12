@@ -17,6 +17,7 @@ video.download.DownloadResult) are deliberately left as plain dataclasses -- pyd
 its keep at a (de)serialization boundary, not on a value that only ever exists in Python.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum, StrEnum
@@ -62,15 +63,41 @@ class GameType(StrEnum):
 
     COOP_MIXED is Season 5's 2v2 format: each team has one player in the base game and
     one in the DLC, and the board mixes base game, DLC and co-op squares -- the overlay
-    tags each square "(B)", "(D)" or "(C)", read into GameResult.square_types. A co-op
-    square needs both teammates to complete a goal (one in each game) before it can be
-    claimed. As a Square's game_type it names the co-op pool (see Square), since a
-    base-game or DLC square on a mixed board belongs to the BASE/DLC pools like any other.
+    tags each square "(B)", "(D)" or "(C)", and a mixed board's square texts keep that tag
+    as the last thing in the text (see square_type_tag). A co-op square needs both
+    teammates to complete a goal (one in each game) before it can be claimed. As a
+    Square's game_type it names the co-op pool (see Square), since a base-game or DLC
+    square on a mixed board belongs to the BASE/DLC pools like any other.
     """
 
     BASE = "base"
     DLC = "dlc"
     COOP_MIXED = "coop_mixed"
+
+
+# The pool tag every square on a mixed board (GameType.COOP_MIXED) ends in, exactly as
+# the overlay prints it: " (B)" base game, " (D)" DLC, " (C)" co-op.
+_SQUARE_TYPE_TAGS = {"B": GameType.BASE, "D": GameType.DLC, "C": GameType.COOP_MIXED}
+_SQUARE_TYPE_TAG_LETTERS = {game_type: letter for letter, game_type in _SQUARE_TYPE_TAGS.items()}
+_SQUARE_TYPE_TAG_RE = re.compile(r" \(([BDC])\)$")
+
+
+def square_type_tag(text: str) -> GameType | None:
+    """The pool a mixed board's square text is tagged with -- "Kill Malenia (B)" is
+    BASE -- or None when it doesn't end in a tag."""
+    match = _SQUARE_TYPE_TAG_RE.search(text)
+    return _SQUARE_TYPE_TAGS[match.group(1)] if match else None
+
+
+def strip_square_type_tag(text: str) -> str:
+    """A mixed board's square text without its pool tag -- the goal as the squares
+    reference knows it ("Kill Malenia (B)" is the base game's "Kill Malenia")."""
+    return _SQUARE_TYPE_TAG_RE.sub("", text)
+
+
+def tag_square_text(text: str, game_type: GameType) -> str:
+    """`text` ending in game_type's pool tag, replacing any it already has."""
+    return f"{strip_square_type_tag(text)} ({_SQUARE_TYPE_TAG_LETTERS[game_type]})"
 
 
 class WinType(Enum):
@@ -238,23 +265,20 @@ class GameResult(BaseModel):
     # yet in the reference for the latter), in which case the caller must supply one (see
     # extract_video's on_missing_game_type).
     game_type: GameType | None = None
-    # A COOP_MIXED game's per-cell pool, parallel to square_texts: BASE, DLC or
-    # COOP_MIXED (a co-op square), read off the "(B)"/"(D)"/"(C)" tag the overlay prints
-    # after each square's text -- the tag itself is stripped from square_texts, so a mixed
-    # board's "Kill Malenia (B)" is the base game's "Kill Malenia". A cell whose tag
-    # didn't read is None until it's fixed by hand. None for every other game type, where
-    # every cell belongs to game_type's own pool.
-    square_types: list[list[GameType | None]] | None = None
 
-    def cell_game_type(self, row: int, col: int) -> GameType | None:
-        """The pool the square at 0-based (row, col) belongs to: its own entry in
-        square_types for a mixed board, otherwise the game's game_type."""
-        if self.square_types is None:
-            return self.game_type
+    def cell_goal(self, row: int, col: int) -> tuple[GameType | None, str]:
+        """The square at 0-based (row, col): the pool it belongs to and its text as the
+        squares reference knows it. On a mixed board (COOP_MIXED) the pool is the text's
+        own tag, which is stripped from the text (see square_type_tag); a cell with no tag
+        has no pool. Every other game's cells are all in game_type's pool, text as is. A
+        cell outside a ragged, hand-edited grid is (None, "")."""
         try:
-            return self.square_types[row][col]
+            text = self.square_texts[row][col]
         except IndexError:
-            return None
+            return None, ""
+        if self.game_type is GameType.COOP_MIXED:
+            return square_type_tag(text), strip_square_type_tag(text)
+        return self.game_type, text
 
 
 class Square(BaseModel):

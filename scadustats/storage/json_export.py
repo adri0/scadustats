@@ -72,9 +72,6 @@ def _event_to_dict(event: GameEvent, square_texts: list[list[str]]) -> dict:
 
 def _game_to_dict(game: GameResult) -> dict:
     dumped = game.model_dump(mode="json")
-    # square_types only for a mixed board (see GameResult.square_types), so every other
-    # game's file reads exactly as before.
-    square_types = {"square_types": dumped["square_types"]} if game.square_types is not None else {}
     return {
         "game_index": dumped["game_index"],
         "start_video_ts_s": dumped["start_video_ts_s"],
@@ -84,7 +81,6 @@ def _game_to_dict(game: GameResult) -> dict:
         "win_type": dumped["win_type"],
         "win_line": dumped["win_line"],
         "square_texts": dumped["square_texts"],
-        **square_types,
         "events": [
             _event_to_dict(event, game.square_texts)
             for event in sorted(game.events, key=lambda event: event.game_elapsed_s)

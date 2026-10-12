@@ -516,10 +516,58 @@ def test_issue_scope_labels_match_and_game_level_rules():
     assert issues[0].game_index is None
 
 
-def test_a_2v2_round_robin_match_is_one_mixed_game():
-    game = _game(1, game_type=GameType.COOP_MIXED)
+def _coop_game(game_index: int = 1, **overrides) -> GameResult:
+    """A 2v2 mixed board (Season 5), every square tagged with its pool."""
+    tags = ["B", "D", "C"]
+    defaults = dict(
+        game_type=GameType.COOP_MIXED,
+        square_texts=[[f"goal {r}-{c} ({tags[(r + c) % 3]})" for c in range(5)] for r in range(5)],
+    )
+    defaults.update(overrides)
+    return _game(game_index, **defaults)
 
-    assert validate_extraction(_extraction(games=[game])) == []
-    assert _codes(
-        validate_extraction(_extraction(games=[game, _game(2, game_type=GameType.COOP_MIXED)]))
-    ) == ["game_count"]
+
+def test_a_2v2_round_robin_match_is_one_game():
+    assert validate_extraction(_extraction(games=[_coop_game(1)])) == []
+
+
+def test_a_2v2_round_robin_match_with_two_games_is_reported():
+    issues = validate_extraction(_extraction(games=[_coop_game(1), _coop_game(2)]))
+
+    assert _codes(issues) == ["game_count"]
+    assert issues[0].message == "a 2v2 round_robin match has exactly 1 game, found 2"
+
+
+def test_a_1v1_round_robin_match_with_one_game_is_reported():
+    issues = validate_extraction(_extraction(games=[_game(1)]))
+
+    assert _codes(issues) == ["game_count"]
+    assert issues[0].message == "a 1v1 round_robin match has exactly 2 games, found 1"
+
+
+def test_a_match_mixing_2v2_and_1v1_games_is_one_issue_not_a_guess_at_its_format():
+    """Neither format's game count or opening game types apply, so only the mix itself
+    is reported."""
+    issues = validate_extraction(_extraction(games=[_coop_game(1), _game(2)]))
+
+    assert _codes(issues) == ["mixed_formats"]
+    assert "game(s) 1 are 2v2 mixed boards" in issues[0].message
+
+
+def test_an_untagged_square_on_a_2v2_board_is_reported():
+    game = _coop_game(1)
+    game.square_texts[0][1] = "Kill Malenia"
+    game.square_texts[4][4] = "Kill Bols (8)"  # an OCR misread isn't a tag
+
+    issues = validate_extraction(_extraction(games=[game]))
+
+    assert _codes(issues) == ["square_type_tag_missing"]
+    assert issues[0].game_index == 1
+    assert issues[0].message == "2 square(s) don't end in a (B)/(D)/(C) tag: [1,2], [5,5]"
+
+
+def test_square_type_tags_are_only_required_on_a_2v2_board():
+    extraction = _extraction()
+    extraction.games[0].square_texts[0][0] = "Kill Malenia"
+
+    assert validate_extraction(extraction) == []

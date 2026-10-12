@@ -640,9 +640,12 @@ def match_validate(
 
     - match_id_filename_mismatch: the file's name doesn't match its own match_id
 
-    - game_count: wrong number of games for the match type
+    - mixed_formats: some games are 2v2 mixed boards (coop_mixed) and others aren't
 
-    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc
+    - game_count: wrong number of games for the match type and format (a 1v1 round
+      robin match is 2 games, a 2v2 one is 1; double elimination is 2 or 3)
+
+    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc (1v1 only)
 
     - match_outcome_undetermined: some game has no winner recorded
 
@@ -669,6 +672,8 @@ def match_validate(
     - game_timer_not_monotonic: game_timer decreases somewhere in the game
 
     - mark_after_win: a square was marked after a line win completed
+
+    - square_type_tag_missing: a square on a 2v2 mixed board doesn't end in (B)/(D)/(C)
     """
     if match_id is not None:
         path = _match_path(data_dir, match_id)

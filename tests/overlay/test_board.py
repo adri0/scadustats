@@ -96,7 +96,7 @@ def test_majority_text_ignores_empty_readings():
     assert _majority_text(["", ""]) == ""
 
 
-def test_square_types_prefer_the_text_color_then_the_tag(monkeypatch):
+def test_tag_square_texts_prefers_the_text_color_then_the_tag(monkeypatch):
     import numpy as np
 
     from scadustats.models import GameType
@@ -105,12 +105,12 @@ def test_square_types_prefer_the_text_color_then_the_tag(monkeypatch):
     votes = [[None] * 5 for _ in range(5)]
     votes[0][0] = GameType.COOP_MIXED  # color says co-op, the tag says base game
     monkeypatch.setattr(board_module, "cell_text_color_types", lambda frame, layout_: votes)
-    texts = [["Kill Malenia (B)"] * 5 for _ in range(5)]
-    texts[0][1] = "Kill Malenia"  # no tag, no color: unknown
+    texts = [["Kill Malenia (8)"] * 5 for _ in range(5)]
+    texts[0][1] = "Kill Malenia"  # no tag, no color: left untagged
 
-    stripped, types = board_module.cell_square_types_majority([np.zeros((1, 1, 3))], texts)
+    tagged = board_module.tag_square_texts_majority([np.zeros((1, 1, 3))], texts)
 
-    assert types[0][0] is GameType.COOP_MIXED
-    assert types[0][1] is None
-    assert types[0][2] is GameType.BASE
-    assert stripped[0][0] == "Kill Malenia"
+    assert tagged[0][0] == "Kill Malenia (C)"
+    assert tagged[0][1] == "Kill Malenia"
+    # The OCR'd tag's misread "(8)" is normalized to the clean "(B)".
+    assert tagged[0][2] == "Kill Malenia (B)"

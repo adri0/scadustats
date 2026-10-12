@@ -60,7 +60,7 @@ class Layout:
     commentator_box_left: FractionalBox | None
     commentator_box_right: FractionalBox | None
     # Whether each square's text ends in a "(B)"/"(D)"/"(C)" pool tag -- a Season 5 mixed
-    # board (see board.cell_square_types and models.GameType.COOP_MIXED).
+    # board (see board.tag_square_texts_majority and models.GameType.COOP_MIXED).
     square_type_tags: bool = False
     # Whether the name boxes hold team names (several words, e.g. "POSITIVE VIBES")
     # rather than a single player's name -- see scoreboard.read_player_names.
@@ -142,7 +142,7 @@ LAYOUT_PRE_SEASON_6 = dataclasses.replace(
 # along the bottom holds the commentators' names at its far ends (with mic icons, no
 # webcam nameplates) and the two team names in its middle, blue then red. There's no
 # "BASE GAME"/"DLC" subtitle: every game is COOP_MIXED and each square's own text ends in
-# a "(B)"/"(D)"/"(C)" tag instead (see board.cell_square_types). Measured on a 1280x720
+# a "(B)"/"(D)"/"(C)" tag instead (see board.tag_square_texts_majority). Measured on a 1280x720
 # frame at 00:30:00 of Positive Vibes vs Bushy Stache (youtube.com/watch?v=YX3OSxKTJE8):
 # the grid sits inside a yellow border at x 510-770, y 214-452, and the badges are flat
 # blue/red at x 601-639/642-681, y 632-667.

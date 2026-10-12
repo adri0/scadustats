@@ -25,6 +25,7 @@ from scadustats.models import (
     VideoExtraction,
     WinLine,
     WinType,
+    square_type_tag,
 )
 from scadustats.rules import winner
 
@@ -260,6 +261,33 @@ def _check_no_marks_after_win(
     ]
 
 
+def _check_square_type_tags(game: GameResult) -> list[ValidationIssue]:
+    """Rule: on a 2v2 mixed board (COOP_MIXED), every square's text ends in its pool tag
+    -- " (B)" base game, " (D)" DLC or " (C)" co-op, exactly as the overlay prints it.
+    The tag is the only record of which pool a square is in (see
+    models.GameResult.cell_goal): an untagged square isn't counted toward any square's
+    stats or any player's marks, so it's reported rather than guessed."""
+    if game.game_type is not GameType.COOP_MIXED:
+        return []
+    untagged = [
+        f"[{r + 1},{c + 1}]"
+        for r, row in enumerate(game.square_texts)
+        for c, text in enumerate(row)
+        if square_type_tag(text) is None
+    ]
+    if not untagged:
+        return []
+    return [
+        ValidationIssue(
+            code="square_type_tag_missing",
+            message=(
+                f"{len(untagged)} square(s) don't end in a (B)/(D)/(C) tag: {', '.join(untagged)}"
+            ),
+            game_index=game.game_index,
+        )
+    ]
+
+
 def _describe_result(color: CellColor | None, win_type: WinType, win_line: WinLine | None) -> str:
     line = f" on {win_line.label}" if win_line else ""
     return f"{color.value if color else 'no winner'} ({win_type.value}{line})"
@@ -276,6 +304,7 @@ def validate_game(game: GameResult) -> list[ValidationIssue]:
         *_check_events_sorted(game),
         *_check_game_timer_monotonic(game, events),
         *_check_no_marks_after_win(game, events, states),
+        *_check_square_type_tags(game),
     ]
 
 
@@ -286,14 +315,47 @@ def _is_coop(extraction: VideoExtraction) -> bool:
     )
 
 
+def _is_mixed_format(extraction: VideoExtraction) -> bool:
+    """Some games are 2v2 mixed boards and others aren't -- a match is one format or
+    the other, so the format-dependent rules can't tell which to apply."""
+    coop = [game.game_type is GameType.COOP_MIXED for game in extraction.games]
+    return any(coop) and not all(coop)
+
+
+def _check_single_format(extraction: VideoExtraction) -> list[ValidationIssue]:
+    """Rule: a match's games are all 2v2 mixed boards (Season 5, COOP_MIXED) or none of
+    them are. A mix means a game type was misread or mis-entered; until it's fixed the
+    game count and opening game types can't be checked (they differ by format), so
+    those rules are skipped rather than guessing which format was meant."""
+    if not _is_mixed_format(extraction):
+        return []
+    coop = [game.game_index for game in extraction.games if game.game_type is GameType.COOP_MIXED]
+    other = [
+        game.game_index for game in extraction.games if game.game_type is not GameType.COOP_MIXED
+    ]
+    return [
+        ValidationIssue(
+            code="mixed_formats",
+            message=(
+                f"game(s) {', '.join(map(str, coop))} are 2v2 mixed boards (coop_mixed) but "
+                f"game(s) {', '.join(map(str, other))} aren't -- a match is one format"
+            ),
+        )
+    ]
+
+
 def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: a round robin match is exactly 2 games; a double-elimination match (best of 3)
-    is 2 or 3. A wrong count is the loudest sign of a segmentation problem -- games merged
-    together, or a recap segment read as a game of its own. A 2v2 round robin match
-    (Season 5, every game COOP_MIXED) is a single game."""
+    """Rule: how many games a match has depends on its type and format. A 1v1 round robin
+    match (Season 6) is exactly 2 games, a base game and a DLC game; a 2v2 round robin
+    match (Season 5, every game COOP_MIXED) is a single game. A double-elimination match
+    (best of 3) is 2 or 3 games in either format. A wrong count is the loudest sign of a
+    segmentation problem -- games merged together, or a recap segment read as a game of
+    its own. Skipped for a match mixing both formats (see _check_single_format)."""
+    if _is_mixed_format(extraction):
+        return []
     count = extraction.num_games
     if extraction.match_type is MatchType.ROUND_ROBIN and _is_coop(extraction):
-        expected = "exactly 1 game (2v2)"
+        expected = "exactly 1 game"
         ok = count == 1
     elif extraction.match_type is MatchType.ROUND_ROBIN:
         expected = "exactly 2 games"
@@ -303,10 +365,11 @@ def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
         ok = count in (2, 3)
     if ok:
         return []
+    fmt = "2v2" if _is_coop(extraction) else "1v1"
     return [
         ValidationIssue(
             code="game_count",
-            message=f"a {extraction.match_type.value} match has {expected}, found {count}",
+            message=f"a {fmt} {extraction.match_type.value} match has {expected}, found {count}",
         )
     ]
 
@@ -314,8 +377,9 @@ def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
 def _check_opening_game_types(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: game 1 is the base game and game 2 is DLC, in both formats. (A
     double-elimination decider -- game 3 -- can be either, so it isn't checked.) Not
-    checked for a 2v2 match, whose games all mix both."""
-    if _is_coop(extraction):
+    checked for a 2v2 match, whose games all mix both, nor for a match mixing both
+    formats (see _check_single_format)."""
+    if _is_coop(extraction) or _is_mixed_format(extraction):
         return []
     issues = []
     for game, expected in zip(extraction.games, _OPENING_GAME_TYPES, strict=False):
@@ -451,6 +515,7 @@ def validate_extraction(
     )
     issues = [
         *_check_match_id_matches_filename(ordered, path),
+        *_check_single_format(ordered),
         *_check_game_count(ordered),
         *_check_opening_game_types(ordered),
         *_check_match_outcome(ordered),

@@ -675,9 +675,7 @@ def test_write_and_read_video_round_trip_a_2v2_mixed_board(tmp_path):
 
     game = _sample_game()
     game.game_type = GameType.COOP_MIXED
-    game.square_types = [
-        [GameType.BASE, GameType.DLC, GameType.COOP_MIXED, None, GameType.BASE]
-    ] * 5
+    game.square_texts[0][0] = "Kill Malenia (B)"
     extraction = _sample_extraction(
         games=[game],
         team_red=Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef"),
@@ -692,15 +690,17 @@ def test_write_and_read_video_round_trip_a_2v2_mixed_board(tmp_path):
         "base_player": "star0chris",
         "dlc_player": "Adef",
     }
-    assert data["games"][0]["square_types"][0] == ["base", "dlc", "coop_mixed", None, "base"]
+    # The pool lives in the text's own tag; there's no separate per-cell field.
+    assert data["games"][0]["square_texts"][0][0] == "Kill Malenia (B)"
+    assert data["games"][0]["events"][0]["square_text"] == "Kill Malenia (B)"
+    assert "square_types" not in data["games"][0]
     assert read_video(path) == extraction
 
 
-def test_write_video_leaves_teams_and_square_types_out_of_a_1v1_match(tmp_path):
+def test_write_video_leaves_teams_out_of_a_1v1_match(tmp_path):
     data = json.loads(write_video(tmp_path, _sample_extraction()).read_text())
 
     assert "team_red" not in data and "team_blue" not in data
-    assert "square_types" not in data["games"][0]
 
 
 def test_coop_squares_round_trip_and_an_empty_pool_writes_no_file(tmp_path):

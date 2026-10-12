@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from scadustats.models import CellColor, GameType
+from scadustats.models import CellColor, GameType, tag_square_text
 from scadustats.overlay import layout, ocr
 from scadustats.overlay.layout import Layout
 
@@ -226,28 +226,27 @@ def cell_text_color_types(
     ]
 
 
-def cell_square_types_majority(
+def tag_square_texts_majority(
     frames: list[np.ndarray], square_texts: list[list[str]], layout_: Layout = layout.STANDARD
-) -> tuple[list[list[str]], list[list[GameType | None]]]:
-    """A mixed board's square texts with their pool tags stripped, and each cell's pool.
+) -> list[list[str]]:
+    """A mixed board's square texts, each ending in a clean pool tag -- " (B)", " (D)" or
+    " (C)", the form models.square_type_tag reads the cell's pool from.
 
-    The text color is voted across `frames` first: it's read off far more pixels than
-    the tag's one small letter, and a square unclaimed in any of the frames -- every
-    square, early in the game -- gets a vote. The OCR'd tag is the fallback for a cell
-    with no color vote at all. A cell where neither says anything is left None, to be
-    filled in by hand.
+    Which pool is voted by text color across `frames` first: it's read off far more
+    pixels than the tag's one small letter, and a square unclaimed in any of the frames
+    -- every square, early in the game -- gets a vote. The OCR'd tag is the fallback for a
+    cell with no color vote at all. Whatever the OCR read as the tag is replaced by the
+    decided one; a cell where neither says anything is left untagged, which
+    rules.validation reports, to be fixed by hand.
     """
     votes = [cell_text_color_types(frame, layout_) for frame in frames]
-    texts: list[list[str]] = []
-    types: list[list[GameType | None]] = []
+    tagged_texts: list[list[str]] = []
     for r, row in enumerate(square_texts):
-        text_row: list[str] = []
-        type_row: list[GameType | None] = []
+        tagged_row: list[str] = []
         for c, text in enumerate(row):
             stripped, tagged = split_square_type_tag(text)
             colored = Counter(vote[r][c] for vote in votes if vote[r][c] is not None)
-            text_row.append(stripped)
-            type_row.append(colored.most_common(1)[0][0] if colored else tagged)
-        texts.append(text_row)
-        types.append(type_row)
-    return texts, types
+            game_type = colored.most_common(1)[0][0] if colored else tagged
+            tagged_row.append(tag_square_text(stripped, game_type) if game_type else stripped)
+        tagged_texts.append(tagged_row)
+    return tagged_texts
