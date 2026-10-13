@@ -27,7 +27,6 @@ from scadustats.models import (
     GameType,
     MatchWinner,
     VideoExtraction,
-    WinLine,
     WinType,
 )
 from scadustats.rules import winner

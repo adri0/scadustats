@@ -1,5 +1,14 @@
 # scadustats
 
+[![CI](https://github.com/adri0/scadustats/actions/workflows/ci.yml/badge.svg)](https://github.com/adri0/scadustats/actions/workflows/ci.yml)
+[![Release](https://github.com/adri0/scadustats/actions/workflows/release.yml/badge.svg)](https://github.com/adri0/scadustats/actions/workflows/release.yml)
+[![PyPI](https://img.shields.io/pypi/v/scadustats)](https://pypi.org/project/scadustats/)
+[![Python versions](https://img.shields.io/pypi/pyversions/scadustats)](https://pypi.org/project/scadustats/)
+[![Downloads](https://img.shields.io/pypi/dm/scadustats)](https://pypistats.org/packages/scadustats)
+[![License](https://img.shields.io/pypi/l/scadustats)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+
 Extract match data from [Bingo Brawlers](https://bingobrawlers.com/) match VODs. Such as:
 
 - Board layout & square texts
