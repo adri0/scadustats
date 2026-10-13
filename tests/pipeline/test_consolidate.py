@@ -15,6 +15,7 @@ from scadustats.models import (
     SquareClaim,
     SquareMarks,
     SquareStats,
+    Team,
     VideoExtraction,
     WinType,
     format_video_timestamp,
@@ -1020,3 +1021,158 @@ def test_consolidate_players_top_squares_without_a_reference_count_text_as_shown
     assert profiles["alice"].top_squares_dlc == [
         SquareMarks(text="Kill Midra, Lord of Frenzied Flame", marks=1)
     ]
+
+
+def test_consolidate_match_squares_keeps_a_rune_amount_apart_from_a_different_one():
+    """ "50k+" and "65k+" carry no standalone digit run, so the goal-count guard has to
+    read the "k" amount too -- otherwise one fuzzy-matched the other (Season 5)."""
+    known = _known("Memory of Grace with 65k+ Runes")
+    extraction = _extraction(_game(GameType.BASE, "Memory of Grace with 50k+ Runes"))
+
+    changes = consolidate_match_squares(extraction, known)
+
+    assert [change.is_new for change in changes] == [True]
+    assert extraction.games[0].square_texts[0][0] == "Memory of Grace with 50k+ Runes"
+
+
+# Season 5's 2v2 format (see models.Team, GameType.TWO_V_TWO).
+_POSITIVE_VIBES = Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef")
+_BUSHY_STACHE = Team(name="Bushy Stache", base_player="Bushy", dlc_player="Vswed")
+
+
+def _mixed_game(
+    *texts: str,
+    events: tuple[GameEvent, ...] = (),
+    winner_color: CellColor | None = None,
+) -> GameResult:
+    """A 2v2 mixed board: each text ends in its pool's (B)/(D)/(C) tag."""
+    return _game(GameType.TWO_V_TWO, *texts, events=events, winner_color=winner_color)
+
+
+def _team_extraction(*games: GameResult) -> VideoExtraction:
+    extraction = _extraction(
+        *games,
+        match_id="2025-10-05-Positive_Vibes-vs-Bushy_Stache",
+        season="5",
+        player_red_name="Positive Vibes",
+        player_blue_name="Bushy Stache",
+    )
+    extraction.team_red = _POSITIVE_VIBES
+    extraction.team_blue = _BUSHY_STACHE
+    return extraction
+
+
+def test_consolidate_match_squares_checks_each_mixed_board_cell_against_its_tags_pool():
+    known = {
+        GameType.BASE: [Square(id="malenia", text="Kill Malenia", game_type=GameType.BASE)],
+        GameType.DLC: [Square(id="bols", text="Kill Bols", game_type=GameType.DLC)],
+    }
+    extraction = _team_extraction(
+        _mixed_game(
+            "Kill Malenla (B)",
+            "Kill Bols (D)",
+            "Kill a Red Wolf and a Red Bear (C)",
+            "Kill Bols (B)",
+        )
+    )
+
+    changes = consolidate_match_squares(extraction, known)
+
+    # The base cell's misread is fixed against the base pool and keeps its tag, the
+    # co-op square starts the co-op pool (without its tag), and "Kill Bols" tagged (B) is
+    # new to the base pool rather than the DLC's square.
+    assert [(c.game_type, c.is_new, c.original_text, c.resolved_text) for c in changes] == [
+        (GameType.BASE, False, "Kill Malenla (B)", "Kill Malenia (B)"),
+        (
+            GameType.TWO_V_TWO,
+            True,
+            "Kill a Red Wolf and a Red Bear (C)",
+            "Kill a Red Wolf and a Red Bear",
+        ),
+        (GameType.BASE, True, "Kill Bols (B)", "Kill Bols"),
+    ]
+    assert extraction.games[0].square_texts[0][0] == "Kill Malenia (B)"
+    assert [square.text for square in known[GameType.TWO_V_TWO]] == [
+        "Kill a Red Wolf and a Red Bear"
+    ]
+    assert [square.text for square in known[GameType.BASE]] == ["Kill Malenia", "Kill Bols"]
+
+
+def test_consolidate_match_squares_skips_an_untagged_mixed_board_cell():
+    known = {GameType.BASE: [], GameType.DLC: []}
+    extraction = _team_extraction(_mixed_game("Kill Malenia"))
+
+    assert consolidate_match_squares(extraction, known) == []
+
+
+def test_consolidate_players_credits_both_teammates_and_each_one_their_own_squares():
+    game = _mixed_game(
+        "Kill Malenia (B)",
+        "Kill Bols (D)",
+        "Kill a Red Wolf and a Red Bear (C)",
+        "Kill Rellana (D)",
+        events=(
+            _mark(1, 1, CellColor.RED),
+            _mark(1, 2, CellColor.RED),
+            _mark(1, 3, CellColor.RED),
+            _mark(1, 4, CellColor.BLUE),
+        ),
+        winner_color=CellColor.RED,
+    )
+
+    stats = consolidate_players([_team_extraction(game)])
+
+    assert set(stats) == {"star0chris", "adef", "bushy", "vswed"}
+    for slug in ("star0chris", "adef"):
+        assert stats[slug].season_records["5"].wins == 1
+        assert stats[slug].game_type_records[GameType.TWO_V_TWO].wins == 1
+        assert stats[slug].top_squares_coop == [
+            SquareMarks(text="Kill a Red Wolf and a Red Bear", marks=1)
+        ]
+    # Tallied without the tag, under the square's own text.
+    assert stats["star0chris"].top_squares_base_game == [SquareMarks(text="Kill Malenia", marks=1)]
+    assert stats["star0chris"].top_squares_dlc == []
+    assert stats["adef"].top_squares_dlc == [SquareMarks(text="Kill Bols", marks=1)]
+    assert stats["adef"].top_squares_base_game == []
+    assert stats["vswed"].top_squares_dlc == [SquareMarks(text="Kill Rellana", marks=1)]
+    assert stats["bushy"].season_records["5"].losses == 1
+    assert stats["bushy"].top_squares_dlc == []
+
+
+def test_consolidate_square_stats_credits_the_teammate_whose_game_the_square_was_in():
+    known = {
+        GameType.BASE: [Square(id="malenia", text="Kill Malenia", game_type=GameType.BASE)],
+        GameType.DLC: [Square(id="bols", text="Kill Bols", game_type=GameType.DLC)],
+        GameType.TWO_V_TWO: [
+            Square(
+                id="wolf_bear", text="Kill a Red Wolf and a Red Bear", game_type=GameType.TWO_V_TWO
+            )
+        ],
+    }
+    game = _mixed_game(
+        "Kill Malenia (B)",
+        "Kill Bols (D)",
+        "Kill a Red Wolf and a Red Bear (C)",
+        events=(
+            _event(1, 1, CellColor.RED, 60),
+            _event(1, 2, CellColor.BLUE, 70),
+            _event(1, 3, CellColor.RED, 80),
+        ),
+    )
+
+    stats = {
+        (s.game_type, s.id): s for s in consolidate_square_stats([_team_extraction(game)], known)
+    }
+
+    assert stats[(GameType.BASE, "malenia")].num_games == 1
+    assert stats[(GameType.BASE, "malenia")].top_players == [
+        PlayerMarks(slug="star0chris", marks=1)
+    ]
+    assert stats[(GameType.DLC, "bols")].claims[0].slug == "vswed"
+    coop = stats[(GameType.TWO_V_TWO, "wolf_bear")]
+    assert coop.top_players == [
+        PlayerMarks(slug="adef", marks=1),
+        PlayerMarks(slug="star0chris", marks=1),
+    ]
+    assert coop.claims[0].slug is None
+    assert coop.claims[0].slugs == ["star0chris", "adef"]

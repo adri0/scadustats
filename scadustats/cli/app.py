@@ -13,6 +13,7 @@ import typer
 
 from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import (
+    CellColor,
     GameResult,
     GameType,
     LayoutName,
@@ -657,9 +658,12 @@ def match_validate(
 
     - match_id_filename_mismatch: the file's name doesn't match its own match_id
 
-    - game_count: wrong number of games for the match type
+    - mixed_formats: some games are 2v2 mixed boards and others aren't
 
-    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc
+    - game_count: wrong number of games for the match type and format (a 1v1 round
+      robin match is 2 games, a 2v2 one is 1; double elimination is 2 or 3)
+
+    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc (1v1 only)
 
     - match_outcome_undetermined: some game has no winner recorded
 
@@ -686,6 +690,8 @@ def match_validate(
     - game_timer_not_monotonic: game_timer decreases somewhere in the game
 
     - mark_after_win: a square was marked after a line win completed
+
+    - square_type_tag_missing: a square on a 2v2 mixed board doesn't end in (B)/(D)/(C)
     """
     if match_id is not None:
         paths = [_match_path(data_dir, match_id)]
@@ -890,7 +896,8 @@ def square_validate(
     known_squares = read_squares(squares_dir)
 
     with_issues = 0
-    for game_type in GameType:
+    # Every pool read back -- the co-op pool only when its file exists (see read_squares).
+    for game_type in known_squares:
         path = squares_path(squares_dir, game_type)
         issues = find_square_issues(known_squares.get(game_type, []))
         if not issues:
@@ -989,10 +996,11 @@ def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
     """
     path = _match_path(data_dir, match_id)
     extraction = read_video(path)
+    # A 2v2 match's four players, not its two team names (see VideoExtraction.side_players).
     slugs = {
         slugify_name(name)
-        for name in (extraction.player_red_name, extraction.player_blue_name)
-        if name
+        for color in (CellColor.RED, CellColor.BLUE)
+        for name in extraction.side_players(color)
     }
     if not slugs:
         typer.echo(f"{match_id}: no player names to consolidate")

@@ -17,6 +17,7 @@ video.download.DownloadResult) are deliberately left as plain dataclasses -- pyd
 its keep at a (de)serialization boundary, not on a value that only ever exists in Python.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum, StrEnum
@@ -49,6 +50,8 @@ class LayoutName(StrEnum):
     STANDARD = "standard"
     SEASON_6_FINAL = "layout_season_6_final"
     PRE_SEASON_6 = "layout_pre_season_6"
+    SEASON_5 = "layout_season_5"
+    SEASON_5_V2 = "layout_season_5_v2"
 
 
 class GameType(StrEnum):
@@ -57,10 +60,45 @@ class GameType(StrEnum):
     "DLC" subtitle where that OCRs cleanly (see game_type_label.py), falling back to
     inferring it from square texts (see squares.py) and finally to a user-provided
     answer. StrEnum for the same reason as MatchType: it doubles as a Typer/Click CLI
-    choice type."""
+    choice type.
+
+    TWO_V_TWO is Season 5's 2v2 format: each team has one player in the base game and
+    one in the DLC, and the board mixes base game, DLC and co-op squares -- the overlay
+    tags each square "(B)", "(D)" or "(C)", and a mixed board's square texts keep that tag
+    as the last thing in the text (see square_type_tag). A co-op square needs both
+    teammates to complete a goal (one in each game) before it can be claimed. As a
+    Square's game_type it names the co-op pool (see Square), since a base-game or DLC
+    square on a mixed board belongs to the BASE/DLC pools like any other.
+    """
 
     BASE = "base"
     DLC = "dlc"
+    TWO_V_TWO = "2v2"
+
+
+# The pool tag every square on a mixed board (GameType.TWO_V_TWO) ends in, exactly as
+# the overlay prints it: " (B)" base game, " (D)" DLC, " (C)" co-op.
+_SQUARE_TYPE_TAGS = {"B": GameType.BASE, "D": GameType.DLC, "C": GameType.TWO_V_TWO}
+_SQUARE_TYPE_TAG_LETTERS = {game_type: letter for letter, game_type in _SQUARE_TYPE_TAGS.items()}
+_SQUARE_TYPE_TAG_RE = re.compile(r" \(([BDC])\)$")
+
+
+def square_type_tag(text: str) -> GameType | None:
+    """The pool a mixed board's square text is tagged with -- "Kill Malenia (B)" is
+    BASE -- or None when it doesn't end in a tag."""
+    match = _SQUARE_TYPE_TAG_RE.search(text)
+    return _SQUARE_TYPE_TAGS[match.group(1)] if match else None
+
+
+def strip_square_type_tag(text: str) -> str:
+    """A mixed board's square text without its pool tag -- the goal as the squares
+    reference knows it ("Kill Malenia (B)" is the base game's "Kill Malenia")."""
+    return _SQUARE_TYPE_TAG_RE.sub("", text)
+
+
+def tag_square_text(text: str, game_type: GameType) -> str:
+    """`text` ending in game_type's pool tag, replacing any it already has."""
+    return f"{strip_square_type_tag(text)} ({_SQUARE_TYPE_TAG_LETTERS[game_type]})"
 
 
 class WinType(Enum):
@@ -229,6 +267,20 @@ class GameResult(BaseModel):
     # extract_video's on_missing_game_type).
     game_type: GameType | None = None
 
+    def cell_goal(self, row: int, col: int) -> tuple[GameType | None, str]:
+        """The square at 0-based (row, col): the pool it belongs to and its text as the
+        squares reference knows it. On a mixed board (TWO_V_TWO) the pool is the text's
+        own tag, which is stripped from the text (see square_type_tag); a cell with no tag
+        has no pool. Every other game's cells are all in game_type's pool, text as is. A
+        cell outside a ragged, hand-edited grid is (None, "")."""
+        try:
+            text = self.square_texts[row][col]
+        except IndexError:
+            return None, ""
+        if self.game_type is GameType.TWO_V_TWO:
+            return square_type_tag(text), strip_square_type_tag(text)
+        return self.game_type, text
+
 
 class Square(BaseModel):
     """One goal square in the consolidated, per-game-type reference built by
@@ -256,6 +308,34 @@ class Square(BaseModel):
         return [self.text, *self.aliases]
 
 
+class Team(BaseModel):
+    """One side of a 2v2 match (Season 5, see GameType.TWO_V_TWO): the team's name, as
+    shown on the overlay, and its two players. Each team keeps the same roles for a whole
+    season -- one player always plays the base game and the other the DLC -- so a claim
+    on a base-game square is the base player's, a DLC square the DLC player's, and a
+    co-op square both of theirs. Filled in at extraction from the season's roster (see
+    storage.teams), since the overlay only shows team names."""
+
+    name: str
+    base_player: str
+    dlc_player: str
+
+    @property
+    def players(self) -> list[str]:
+        return [self.base_player, self.dlc_player]
+
+    def players_for(self, game_type: GameType | None) -> list[str]:
+        """Whose claim a square of this pool is: the base or the DLC player, both for a
+        co-op square, or nobody when the square's pool isn't known."""
+        if game_type is GameType.BASE:
+            return [self.base_player]
+        if game_type is GameType.DLC:
+            return [self.dlc_player]
+        if game_type is GameType.TWO_V_TWO:
+            return self.players
+        return []
+
+
 class VideoExtraction(BaseModel):
     """Everything extracted from one video, and the unit `json_export`/`db` persist:
     one video is one match, and a match can contain several games (GameResult), but
@@ -267,6 +347,8 @@ class VideoExtraction(BaseModel):
     match_date: date
     season: str
     match_type: MatchType
+    # The two sides' names as the overlay shows them -- a player's name, or a team's in a
+    # 2v2 match (with team_red/team_blue below naming its players).
     player_red_name: str | None
     player_blue_name: str | None
     extracted_at: date
@@ -291,6 +373,22 @@ class VideoExtraction(BaseModel):
     # downloading -- a locally-supplied video has no metadata to read it from, and a JSON
     # file written before this field existed still has to read back cleanly.
     published_at: date | None = None
+    # A 2v2 match's teams (see Team) -- None for a 1v1 match, and for a team whose name
+    # isn't in the season's roster.
+    team_red: Team | None = None
+    team_blue: Team | None = None
+
+    def team(self, color: CellColor) -> Team | None:
+        return self.team_red if color is CellColor.RED else self.team_blue
+
+    def side_players(self, color: CellColor) -> list[str]:
+        """The players on one side: a team's two players, or the side's own player name
+        in a 1v1 match (empty when it isn't known)."""
+        team = self.team(color)
+        if team is not None:
+            return team.players
+        name = self.player_red_name if color is CellColor.RED else self.player_blue_name
+        return [name] if name else []
 
     @field_validator("season", mode="before")
     @classmethod
@@ -397,8 +495,12 @@ class SquareClaim(BaseModel):
     # GameEvent.game_elapsed_s of the persisting MARK, as in SquareStats.mark_times_s.
     time_s: int
     # The claiming player's slug (pipeline.consolidate.slugify_name), or None when the
-    # match doesn't name the player on that side.
+    # match doesn't name the player on that side -- or when the claim was a 2v2 team's
+    # co-op square, which is both players' (see slugs).
     slug: str | None = None
+    # Every player behind the claim, when that's more than one: a co-op square's two
+    # teammates. Empty otherwise, where slug says it all.
+    slugs: list[str] = Field(default_factory=list)
 
 
 class SquareStats(BaseModel):
@@ -498,6 +600,9 @@ class PlayerStats(BaseModel):
     # with its mark count -- see consolidate_players.
     top_squares_base_game: list[SquareMarks] = Field(default_factory=list)
     top_squares_dlc: list[SquareMarks] = Field(default_factory=list)
+    # Co-op squares on a 2v2 mixed board (see GameType.TWO_V_TWO), which count for both
+    # teammates.
+    top_squares_coop: list[SquareMarks] = Field(default_factory=list)
 
     @field_validator("top_squares_base_game", "top_squares_dlc", mode="before")
     @classmethod

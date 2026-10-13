@@ -59,6 +59,12 @@ class Layout:
     name_box_blue: FractionalBox
     commentator_box_left: FractionalBox | None
     commentator_box_right: FractionalBox | None
+    # Whether each square's text ends in a "(B)"/"(D)"/"(C)" pool tag -- a Season 5 mixed
+    # board (see board.tag_square_texts_majority and models.GameType.TWO_V_TWO).
+    square_type_tags: bool = False
+    # Whether the name boxes hold team names (several words, e.g. "POSITIVE VIBES")
+    # rather than a single player's name -- see scoreboard.read_player_names.
+    team_names: bool = False
 
 
 STANDARD = Layout(
@@ -129,11 +135,67 @@ LAYOUT_PRE_SEASON_6 = dataclasses.replace(
     game_type_box=None,
 )
 
+# Season 5 broadcast (2v2 teams, see models.GameType.TWO_V_TWO): four gameplay feeds fill
+# the frame's quadrants, with the 5x5 grid in the very center between them, the timer
+# just above it under the "BINGO BRAWLERS SEASON 5" logo, and the live claim counts as two
+# badges further down the center column -- blue on the left, red on the right. A strip
+# along the bottom holds the commentators' names at its far ends (with mic icons, no
+# webcam nameplates) and the two team names in its middle, blue then red. There's no
+# "BASE GAME"/"DLC" subtitle: every game is TWO_V_TWO and each square's own text ends in
+# a "(B)"/"(D)"/"(C)" tag instead (see board.tag_square_texts_majority). Measured on a 1280x720
+# frame at 00:30:00 of Positive Vibes vs Bushy Stache (youtube.com/watch?v=YX3OSxKTJE8):
+# the grid sits inside a yellow border at x 510-770, y 214-452, and the badges are flat
+# blue/red at x 601-639/642-681, y 632-667.
+LAYOUT_SEASON_5 = Layout(
+    name=LayoutName.SEASON_5,
+    grid_box=FractionalBox(left=0.4, top=0.3014, right=0.6, bottom=0.625),
+    timer_box=FractionalBox(left=0.466, top=0.261, right=0.534, bottom=0.292),
+    game_type_box=None,
+    score_box_red=FractionalBox(left=0.503, top=0.881, right=0.53, bottom=0.925),
+    score_box_blue=FractionalBox(left=0.471, top=0.881, right=0.498, bottom=0.925),
+    name_box_red=FractionalBox(left=0.502, top=0.944, right=0.677, bottom=0.99),
+    name_box_blue=FractionalBox(left=0.327, top=0.944, right=0.498, bottom=0.99),
+    commentator_box_left=FractionalBox(left=0.0, top=0.944, right=0.21, bottom=0.99),
+    commentator_box_right=FractionalBox(left=0.85, top=0.944, right=1.0, bottom=0.99),
+    square_type_tags=True,
+    team_names=True,
+)
+
+# Season 5's second broadcast template, used from Positive Vibes vs Itzerino
+# (youtube.com/watch?v=zl8vqTjgCEw, 2025-10-12) on: the same 2v2 mixed board, at the same
+# size, but moved to the bottom center under a "BASE GAME / DLC / CO-OP" header strip,
+# with the timer at the top center, each player's name printed over their webcam, and a
+# bottom strip holding both team names around their claim-count badges -- red on the
+# left this time, blue on the right -- plus a single "A & B" commentator line in the
+# bottom-right corner. That line moves with the names' lengths, so it has no boxes here
+# (commentators are left for a contributor to fill in). Measured on a 1280x720 frame at
+# 00:30:00 of that video: grid x 512-768 / y 409-642, timer x 599-681 / y 94-120, badges
+# flat red x 612-638 and blue x 641-666 at y 692-719.
+LAYOUT_SEASON_5_V2 = dataclasses.replace(
+    LAYOUT_SEASON_5,
+    name=LayoutName.SEASON_5_V2,
+    grid_box=FractionalBox(left=0.4, top=0.568, right=0.6, bottom=0.8917),
+    timer_box=FractionalBox(left=0.468, top=0.1306, right=0.532, bottom=0.1667),
+    score_box_red=FractionalBox(left=0.481, top=0.964, right=0.497, bottom=0.996),
+    score_box_blue=FractionalBox(left=0.503, top=0.964, right=0.519, bottom=0.996),
+    name_box_red=FractionalBox(left=0.3, top=0.961, right=0.477, bottom=0.999),
+    name_box_blue=FractionalBox(left=0.522, top=0.961, right=0.7, bottom=0.999),
+    commentator_box_left=None,
+    commentator_box_right=None,
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
 LAYOUTS: dict[LayoutName, Layout] = {
-    layout.name: layout for layout in (STANDARD, LAYOUT_SEASON_6_FINAL, LAYOUT_PRE_SEASON_6)
+    layout.name: layout
+    for layout in (
+        STANDARD,
+        LAYOUT_SEASON_6_FINAL,
+        LAYOUT_PRE_SEASON_6,
+        LAYOUT_SEASON_5,
+        LAYOUT_SEASON_5_V2,
+    )
 }
 
 

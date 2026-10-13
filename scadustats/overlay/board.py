@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from scadustats.models import CellColor
+from scadustats.models import CellColor, GameType, tag_square_text
 from scadustats.overlay import layout, ocr
 from scadustats.overlay.layout import Layout
 
@@ -137,10 +137,116 @@ def cell_square_texts_majority(
     artifact on that frame), and unlike cell color/claims there's no debounce here since
     square text never changes mid-game -- so voting across multiple frames instead of
     trusting whichever one frame happened to be sampled is a straightforward way to drop
-    that noise.
+    that noise. An empty reading doesn't get a vote (see _majority_text).
     """
     per_frame_texts = [cell_square_texts(frame, layout_) for frame in frames]
     return [
-        [Counter(pf[r][c] for pf in per_frame_texts).most_common(1)[0][0] for c in range(5)]
+        [_majority_text([pf[r][c] for pf in per_frame_texts]) for c in range(5)] for r in range(5)
+    ]
+
+
+def _majority_text(readings: list[str]) -> str:
+    """The most common non-empty reading -- a cell whose small text OCR'd as nothing on
+    most frames still keeps what it read on the others (Season 5's smallest-font squares
+    came back blank on most frames) -- or "" if every reading was empty."""
+    counts = Counter(text for text in readings if text)
+    return counts.most_common(1)[0][0] if counts else ""
+
+
+# Season 5's mixed boards (see models.GameType.TWO_V_TWO) end every square's text in a
+# pool tag: "(B)" base game, "(D)" DLC, "(C)" co-op. At the glyph size square text is read
+# at, Tesseract often gets the letter wrong -- "(B)" comes back "(8)" or "(6)", "(D)" as
+# "(0)" -- or drops it, so a one- or two-character parenthesized token at the very end is
+# treated as the tag whatever it reads as, and the letter only decides the pool when it's
+# one of these known readings.
+_SQUARE_TYPE_TAG = re.compile(r"\s*\(\s*(\w{0,2})\s*\)?\s*$")
+_TAG_READINGS = {
+    "B": GameType.BASE,
+    "8": GameType.BASE,
+    "6": GameType.BASE,
+    "D": GameType.DLC,
+    "0": GameType.DLC,
+    "O": GameType.DLC,
+    "C": GameType.TWO_V_TWO,
+}
+
+
+def split_square_type_tag(text: str) -> tuple[str, GameType | None]:
+    """A mixed board's square text without its trailing pool tag, and the pool the tag
+    reads as -- None when there's no tag or it didn't read as a known letter."""
+    match = _SQUARE_TYPE_TAG.search(text)
+    if match is None:
+        return text, None
+    return text[: match.start()].rstrip(), _TAG_READINGS.get(match.group(1).upper())
+
+
+# An unclaimed cell on a mixed board is black, with its text colored by pool: pink-red for
+# a base-game square, yellow for DLC and cyan for co-op (a claimed cell turns red/blue with
+# white text, so only an unclaimed cell says anything). Measured on Positive Vibes vs
+# Bushy Stache (youtube.com/watch?v=YX3OSxKTJE8): the mean BGR of a cell's text pixels
+# was about (110, 100, 160) for base game, (130, 175, 175) for DLC and (160, 165, 120)
+# for co-op -- each pool has one channel well clear of the other two, which is what the
+# scores below compare.
+_TEXT_PIXEL_MIN = 140  # brightest channel of a pixel counted as text, not background
+_TEXT_COLOR_MARGIN = 10  # how far the winning score must clear zero to count
+
+
+def _text_color_type(crop: np.ndarray) -> GameType | None:
+    pixels = crop.reshape(-1, 3).astype(int)
+    text = pixels[pixels.max(axis=1) > _TEXT_PIXEL_MIN]
+    if len(text) == 0:
+        return None
+    blue, green, red = text.mean(axis=0)
+    scores = {
+        GameType.BASE: red - (green + blue) / 2,
+        GameType.DLC: (red + green) / 2 - blue,
+        GameType.TWO_V_TWO: (green + blue) / 2 - red,
+    }
+    best = max(scores, key=lambda game_type: scores[game_type])
+    return best if scores[best] > _TEXT_COLOR_MARGIN else None
+
+
+def cell_text_color_types(
+    frame: np.ndarray, layout_: Layout = layout.STANDARD
+) -> list[list[GameType | None]]:
+    """Each cell's pool as its text color says (see _text_color_type) -- None for a
+    claimed cell, whose text is white, or one whose color is unclear."""
+    height, width = frame.shape[:2]
+    colors = cell_colors(frame, layout_)
+    return [
+        [
+            _text_color_type(
+                layout.crop(frame, layout.grid_cell_box(r, c, layout_.grid_box), width, height)
+            )
+            if colors[r][c] is CellColor.UNCLAIMED
+            else None
+            for c in range(5)
+        ]
         for r in range(5)
     ]
+
+
+def tag_square_texts_majority(
+    frames: list[np.ndarray], square_texts: list[list[str]], layout_: Layout = layout.STANDARD
+) -> list[list[str]]:
+    """A mixed board's square texts, each ending in a clean pool tag -- " (B)", " (D)" or
+    " (C)", the form models.square_type_tag reads the cell's pool from.
+
+    Which pool is voted by text color across `frames` first: it's read off far more
+    pixels than the tag's one small letter, and a square unclaimed in any of the frames
+    -- every square, early in the game -- gets a vote. The OCR'd tag is the fallback for a
+    cell with no color vote at all. Whatever the OCR read as the tag is replaced by the
+    decided one; a cell where neither says anything is left untagged, which
+    rules.validation reports, to be fixed by hand.
+    """
+    votes = [cell_text_color_types(frame, layout_) for frame in frames]
+    tagged_texts: list[list[str]] = []
+    for r, row in enumerate(square_texts):
+        tagged_row: list[str] = []
+        for c, text in enumerate(row):
+            stripped, tagged = split_square_type_tag(text)
+            colored = Counter(vote[r][c] for vote in votes if vote[r][c] is not None)
+            game_type = colored.most_common(1)[0][0] if colored else tagged
+            tagged_row.append(tag_square_text(stripped, game_type) if game_type else stripped)
+        tagged_texts.append(tagged_row)
+    return tagged_texts

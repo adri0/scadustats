@@ -20,7 +20,12 @@ from scadustats.models import (
 # see pipeline.consolidate.consolidate_match_squares and write_squares below.
 # "base_game.json" rather than "base.json" so the filename reads unambiguously on its
 # own, next to "dlc.json", in a directory listing.
-_SQUARES_FILENAMES = {GameType.BASE: "base_game.json", GameType.DLC: "dlc.json"}
+# A mixed board's co-op squares (see GameType.TWO_V_TWO) get their own pool, "coop.json".
+_SQUARES_FILENAMES = {
+    GameType.BASE: "base_game.json",
+    GameType.DLC: "dlc.json",
+    GameType.TWO_V_TWO: "coop.json",
+}
 
 
 def _format_hms(total_seconds: int) -> str:
@@ -107,6 +112,9 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
         "match_type": dumped["match_type"],
         "player_red_name": dumped["player_red_name"],
         "player_blue_name": dumped["player_blue_name"],
+        # A 2v2 match's teams (see models.Team), left out of a 1v1 match's file.
+        **({"team_red": dumped["team_red"]} if extraction.team_red else {}),
+        **({"team_blue": dumped["team_blue"]} if extraction.team_blue else {}),
         "commentators": dumped["commentators"],
         "metadata": _metadata_to_dict(extraction),
         # Written as a header for the list below, so a reviewer (or a SQL query against
@@ -257,7 +265,8 @@ def read_video(path: str | Path) -> VideoExtraction:
 
 def squares_path(squares_dir: str | Path, game_type: GameType) -> Path:
     """The path write_squares writes (or would write) one game type's consolidated
-    squares reference to -- `<squares_dir>/base_game.json` or `<squares_dir>/dlc.json`.
+    squares reference to -- `<squares_dir>/base_game.json`, `<squares_dir>/dlc.json` or
+    (co-op squares) `<squares_dir>/coop.json`.
     """
     return Path(squares_dir) / _SQUARES_FILENAMES[game_type]
 
@@ -284,6 +293,10 @@ def write_squares(
     written = {}
     for game_type, game_squares in squares.items():
         path = squares_path(squares_dir, game_type)
+        # An empty pool that has no file yet (coop.json, for a match history with no
+        # mixed boards) isn't written, rather than adding an empty file nobody asked for.
+        if not game_squares and not path.exists():
+            continue
         ordered = sorted(game_squares, key=lambda square: square.id)
         body = json.dumps(
             [square.model_dump(mode="json", exclude_defaults=True) for square in ordered],
@@ -308,6 +321,10 @@ def read_squares(squares_dir: str | Path) -> dict[GameType, list[Square]]:
         try:
             data = json.loads(squares_path(squares_dir, game_type).read_text())
         except FileNotFoundError:
+            # The co-op pool only exists once a mixed board has been consolidated, so a
+            # match history without one reads back as just the base game and DLC.
+            if game_type is GameType.TWO_V_TWO:
+                continue
             data = []
         squares[game_type] = [Square.model_validate(entry) for entry in data]
     return squares
