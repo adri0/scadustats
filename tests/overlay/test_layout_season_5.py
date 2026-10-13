@@ -109,3 +109,65 @@ def test_square_texts_are_tagged_from_the_text_color_of_every_unclaimed_cell():
                 assert game_type in (_TYPES[r][c], None), (r, c, tagged[r][c])
     assert tagged[0][3] == "Kill Borealis (B)"
     assert tagged[3][4] == "Kill Malenia (B)"
+
+
+# Season 5's second template (LAYOUT_SEASON_5_V2), used from Positive Vibes vs Itzerino
+# on: the board at the bottom center, the timer at the top, and the team names and
+# claim counts in a bottom strip with red on the left. A 5s, 3fps redacted clip at
+# 00:30:00 of that VOD: the game clock reads 00:26:55-00:27:00, Itzerino (red) hold 4
+# squares and Positive Vibes (blue) 6.
+_CLIP_V2 = "tests/fixtures/clip_layout_season_5_v2.mp4"
+_TYPES_V2 = [
+    [C, D, B, B, B],
+    [C, D, D, D, B],
+    [C, C, D, D, D],
+    [B, B, C, C, B],
+    [B, D, B, C, D],
+]
+
+
+def test_layouts_registry_includes_season_5_v2():
+    assert layout.LAYOUTS["layout_season_5_v2"] is layout.LAYOUT_SEASON_5_V2
+    assert layout.LAYOUT_SEASON_5_V2.square_type_tags
+    assert layout.LAYOUT_SEASON_5_V2.team_names
+    # The commentators share one "A & B" line whose position moves with the names.
+    assert layout.LAYOUT_SEASON_5_V2.commentator_box_left is None
+
+
+def test_v2_is_gameplay_frame_and_auto_detection():
+    frames = _frames(_CLIP_V2)
+    assert frames, f"no frames decoded from {_CLIP_V2}"
+    for frame in frames:
+        assert board.is_gameplay_frame(frame, layout.LAYOUT_SEASON_5_V2)
+        assert not board.is_gameplay_frame(frame, layout.LAYOUT_SEASON_5)
+    assert extract._detect_layout(frames[0]) is layout.LAYOUT_SEASON_5_V2
+
+
+def test_v2_reads_the_timer_scores_and_team_names():
+    frames = _frames(_CLIP_V2)
+    readings = [timer.read_timer(frame, layout.LAYOUT_SEASON_5_V2) for frame in frames]
+    assert readings[0] == 1615
+    assert readings[-1] == 1620
+    assert readings == sorted(readings)
+    frame = frames[8]
+    assert scoreboard.read_scores(frame, layout.LAYOUT_SEASON_5_V2) == (4, 6)
+    red, blue = scoreboard.read_player_names(frame, layout.LAYOUT_SEASON_5_V2)
+    assert red == "ITZERINO"
+    # The "V" misreads on this strip's gradient; extraction matches the roster's
+    # "Positive Vibes" anyway (extract._find_team).
+    assert blue.startswith("POSITIVE")
+
+
+def test_v2_square_texts_are_tagged_from_the_text_color_of_every_unclaimed_cell():
+    frames = _frames(_CLIP_V2)[:5]
+    texts = board.cell_square_texts_majority(frames, layout.LAYOUT_SEASON_5_V2)
+    tagged = board.tag_square_texts_majority(frames, texts, layout.LAYOUT_SEASON_5_V2)
+    colors = [board.cell_colors(frame, layout.LAYOUT_SEASON_5_V2) for frame in frames]
+    for r in range(5):
+        for c in range(5):
+            game_type = square_type_tag(tagged[r][c])
+            if any(frame_colors[r][c] is CellColor.UNCLAIMED for frame_colors in colors):
+                assert game_type is _TYPES_V2[r][c], (r, c, tagged[r][c])
+            else:
+                assert game_type in (_TYPES_V2[r][c], None), (r, c, tagged[r][c])
+    assert tagged[3][1] == "Kill Morgott (B)"
