@@ -546,8 +546,7 @@ def test_write_extraction_allows_missing_video_info(tmp_path):
     con = duckdb.connect(str(db_path))
     try:
         width, height, fps = con.execute(
-            "SELECT resolution_width, resolution_height, fps FROM videos "
-            "WHERE match_id = ?",
+            "SELECT resolution_width, resolution_height, fps FROM videos WHERE match_id = ?",
             ["2026-03-05-alice-vs-bob"],
         ).fetchone()
         assert (width, height, fps) == (None, None, None)

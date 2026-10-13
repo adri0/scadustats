@@ -6,7 +6,7 @@ subtitle (see scadustats/overlay/layout.py and board.tag_square_texts_majority).
 
 import cv2
 
-from scadustats.models import CellColor, GameType, square_type_tag
+from scadustats.models import CellColor, GameType, Team, square_type_tag
 from scadustats.overlay import board, commentators, layout, scoreboard, timer
 from scadustats.pipeline import extract
 
@@ -152,10 +152,15 @@ def test_v2_reads_the_timer_scores_and_team_names():
     frame = frames[8]
     assert scoreboard.read_scores(frame, layout.LAYOUT_SEASON_5_V2) == (4, 6)
     red, blue = scoreboard.read_player_names(frame, layout.LAYOUT_SEASON_5_V2)
-    assert red == "ITZERINO"
-    # The "V" misreads on this strip's gradient; extraction matches the roster's
-    # "Positive Vibes" anyway (extract._find_team).
-    assert blue.startswith("POSITIVE")
+    # This strip's gradient costs a letter or two, differently from one Tesseract build
+    # to another ("POSITIVE IBES" on macOS, "TZERINO" on CI's), so what's checked is what
+    # extraction relies on: each reading still resolves to its team in the roster.
+    roster = [
+        Team(name="Itzerino", base_player="YoJoSherino", dlc_player="itzCBD"),
+        Team(name="Positive Vibes", base_player="star0chris", dlc_player="Adef"),
+    ]
+    assert extract._find_team(red, roster) is roster[0], red
+    assert extract._find_team(blue, roster) is roster[1], blue
 
 
 def test_v2_square_texts_are_tagged_from_the_text_color_of_every_unclaimed_cell():
