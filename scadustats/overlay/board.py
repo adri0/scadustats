@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from scadustats.models import CellColor, GameType, tag_square_text
+from scadustats.models import CellColor, FractionalBox, GameType, tag_square_text
 from scadustats.overlay import layout, ocr
 from scadustats.overlay.layout import Layout
 
@@ -189,6 +189,11 @@ def split_square_type_tag(text: str) -> tuple[str, GameType | None]:
 # scores below compare.
 _TEXT_PIXEL_MIN = 140  # brightest channel of a pixel counted as text, not background
 _TEXT_COLOR_MARGIN = 10  # how far the winning score must clear zero to count
+# The share of a cell's width/height left out on each side before reading its text color:
+# a cell's box takes in a little of the grid lines and, along the board's edge, of its
+# yellow border, whose bright pixels pass _TEXT_PIXEL_MIN and pull pink base-game text
+# toward DLC's yellow (seen on Season 5's second and third templates).
+_TEXT_COLOR_INSET = 0.12
 
 
 def _text_color_type(crop: np.ndarray) -> GameType | None:
@@ -206,6 +211,12 @@ def _text_color_type(crop: np.ndarray) -> GameType | None:
     return best if scores[best] > _TEXT_COLOR_MARGIN else None
 
 
+def _inset(box: FractionalBox) -> FractionalBox:
+    dx = (box.right - box.left) * _TEXT_COLOR_INSET
+    dy = (box.bottom - box.top) * _TEXT_COLOR_INSET
+    return FractionalBox(box.left + dx, box.top + dy, box.right - dx, box.bottom - dy)
+
+
 def cell_text_color_types(
     frame: np.ndarray, layout_: Layout = layout.STANDARD
 ) -> list[list[GameType | None]]:
@@ -216,7 +227,9 @@ def cell_text_color_types(
     return [
         [
             _text_color_type(
-                layout.crop(frame, layout.grid_cell_box(r, c, layout_.grid_box), width, height)
+                layout.crop(
+                    frame, _inset(layout.grid_cell_box(r, c, layout_.grid_box)), width, height
+                )
             )
             if colors[r][c] is CellColor.UNCLAIMED
             else None
