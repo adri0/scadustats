@@ -176,3 +176,56 @@ def test_v2_square_texts_are_tagged_from_the_text_color_of_every_unclaimed_cell(
             else:
                 assert game_type in (_TYPES_V2[r][c], None), (r, c, tagged[r][c])
     assert tagged[3][1] == "Kill Morgott (B)"
+
+
+# Season 5's third template (LAYOUT_SEASON_5_V3), used from Monkey Business vs Blanxonetta
+# (2025-10-24) on: V2 with the "BASE GAME / DLC / CO-OP" strip below the board instead of
+# above it, so the board sits ~18px higher. A 5s, 3fps redacted clip at 00:50:00 of that
+# VOD: the game clock reads 00:46:21-00:46:26, Monkey Business (red) hold 8 squares and
+# Blanxonetta (blue) 8.
+_CLIP_V3 = "tests/fixtures/clip_layout_season_5_v3.mp4"
+_TYPES_V3 = [
+    [C, C, C, D, B],
+    [C, B, B, D, C],
+    [D, C, B, D, D],
+    [B, B, B, D, D],
+    [C, D, D, B, B],
+]
+
+
+def test_layouts_registry_includes_season_5_v3():
+    assert layout.LAYOUTS["layout_season_5_v3"] is layout.LAYOUT_SEASON_5_V3
+    assert layout.LAYOUT_SEASON_5_V3.square_type_tags
+    assert layout.LAYOUT_SEASON_5_V3.team_names
+    # Only the board moved.
+    assert layout.LAYOUT_SEASON_5_V3.grid_box.top < layout.LAYOUT_SEASON_5_V2.grid_box.top
+    assert layout.LAYOUT_SEASON_5_V3.timer_box == layout.LAYOUT_SEASON_5_V2.timer_box
+
+
+def test_v3_reads_the_timer_and_scores_and_the_board_agrees():
+    frames = _frames(_CLIP_V3)
+    assert frames, f"no frames decoded from {_CLIP_V3}"
+    readings = [timer.read_timer(frame, layout.LAYOUT_SEASON_5_V3) for frame in frames]
+    assert readings[0] == 2781
+    assert readings[-1] == 2785
+    assert readings == sorted(readings)
+    for frame in frames:
+        assert board.is_gameplay_frame(frame, layout.LAYOUT_SEASON_5_V3)
+        assert scoreboard.read_scores(frame, layout.LAYOUT_SEASON_5_V3) == (8, 8)
+        cells = [c for row in board.cell_colors(frame, layout.LAYOUT_SEASON_5_V3) for c in row]
+        assert cells.count(CellColor.RED) == 8
+        assert cells.count(CellColor.BLUE) == 8
+
+
+def test_v3_square_texts_are_tagged_from_the_text_color_of_every_unclaimed_cell():
+    frames = _frames(_CLIP_V3)[:5]
+    texts = board.cell_square_texts_majority(frames, layout.LAYOUT_SEASON_5_V3)
+    tagged = board.tag_square_texts_majority(frames, texts, layout.LAYOUT_SEASON_5_V3)
+    colors = [board.cell_colors(frame, layout.LAYOUT_SEASON_5_V3) for frame in frames]
+    for r in range(5):
+        for c in range(5):
+            game_type = square_type_tag(tagged[r][c])
+            if any(frame_colors[r][c] is CellColor.UNCLAIMED for frame_colors in colors):
+                assert game_type is _TYPES_V3[r][c], (r, c, tagged[r][c])
+            else:
+                assert game_type in (_TYPES_V3[r][c], None), (r, c, tagged[r][c])
