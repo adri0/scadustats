@@ -200,6 +200,34 @@ LAYOUT_SEASON_5_V3 = dataclasses.replace(
     grid_box=FractionalBox(left=0.4, top=0.5431, right=0.6, bottom=0.8667),
 )
 
+# Season 4 broadcast (1v1, every game DLC): the two players' gameplay feeds side by side
+# across the top half, with the timer in a light box at the top center between them. Below
+# the feeds a strip holds each player's claim-count badge at the frame's outer edge (red on
+# the left, blue on the right) with their name next to it, and under that the two
+# commentators' webcams flank the 5x5 grid at the bottom center, each with a nameplate
+# along its bottom edge. There's no "BASE GAME"/"DLC" subtitle. Measured on a 1280x720
+# frame at 00:10:00 of parkenharbor vs GrandPooBear (youtube.com/watch?v=5F-Lrmmti6I):
+# grid inside a light border at x 469-811 / y 397-709, badges at y 390-417 (red x 6-41,
+# blue x 1241-1271), timer box x 586-692 / y 6-42, nameplates x 199-449 / 830-1080 at
+# y 652-682. The red badge's box is wider than the badge (x 6-44, y 390-417): measured
+# tight around it, the "9" in the fixture OCR'd on only 6 of 16 frames; this box reads it
+# on all 16 and still classifies as red.
+#
+# Every game is DLC, inferred from the squares (see pipeline.squares.infer_game_type), and
+# a round robin match is a single game (see rules.validation._check_game_count).
+LAYOUT_SEASON_4 = Layout(
+    name=LayoutName.SEASON_4,
+    grid_box=FractionalBox(left=0.3672, top=0.5528, right=0.6336, bottom=0.9847),
+    timer_box=FractionalBox(left=0.461, top=0.0125, right=0.5375, bottom=0.0556),
+    game_type_box=None,
+    score_box_red=FractionalBox(left=0.0047, top=0.5417, right=0.0344, bottom=0.5792),
+    score_box_blue=FractionalBox(left=0.971, top=0.5444, right=0.993, bottom=0.5778),
+    name_box_red=FractionalBox(left=0.033, top=0.5444, right=0.3, bottom=0.5778),
+    name_box_blue=FractionalBox(left=0.7, top=0.5444, right=0.967, bottom=0.5778),
+    commentator_box_left=FractionalBox(left=0.156, top=0.906, right=0.351, bottom=0.947),
+    commentator_box_right=FractionalBox(left=0.649, top=0.906, right=0.844, bottom=0.947),
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
@@ -212,6 +240,7 @@ LAYOUTS: dict[LayoutName, Layout] = {
         LAYOUT_SEASON_5,
         LAYOUT_SEASON_5_V2,
         LAYOUT_SEASON_5_V3,
+        LAYOUT_SEASON_4,
     )
 }
 

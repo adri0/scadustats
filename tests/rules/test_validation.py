@@ -545,6 +545,32 @@ def test_a_1v1_round_robin_match_with_one_game_is_reported():
     assert issues[0].message == "a 1v1 round_robin match has exactly 2 games, found 1"
 
 
+def test_a_dlc_only_round_robin_match_is_one_game():
+    """Season 4: 1v1, one DLC game per round robin match."""
+    assert validate_extraction(_extraction(games=[_game(1, game_type=GameType.DLC)])) == []
+
+
+def test_a_dlc_only_round_robin_match_with_two_games_is_reported():
+    games = [
+        _game(1, game_type=GameType.DLC),
+        _game(2, events=_line_win_events(CellColor.BLUE), winner_color=CellColor.BLUE),
+    ]
+    issues = validate_extraction(_extraction(games=games))
+
+    assert _codes(issues) == ["game_count"]
+    assert issues[0].message == "a DLC-only 1v1 round_robin match has exactly 1 game, found 2"
+
+
+def test_a_dlc_only_best_of_3_is_not_held_to_base_then_dlc():
+    """Season 4's playoffs: every game DLC, so no opening_game_type issue."""
+    extraction = _extraction(
+        match_type=MatchType.DOUBLE_ELIMINATION,
+        games=[_game(1, game_type=GameType.DLC), _game(2, game_type=GameType.DLC)],
+    )
+
+    assert validate_extraction(extraction) == []
+
+
 def test_a_match_mixing_2v2_and_1v1_games_is_one_issue_not_a_guess_at_its_format():
     """Neither format's game count or opening game types apply, so only the mix itself
     is reported."""

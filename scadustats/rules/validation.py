@@ -315,6 +315,14 @@ def _is_coop(extraction: VideoExtraction) -> bool:
     )
 
 
+def _is_dlc_only(extraction: VideoExtraction) -> bool:
+    """A 1v1 match played on DLC boards only (Season 4): every game is DLC, so a round
+    robin match is a single game and no game is expected to be the base game."""
+    return bool(extraction.games) and all(
+        game.game_type is GameType.DLC for game in extraction.games
+    )
+
+
 def _is_mixed_format(extraction: VideoExtraction) -> bool:
     """Some games are 2v2 mixed boards and others aren't -- a match is one format or
     the other, so the format-dependent rules can't tell which to apply."""
@@ -347,14 +355,16 @@ def _check_single_format(extraction: VideoExtraction) -> list[ValidationIssue]:
 def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: how many games a match has depends on its type and format. A 1v1 round robin
     match (Season 6) is exactly 2 games, a base game and a DLC game; a 2v2 round robin
-    match (Season 5, every game TWO_V_TWO) is a single game. A double-elimination match
-    (best of 3) is 2 or 3 games in either format. A wrong count is the loudest sign of a
-    segmentation problem -- games merged together, or a recap segment read as a game of
-    its own. Skipped for a match mixing both formats (see _check_single_format)."""
+    match (Season 5, every game TWO_V_TWO) and a DLC-only one (Season 4, every game DLC)
+    are a single game. A double-elimination match (best of 3) is 2 or 3 games in any
+    format. A wrong count is the loudest sign of a segmentation problem -- games merged
+    together, or a recap segment read as a game of its own. Skipped for a match mixing
+    both formats (see _check_single_format)."""
     if _is_mixed_format(extraction):
         return []
     count = extraction.num_games
-    if extraction.match_type is MatchType.ROUND_ROBIN and _is_coop(extraction):
+    single_game = _is_coop(extraction) or _is_dlc_only(extraction)
+    if extraction.match_type is MatchType.ROUND_ROBIN and single_game:
         expected = "exactly 1 game"
         ok = count == 1
     elif extraction.match_type is MatchType.ROUND_ROBIN:
@@ -365,7 +375,7 @@ def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
         ok = count in (2, 3)
     if ok:
         return []
-    fmt = "2v2" if _is_coop(extraction) else "1v1"
+    fmt = "2v2" if _is_coop(extraction) else "DLC-only 1v1" if _is_dlc_only(extraction) else "1v1"
     return [
         ValidationIssue(
             code="game_count",
@@ -377,9 +387,9 @@ def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
 def _check_opening_game_types(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: game 1 is the base game and game 2 is DLC, in both formats. (A
     double-elimination decider -- game 3 -- can be either, so it isn't checked.) Not
-    checked for a 2v2 match, whose games all mix both, nor for a match mixing both
-    formats (see _check_single_format)."""
-    if _is_coop(extraction) or _is_mixed_format(extraction):
+    checked for a 2v2 match, whose games all mix both, a DLC-only match (Season 4), nor
+    for a match mixing both formats (see _check_single_format)."""
+    if _is_coop(extraction) or _is_dlc_only(extraction) or _is_mixed_format(extraction):
         return []
     issues = []
     for game, expected in zip(extraction.games, _OPENING_GAME_TYPES, strict=False):
