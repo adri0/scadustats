@@ -52,6 +52,7 @@ class LayoutName(StrEnum):
     PRE_SEASON_6 = "layout_pre_season_6"
     SEASON_5 = "layout_season_5"
     SEASON_5_V2 = "layout_season_5_v2"
+    SEASON_5_V3 = "layout_season_5_v3"
 
 
 class GameType(StrEnum):

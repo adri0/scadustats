@@ -184,6 +184,22 @@ LAYOUT_SEASON_5_V2 = dataclasses.replace(
     commentator_box_right=None,
 )
 
+# Season 5's third template, used from the second round robin weekend (Monkey Business vs
+# Blanxonetta, youtube.com/watch?v=EwSBtdl4ZuE, 2025-10-24) on: LAYOUT_SEASON_5_V2 with the
+# "BASE GAME / DLC / CO-OP" strip moved from above the board to below it, which lifts the
+# board ~18px (at 720p). Nothing else moved. Measured on a 1280x720 frame at 00:50:00 of
+# that video: the grid's top border is at y 391; the cell colors agree with both claim-count
+# badges for any lift from 12px to 26px, so the box sits at 18px, in the middle of that range.
+#
+# Its score strip is LAYOUT_SEASON_5_V2's, so is_gameplay_frame can't tell the two apart and
+# _detect_layout always picks V2 (registered first) on this footage. Pass
+# `--layout layout_season_5_v3` explicitly.
+LAYOUT_SEASON_5_V3 = dataclasses.replace(
+    LAYOUT_SEASON_5_V2,
+    name=LayoutName.SEASON_5_V3,
+    grid_box=FractionalBox(left=0.4, top=0.5431, right=0.6, bottom=0.8667),
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
@@ -195,6 +211,7 @@ LAYOUTS: dict[LayoutName, Layout] = {
         LAYOUT_PRE_SEASON_6,
         LAYOUT_SEASON_5,
         LAYOUT_SEASON_5_V2,
+        LAYOUT_SEASON_5_V3,
     )
 }
 
