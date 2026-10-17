@@ -191,8 +191,8 @@ def test_a_third_game_may_be_either_type():
 def test_a_game_without_a_game_type_is_reported():
     issues = validate_extraction(_extraction(games=[_game(1, game_type=None), _game(2)]))
 
-    assert "opening_game_type" in _codes(issues)
-    assert "found no game type" in issues[0].message
+    assert _codes(issues) == ["season_game_type"]
+    assert issues[0].message == "game 1 is no game type, but season 6 games are base, dlc"
 
 
 def test_a_game_without_a_winner_leaves_the_match_outcome_undetermined():
@@ -397,7 +397,7 @@ def test_games_are_validated_in_index_order_after_the_match_rules():
     issues = validate_extraction(extraction)
 
     assert [issue.scope for issue in issues] == ["match", "game 1", "game 1", "game 2", "game 2"]
-    assert issues[0].code == "opening_game_type"
+    assert issues[0].code == "season_game_type"
 
 
 def test_events_out_of_order_in_the_stored_list_are_reported():
@@ -528,11 +528,11 @@ def _coop_game(game_index: int = 1, **overrides) -> GameResult:
 
 
 def test_a_2v2_round_robin_match_is_one_game():
-    assert validate_extraction(_extraction(games=[_coop_game(1)])) == []
+    assert validate_extraction(_extraction(season="5", games=[_coop_game(1)])) == []
 
 
 def test_a_2v2_round_robin_match_with_two_games_is_reported():
-    issues = validate_extraction(_extraction(games=[_coop_game(1), _coop_game(2)]))
+    issues = validate_extraction(_extraction(season="5", games=[_coop_game(1), _coop_game(2)]))
 
     assert _codes(issues) == ["game_count"]
     assert issues[0].message == "a 2v2 round_robin match has exactly 1 game, found 2"
@@ -545,9 +545,20 @@ def test_a_1v1_round_robin_match_with_one_game_is_reported():
     assert issues[0].message == "a 1v1 round_robin match has exactly 2 games, found 1"
 
 
+def test_a_season_6_match_left_with_only_its_dlc_game_is_reported():
+    """The format comes from the season, not the games: a Season 6 match that lost its
+    base game to a missed boundary looks like a Season 4 one, and must not pass as one."""
+    issues = validate_extraction(_extraction(games=[_game(1, game_type=GameType.DLC)]))
+
+    assert _codes(issues) == ["game_count", "opening_game_type"]
+    assert issues[0].message == "a 1v1 round_robin match has exactly 2 games, found 1"
+
+
 def test_a_dlc_only_round_robin_match_is_one_game():
     """Season 4: 1v1, one DLC game per round robin match."""
-    assert validate_extraction(_extraction(games=[_game(1, game_type=GameType.DLC)])) == []
+    extraction = _extraction(season="4", games=[_game(1, game_type=GameType.DLC)])
+
+    assert validate_extraction(extraction) == []
 
 
 def test_a_dlc_only_round_robin_match_with_two_games_is_reported():
@@ -555,7 +566,7 @@ def test_a_dlc_only_round_robin_match_with_two_games_is_reported():
         _game(1, game_type=GameType.DLC),
         _game(2, events=_line_win_events(CellColor.BLUE), winner_color=CellColor.BLUE),
     ]
-    issues = validate_extraction(_extraction(games=games))
+    issues = validate_extraction(_extraction(season="4", games=games))
 
     assert _codes(issues) == ["game_count"]
     assert issues[0].message == "a DLC-only 1v1 round_robin match has exactly 1 game, found 2"
@@ -564,6 +575,7 @@ def test_a_dlc_only_round_robin_match_with_two_games_is_reported():
 def test_a_dlc_only_best_of_3_is_not_held_to_base_then_dlc():
     """Season 4's playoffs: every game DLC, so no opening_game_type issue."""
     extraction = _extraction(
+        season="4",
         match_type=MatchType.DOUBLE_ELIMINATION,
         games=[_game(1, game_type=GameType.DLC), _game(2, game_type=GameType.DLC)],
     )
@@ -571,13 +583,26 @@ def test_a_dlc_only_best_of_3_is_not_held_to_base_then_dlc():
     assert validate_extraction(extraction) == []
 
 
-def test_a_match_mixing_2v2_and_1v1_games_is_one_issue_not_a_guess_at_its_format():
-    """Neither format's game count or opening game types apply, so only the mix itself
-    is reported."""
+def test_a_base_game_in_a_dlc_only_season_is_reported():
+    issues = validate_extraction(_extraction(season="4", games=[_game(1)]))
+
+    assert _codes(issues) == ["season_game_type"]
+    assert issues[0].message == "game 1 is base, but season 4 games are dlc"
+
+
+def test_a_2v2_game_in_a_1v1_season_is_reported_once_not_as_a_wrong_opening_too():
     issues = validate_extraction(_extraction(games=[_coop_game(1), _game(2)]))
 
-    assert _codes(issues) == ["mixed_formats"]
-    assert "game(s) 1 are 2v2 mixed boards" in issues[0].message
+    assert _codes(issues) == ["season_game_type"]
+    assert issues[0].message == "game 1 is 2v2, but season 6 games are base, dlc"
+
+
+def test_a_season_with_no_known_format_skips_the_format_rules():
+    """Season "7" isn't in SEASON_FORMATS: one game would be wrong in Season 6 and right
+    in Season 4, so neither is assumed."""
+    issues = validate_extraction(_extraction(season="7", games=[_game(1, game_type=GameType.DLC)]))
+
+    assert _codes(issues) == ["unknown_season"]
 
 
 def test_an_untagged_square_on_a_2v2_board_is_reported():
@@ -585,7 +610,7 @@ def test_an_untagged_square_on_a_2v2_board_is_reported():
     game.square_texts[0][1] = "Kill Malenia"
     game.square_texts[4][4] = "Kill Bols (8)"  # an OCR misread isn't a tag
 
-    issues = validate_extraction(_extraction(games=[game]))
+    issues = validate_extraction(_extraction(season="5", games=[game]))
 
     assert _codes(issues) == ["square_type_tag_missing"]
     assert issues[0].game_index == 1

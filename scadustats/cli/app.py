@@ -658,12 +658,15 @@ def match_validate(
 
     - match_id_filename_mismatch: the file's name doesn't match its own match_id
 
-    - mixed_formats: some games are 2v2 mixed boards and others aren't
+    - unknown_season: the season has no known format, so the next three aren't checked
 
-    - game_count: wrong number of games for the match type and format (a 1v1 round
-      robin match is 2 games, a 2v2 one is 1; double elimination is 2 or 3)
+    - season_game_type: a game's type isn't one of its season's (dlc in Season 4, 2v2
+      in Season 5, base or dlc otherwise)
 
-    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc (1v1 only)
+    - game_count: wrong number of games for the match type and season (a round robin
+      match is 2 games in Season 6, 1 in Seasons 4 and 5; a best of 3 is 2 or 3)
+
+    - opening_game_type: game 1 isn't base game, or game 2 isn't dlc (Season 6)
 
     - match_outcome_undetermined: some game has no winner recorded
 

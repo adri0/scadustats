@@ -214,7 +214,7 @@ LAYOUT_SEASON_5_V3 = dataclasses.replace(
 # on all 16 and still classifies as red.
 #
 # Every game is DLC, inferred from the squares (see pipeline.squares.infer_game_type), and
-# a round robin match is a single game (see rules.validation._check_game_count).
+# a round robin match is a single game (see rules.validation.SEASON_FORMATS).
 LAYOUT_SEASON_4 = Layout(
     name=LayoutName.SEASON_4,
     grid_box=FractionalBox(left=0.3672, top=0.5528, right=0.6336, bottom=0.9847),

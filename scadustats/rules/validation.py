@@ -29,9 +29,43 @@ from scadustats.models import (
 )
 from scadustats.rules import winner
 
-# Both formats open with a base game and follow it with a DLC game; only a
-# double-elimination decider (game 3) is free to be either.
-_OPENING_GAME_TYPES = (GameType.BASE, GameType.DLC)
+
+@dataclass(frozen=True)
+class SeasonFormat:
+    """How a season's matches are played, as far as the match-level rules care. Each
+    season sets its own: the format can't be told from a match's games alone, since a
+    Season 6 match that lost its base game to a missed boundary looks exactly like a
+    Season 4 one (one DLC game).
+
+    `game_types` is every game type the season's boards can be, `round_robin_games` the
+    exact number of games in one of its round robin matches, and `opening_game_types`
+    the game type each of the first games must be, in order (empty: not checked). A
+    best of 3 is 2 or 3 games in every season, so it isn't part of the format."""
+
+    name: str
+    game_types: frozenset[GameType]
+    round_robin_games: int
+    opening_game_types: tuple[GameType, ...] = ()
+
+
+# 1v1, a base game then a DLC game; only a best-of-3 decider (game 3) is free to be either.
+_BASE_THEN_DLC = SeasonFormat(
+    name="1v1",
+    game_types=frozenset({GameType.BASE, GameType.DLC}),
+    round_robin_games=2,
+    opening_game_types=(GameType.BASE, GameType.DLC),
+)
+
+# Keyed by VideoExtraction.season. A season missing here is reported (unknown_season)
+# and the rules that depend on its format are skipped.
+SEASON_FORMATS: dict[str, SeasonFormat] = {
+    "4": SeasonFormat(
+        name="DLC-only 1v1", game_types=frozenset({GameType.DLC}), round_robin_games=1
+    ),
+    "5": SeasonFormat(name="2v2", game_types=frozenset({GameType.TWO_V_TWO}), round_robin_games=1),
+    "pre-season-6": _BASE_THEN_DLC,
+    "6": _BASE_THEN_DLC,
+}
 
 
 @dataclass(frozen=True)
@@ -308,94 +342,87 @@ def validate_game(game: GameResult) -> list[ValidationIssue]:
     ]
 
 
-def _is_coop(extraction: VideoExtraction) -> bool:
-    """A 2v2 match (Season 5): every game a mixed board, see GameType.TWO_V_TWO."""
-    return bool(extraction.games) and all(
-        game.game_type is GameType.TWO_V_TWO for game in extraction.games
-    )
-
-
-def _is_dlc_only(extraction: VideoExtraction) -> bool:
-    """A 1v1 match played on DLC boards only (Season 4): every game is DLC, so a round
-    robin match is a single game and no game is expected to be the base game."""
-    return bool(extraction.games) and all(
-        game.game_type is GameType.DLC for game in extraction.games
-    )
-
-
-def _is_mixed_format(extraction: VideoExtraction) -> bool:
-    """Some games are 2v2 mixed boards and others aren't -- a match is one format or
-    the other, so the format-dependent rules can't tell which to apply."""
-    coop = [game.game_type is GameType.TWO_V_TWO for game in extraction.games]
-    return any(coop) and not all(coop)
-
-
-def _check_single_format(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: a match's games are all 2v2 mixed boards (Season 5, TWO_V_TWO) or none of
-    them are. A mix means a game type was misread or mis-entered; until it's fixed the
-    game count and opening game types can't be checked (they differ by format), so
-    those rules are skipped rather than guessing which format was meant."""
-    if not _is_mixed_format(extraction):
+def _check_season_known(extraction: VideoExtraction) -> list[ValidationIssue]:
+    """Rule: the match's season has a known format (see SEASON_FORMATS). Without one the
+    game types, game count and opening game types can't be checked, so those rules are
+    skipped rather than guessing the format from the games."""
+    if extraction.season in SEASON_FORMATS:
         return []
-    coop = [game.game_index for game in extraction.games if game.game_type is GameType.TWO_V_TWO]
-    other = [
-        game.game_index for game in extraction.games if game.game_type is not GameType.TWO_V_TWO
-    ]
     return [
         ValidationIssue(
-            code="mixed_formats",
+            code="unknown_season",
             message=(
-                f"game(s) {', '.join(map(str, coop))} are 2v2 mixed boards but "
-                f"game(s) {', '.join(map(str, other))} aren't -- a match is one format"
+                f"season {extraction.season!r} has no known format, so its game types "
+                "and game count aren't checked"
             ),
         )
     ]
 
 
-def _check_game_count(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: how many games a match has depends on its type and format. A 1v1 round robin
-    match (Season 6) is exactly 2 games, a base game and a DLC game; a 2v2 round robin
-    match (Season 5, every game TWO_V_TWO) and a DLC-only one (Season 4, every game DLC)
-    are a single game. A double-elimination match (best of 3) is 2 or 3 games in any
-    format. A wrong count is the loudest sign of a segmentation problem -- games merged
-    together, or a recap segment read as a game of its own. Skipped for a match mixing
-    both formats (see _check_single_format)."""
-    if _is_mixed_format(extraction):
-        return []
+def _check_season_game_types(
+    extraction: VideoExtraction, season: SeasonFormat
+) -> list[ValidationIssue]:
+    """Rule: every game is one of the season's game types -- a DLC board in Season 4, a
+    2v2 mixed board in Season 5, a base game or DLC board otherwise. Anything else is a
+    misread or mis-entered game type."""
+    allowed = ", ".join(sorted(game_type.value for game_type in season.game_types))
+    issues = []
+    for game in extraction.games:
+        if game.game_type in season.game_types:
+            continue
+        found = game.game_type.value if game.game_type else "no game type"
+        issues.append(
+            ValidationIssue(
+                code="season_game_type",
+                message=(
+                    f"game {game.game_index} is {found}, but season {extraction.season} "
+                    f"games are {allowed}"
+                ),
+            )
+        )
+    return issues
+
+
+def _check_game_count(extraction: VideoExtraction, season: SeasonFormat) -> list[ValidationIssue]:
+    """Rule: how many games a match has depends on its type and its season's format. A
+    round robin match is exactly the season's round_robin_games: 2 in Season 6 (a base
+    game and a DLC game), 1 in Season 5 (2v2) and Season 4 (DLC only). A best of 3 is 2 or
+    3 games in every season. A wrong count is the loudest sign of a segmentation problem
+    -- games merged together, a game lost to a missed boundary, or a recap segment read as
+    a game of its own."""
     count = extraction.num_games
-    single_game = _is_coop(extraction) or _is_dlc_only(extraction)
-    if extraction.match_type is MatchType.ROUND_ROBIN and single_game:
-        expected = "exactly 1 game"
-        ok = count == 1
-    elif extraction.match_type is MatchType.ROUND_ROBIN:
-        expected = "exactly 2 games"
-        ok = count == 2
+    if extraction.match_type is MatchType.ROUND_ROBIN:
+        n = season.round_robin_games
+        expected = f"exactly {n} game{'s' if n != 1 else ''}"
+        ok = count == n
     else:
         expected = "2 or 3 games (best of 3)"
         ok = count in (2, 3)
     if ok:
         return []
-    fmt = "2v2" if _is_coop(extraction) else "DLC-only 1v1" if _is_dlc_only(extraction) else "1v1"
     return [
         ValidationIssue(
             code="game_count",
-            message=f"a {fmt} {extraction.match_type.value} match has {expected}, found {count}",
+            message=(
+                f"a {season.name} {extraction.match_type.value} match has {expected}, found {count}"
+            ),
         )
     ]
 
 
-def _check_opening_game_types(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: game 1 is the base game and game 2 is DLC, in both formats. (A
-    double-elimination decider -- game 3 -- can be either, so it isn't checked.) Not
-    checked for a 2v2 match, whose games all mix both, a DLC-only match (Season 4), nor
-    for a match mixing both formats (see _check_single_format)."""
-    if _is_coop(extraction) or _is_dlc_only(extraction) or _is_mixed_format(extraction):
-        return []
+def _check_opening_game_types(
+    extraction: VideoExtraction, season: SeasonFormat
+) -> list[ValidationIssue]:
+    """Rule: the first games are the season's opening_game_types, in order -- game 1 the
+    base game and game 2 DLC in a 1v1 base + DLC season. (A best-of-3 decider -- game 3 --
+    can be either, so it isn't checked.) Nothing to check in a season with a single game
+    type (Season 4, Season 5). A game whose type isn't one of the season's at all (or is
+    missing) is _check_season_game_types' issue, not reported again here."""
     issues = []
-    for game, expected in zip(extraction.games, _OPENING_GAME_TYPES, strict=False):
-        if game.game_type is expected:
+    for game, expected in zip(extraction.games, season.opening_game_types, strict=False):
+        if game.game_type is expected or game.game_type not in season.game_types:
             continue
-        found = game.game_type.value if game.game_type else "no game type"
+        found = game.game_type.value
         issues.append(
             ValidationIssue(
                 code="opening_game_type",
@@ -403,6 +430,19 @@ def _check_opening_game_types(extraction: VideoExtraction) -> list[ValidationIss
             )
         )
     return issues
+
+
+def _check_season_format(extraction: VideoExtraction) -> list[ValidationIssue]:
+    """The rules that depend on the season's format, or unknown_season alone when the
+    season has none."""
+    season = SEASON_FORMATS.get(extraction.season)
+    if season is None:
+        return _check_season_known(extraction)
+    return [
+        *_check_season_game_types(extraction, season),
+        *_check_game_count(extraction, season),
+        *_check_opening_game_types(extraction, season),
+    ]
 
 
 def _check_match_outcome(extraction: VideoExtraction) -> list[ValidationIssue]:
@@ -525,9 +565,7 @@ def validate_extraction(
     )
     issues = [
         *_check_match_id_matches_filename(ordered, path),
-        *_check_single_format(ordered),
-        *_check_game_count(ordered),
-        *_check_opening_game_types(ordered),
+        *_check_season_format(ordered),
         *_check_match_outcome(ordered),
         *_check_decider_game(ordered),
     ]
