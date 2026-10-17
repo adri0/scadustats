@@ -377,6 +377,44 @@ def test_marks_after_a_majority_win_are_allowed():
     assert validate_game(majority_game) == []
 
 
+def _time_limit_events(with_game_end: bool) -> list[GameEvent]:
+    """Red leads 12-11 with two squares open when the clock stops the game at 7200 s."""
+    layout = ["RBRBU", "BBRRB", "RRBBR", "BRRBR", "RBURB"]
+    marks = [
+        _mark(r, c, CellColor.RED if layout[r][c] == "R" else CellColor.BLUE, float(r * 5 + c + 1))
+        for r in range(5)
+        for c in range(5)
+        if layout[r][c] != "U"
+    ]
+    return [_game_start(), *marks, *([_game_end(7200.0)] if with_game_end else [])]
+
+
+def test_a_game_stopped_on_time_is_won_on_the_count():
+    stopped = _game(
+        events=_time_limit_events(with_game_end=True),
+        winner_color=CellColor.RED,
+        win_type=WinType.MAJORITY,
+        win_line=None,
+    )
+
+    assert validate_game(stopped) == []
+
+
+def test_an_unsettled_majority_needs_the_game_end():
+    """Without a final GAME_END, 12-11 with squares open is no result yet."""
+    unfinished = _game(
+        events=_time_limit_events(with_game_end=False),
+        winner_color=CellColor.RED,
+        win_type=WinType.MAJORITY,
+        win_line=None,
+    )
+
+    issues = validate_game(unfinished)
+
+    assert _codes(issues) == ["winner_board_mismatch"]
+    assert "no winner (none)" in issues[0].message
+
+
 def test_a_non_line_win_may_not_name_a_line():
     majority_win = _game(win_type=WinType.MAJORITY, win_line=WinLine.ROW_1)
 

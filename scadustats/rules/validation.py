@@ -105,9 +105,10 @@ def _check_recorded_winner_matches_board(
     events are incomplete (a claim missed at extraction time) or the result was
     hand-edited without the board behind it. The line is part of the check, not a
     separate rule: a win recorded on a line the board doesn't hold is the same defect as
-    a win recorded for the wrong color."""
+    a win recorded for the wrong color. A game that ends on its GAME_END ran until it was
+    called, so an unsettled board there is decided on the count (winner.time_up)."""
     final = states[-1] if states else winner.empty_board()
-    expected = winner.determine_winner(final)
+    expected = winner.determine_winner(final, time_up=winner.time_up(game.events))
     if (game.winner_color, game.win_type, game.win_line) == expected:
         return []
 
