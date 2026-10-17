@@ -163,6 +163,44 @@ def test_majority_settles_the_instant_it_becomes_unbeatable_even_with_an_open_li
     assert determine_winner(board) == (CellColor.BLUE, WinType.MAJORITY, None)
 
 
+def test_time_up_calls_an_unsettled_majority_on_the_count():
+    # Red leads 12-11 with two squares open, so blue could still take an unbeatable 13 --
+    # unless the clock has stopped the game first (Season 4's two-hour limit), in which
+    # case the count as it stands decides it.
+    board = _board(
+        [R, B, R, B, U],
+        [B, B, R, R, B],
+        [R, R, B, B, R],
+        [B, R, R, B, R],
+        [R, B, U, R, B],
+    )
+    assert winning_line(board) is None
+    assert determine_winner(board) == (None, WinType.NONE, None)
+    assert determine_winner(board, time_up=True) == (CellColor.RED, WinType.MAJORITY, None)
+
+
+def test_time_up_with_level_counts_is_a_tie():
+    board = _board(
+        [R, B, R, B, U],
+        [B, B, R, R, B],
+        [R, R, B, B, R],
+        [B, R, R, B, R],
+        [U, B, U, R, B],
+    )
+    assert determine_winner(board, time_up=True) == (None, WinType.TIE, None)
+
+
+def test_time_up_does_not_override_a_line():
+    board = _board(
+        [B, B, B, B, B],
+        [R, R, R, R, U],
+        [R, R, R, R, U],
+        [U] * 5,
+        [U] * 5,
+    )
+    assert determine_winner(board, time_up=True) == (CellColor.BLUE, WinType.LINE, WinLine.ROW_1)
+
+
 @pytest.mark.parametrize(
     ("win_line", "expected"),
     [
@@ -291,3 +329,27 @@ def test_settled_result_index_finds_the_later_settling_point_after_an_undo():
 
 def test_settled_result_index_returns_none_for_no_states():
     assert winner.settled_result_index([], R, WinType.LINE) is None
+
+
+def _game_end(ts: float) -> GameEvent:
+    return GameEvent(
+        row=None,
+        col=None,
+        color=None,
+        video_timestamp=format_video_timestamp(ts),
+        game_elapsed_s=int(ts),
+        event_type=EventType.GAME_END,
+    )
+
+
+def test_time_up_when_the_last_event_is_game_end():
+    assert winner.time_up([_mark(0, 0, R, 1.0), _game_end(2.0)])
+    # Stored out of order, it's still the last thing that happened.
+    assert winner.time_up([_game_end(2.0), _mark(0, 0, R, 1.0)])
+
+
+def test_not_time_up_without_a_final_game_end():
+    assert not winner.time_up([])
+    assert not winner.time_up([_mark(0, 0, R, 1.0)])
+    # The game went on after its GAME_END (a line completed and then undone).
+    assert not winner.time_up([_game_end(2.0), _unmark(0, 0, R, 3.0)])

@@ -96,18 +96,36 @@ def majority_winner(board: Board) -> CellColor | None:
     return CellColor.RED if red > blue else CellColor.BLUE
 
 
-def determine_winner(board: Board) -> tuple[CellColor | None, WinType, WinLine | None]:
+def determine_winner(
+    board: Board, *, time_up: bool = False
+) -> tuple[CellColor | None, WinType, WinLine | None]:
     """The board's result: who won, how, and -- for a LINE win only -- on which line.
-    The third element is None for every other outcome, since there's no line to name."""
+    The third element is None for every other outcome, since there's no line to name.
+
+    `time_up` is for a game stopped by the clock (a time limit, e.g. Season 4's two
+    hours) before a line or an unbeatable majority settled it: the color holding more
+    squares at that moment wins by MAJORITY, and equal counts are a TIE. See `time_up`
+    below for how a game's events say so."""
     if (line_win := winning_line(board)) is not None:
         color, win_line = line_win
         return color, WinType.LINE, win_line
-    if _majority_settled(board):
+    if time_up or _majority_settled(board):
         winner = majority_winner(board)
         if winner is not None:
             return winner, WinType.MAJORITY, None
         return None, WinType.TIE, None
     return None, WinType.NONE, None
+
+
+def time_up(events: Iterable[GameEvent]) -> bool:
+    """True when a game's last event, in video order, is its GAME_END: nothing happened
+    after the game was called. For a game settled by a line or an unbeatable majority
+    this changes nothing (`determine_winner` already gives that result), but for a
+    game that ran out of time unsettled, a GAME_END at the moment the clock stopped is
+    how its JSON records that the count at that point decides it. A GAME_END followed
+    by more events (a line completed and then undone) doesn't count: the game went on."""
+    ordered = sorted(events, key=lambda event: event.video_timestamp)
+    return bool(ordered) and ordered[-1].event_type is EventType.GAME_END
 
 
 def board_states(events: Iterable[GameEvent]) -> list[Board]:

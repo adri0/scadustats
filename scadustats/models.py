@@ -169,7 +169,10 @@ class EventType(Enum):
     once it's mathematically unbeatable -- see rules.winner.determine_winner) first
     became locked in for the rest of the game, timestamped at the settling MARK event
     itself (see extract._detect_game_end) -- a TIE or an undetermined game has no
-    line/majority to settle on, so those have no GAME_END event at all."""
+    line/majority to settle on, so those have no GAME_END event at all. The exception is
+    a game stopped by a time limit before either settled: a GAME_END added (by hand, for
+    now) where the clock stopped, as the game's last event, makes the count at that point
+    its result (see rules.winner.time_up)."""
 
     MARK = "mark"
     UNMARK = "unmark"
