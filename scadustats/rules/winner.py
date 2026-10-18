@@ -3,7 +3,7 @@ produces such a board. Pure functions, no I/O."""
 
 from collections.abc import Iterable, Sequence
 
-from scadustats.models import CellColor, EventType, GameEvent, WinLine, WinType
+from scadustats.models import CellColor, EventType, GameEvent, Scoring, WinLine, WinType
 
 Board = list[list[CellColor]]
 Coord = tuple[int, int]
@@ -96,8 +96,28 @@ def majority_winner(board: Board) -> CellColor | None:
     return CellColor.RED if red > blue else CellColor.BLUE
 
 
+# What a completed line adds to its side's points in a points game (Season 3's round
+# robin, see Scoring.POINTS) -- on top of the line's five squares' own point each.
+LINE_POINTS = 2
+
+
+def points(board: Board) -> tuple[int, int]:
+    """(red, blue) points on a points-game board: one per square held plus LINE_POINTS
+    per completed line (a square on two completed lines counts toward both)."""
+    totals = {CellColor.RED: 0, CellColor.BLUE: 0}
+    for row in board:
+        for cell in row:
+            if cell in totals:
+                totals[cell] += 1
+    for coords in LINES.values():
+        colors = {board[r][c] for r, c in coords}
+        if len(colors) == 1 and (color := colors.pop()) in totals:
+            totals[color] += LINE_POINTS
+    return totals[CellColor.RED], totals[CellColor.BLUE]
+
+
 def determine_winner(
-    board: Board, *, time_up: bool = False
+    board: Board, *, time_up: bool = False, scoring: Scoring = Scoring.LOCKOUT
 ) -> tuple[CellColor | None, WinType, WinLine | None]:
     """The board's result: who won, how, and -- for a LINE win only -- on which line.
     The third element is None for every other outcome, since there's no line to name.
@@ -105,7 +125,18 @@ def determine_winner(
     `time_up` is for a game stopped by the clock (a time limit, e.g. Season 4's two
     hours) before a line or an unbeatable majority settled it: the color holding more
     squares at that moment wins by MAJORITY, and equal counts are a TIE. See `time_up`
-    below for how a game's events say so."""
+    below for how a game's events say so.
+
+    A POINTS game (see Scoring.POINTS) is only ever decided by the clock: until time is
+    up it has no result, however the board looks, and then the higher `points` total
+    wins (equal totals are a TIE)."""
+    if scoring is Scoring.POINTS:
+        if not time_up:
+            return None, WinType.NONE, None
+        red, blue = points(board)
+        if red == blue:
+            return None, WinType.TIE, None
+        return (CellColor.RED if red > blue else CellColor.BLUE), WinType.POINTS, None
     if (line_win := winning_line(board)) is not None:
         color, win_line = line_win
         return color, WinType.LINE, win_line

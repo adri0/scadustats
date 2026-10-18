@@ -23,7 +23,7 @@ from datetime import date
 from enum import Enum, StrEnum
 from typing import NamedTuple
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CellColor(Enum):
@@ -54,6 +54,9 @@ class LayoutName(StrEnum):
     SEASON_5_V2 = "layout_season_5_v2"
     SEASON_5_V3 = "layout_season_5_v3"
     SEASON_4 = "layout_season_4"
+    SEASON_3 = "layout_season_3"
+    SEASON_3_TEAM = "layout_season_3_team"
+    SEASON_3_FOCUS = "layout_season_3_focus"
 
 
 class GameType(StrEnum):
@@ -106,8 +109,23 @@ def tag_square_text(text: str, game_type: GameType) -> str:
 class WinType(Enum):
     LINE = "line"
     MAJORITY = "majority"
+    # A points game (see Scoring.POINTS) won on points when the clock ran out.
+    POINTS = "points"
     TIE = "tie"
     NONE = "none"
+
+
+class Scoring(StrEnum):
+    """How a game is decided. LOCKOUT is the usual bingo: a completed line wins, and
+    without one the most squares (see rules.winner.determine_winner). POINTS is Season 3's
+    round robin: the game always runs its full time, a line doesn't end it, and when the
+    clock stops each side scores one point per square plus two per completed line (see
+    rules.winner.points) -- the higher total wins, and equal totals are a TIE. Set per
+    game at extraction from the season's format (see rules.validation.SEASON_FORMATS).
+    StrEnum like the other persisted enums, so it serializes as its own value."""
+
+    LOCKOUT = "lockout"
+    POINTS = "points"
 
 
 class MatchWinner(StrEnum):
@@ -271,6 +289,14 @@ class GameResult(BaseModel):
     # yet in the reference for the latter), in which case the caller must supply one (see
     # extract_video's on_missing_game_type).
     game_type: GameType | None = None
+    # How the game is decided (see Scoring) -- LOCKOUT for every game but Season 3's round
+    # robin, and for a JSON file written before this was recorded.
+    scoring: Scoring = Scoring.LOCKOUT
+    # A points game's points per side when the clock stopped (see rules.winner.points) --
+    # None for a lockout game. Stored, not derived on read, so a reader (the site) doesn't
+    # need the line rules to show them; validation checks them against the board.
+    red_points: int | None = None
+    blue_points: int | None = None
 
     def cell_goal(self, row: int, col: int) -> tuple[GameType | None, str]:
         """The square at 0-based (row, col): the pool it belongs to and its text as the
@@ -314,24 +340,51 @@ class Square(BaseModel):
 
 
 class Team(BaseModel):
-    """One side of a 2v2 match (Season 5, see GameType.TWO_V_TWO): the team's name, as
-    shown on the overlay, and its two players. Each team keeps the same roles for a whole
-    season -- one player always plays the base game and the other the DLC -- so a claim
-    on a base-game square is the base player's, a DLC square the DLC player's, and a
-    co-op square both of theirs. Filled in at extraction from the season's roster (see
-    storage.teams), since the overlay only shows team names."""
+    """One side of a 2v2 match: the team's name, as shown on the overlay, and its two
+    players. Filled in at extraction from the season's roster (see storage.teams), since
+    the overlay only shows team names.
+
+    In Season 5 (see GameType.TWO_V_TWO) each team keeps the same roles for a whole season
+    -- one player always plays the base game and the other the DLC -- so a claim on a
+    base-game square is the base player's, a DLC square the DLC player's, and a co-op
+    square both of theirs: `base_player`/`dlc_player`. In Season 3 both teammates play the
+    base game on the same board, and the overlay doesn't say which of them completed a
+    square, so the team lists its two `members` without roles and every claim is both of
+    theirs. A team has one or the other, never both."""
 
     name: str
-    base_player: str
-    dlc_player: str
+    base_player: str | None = None
+    dlc_player: str | None = None
+    members: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _roles_or_members(self) -> "Team":
+        has_roles = self.base_player is not None or self.dlc_player is not None
+        if self.members:
+            if has_roles:
+                raise ValueError(
+                    f"team {self.name!r} has both members and base/dlc players -- pick one"
+                )
+            if len(self.members) != 2:
+                raise ValueError(f"team {self.name!r} needs 2 members, has {len(self.members)}")
+        elif self.base_player is None or self.dlc_player is None:
+            raise ValueError(f"team {self.name!r} needs a base_player and a dlc_player, or members")
+        return self
 
     @property
     def players(self) -> list[str]:
+        if self.members:
+            return list(self.members)
         return [self.base_player, self.dlc_player]
 
     def players_for(self, game_type: GameType | None) -> list[str]:
         """Whose claim a square of this pool is: the base or the DLC player, both for a
-        co-op square, or nobody when the square's pool isn't known."""
+        co-op square, or nobody when the square's pool isn't known. A team without roles
+        (members) shares every claim."""
+        if game_type is None:
+            return []
+        if self.members:
+            return list(self.members)
         if game_type is GameType.BASE:
             return [self.base_player]
         if game_type is GameType.DLC:

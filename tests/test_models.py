@@ -93,6 +93,29 @@ def test_team_players_for_each_pool():
     assert team.players_for(None) == []
 
 
+def test_a_team_without_roles_shares_every_claim():
+    from scadustats.models import GameType, Team
+
+    team = Team(name="Cattery", members=["catalystz", "Puppery"])
+    assert team.players == ["catalystz", "Puppery"]
+    assert team.players_for(GameType.BASE) == ["catalystz", "Puppery"]
+    assert team.players_for(None) == []
+
+
+def test_a_team_has_roles_or_two_members():
+    import pytest
+    from pydantic import ValidationError
+
+    from scadustats.models import Team
+
+    with pytest.raises(ValidationError):
+        Team(name="Cattery", members=["catalystz"])
+    with pytest.raises(ValidationError):
+        Team(name="Cattery", base_player="catalystz", members=["catalystz", "Puppery"])
+    with pytest.raises(ValidationError):
+        Team(name="Cattery", base_player="catalystz")
+
+
 def test_square_type_tag_helpers():
     from scadustats.models import (
         GameType,

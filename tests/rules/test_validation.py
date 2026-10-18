@@ -660,3 +660,89 @@ def test_square_type_tags_are_only_required_on_a_2v2_board():
     extraction.games[0].square_texts[0][0] = "Kill Malenia"
 
     assert validate_extraction(extraction) == []
+
+
+def _points_game(**overrides) -> GameResult:
+    """A Season 3 round robin game: red claims the top row (a line, 5 + 2 = 7 points) and
+    blue 8 squares below it (8 points), and the clock stops on the game_end -- blue wins
+    on points."""
+    from scadustats.models import Scoring
+
+    events = [
+        _game_start(),
+        *(_mark(0, col, CellColor.RED, 1 + col) for col in range(5)),
+        *(_mark(1 + i // 4, i % 4, CellColor.BLUE, 10 + i) for i in range(8)),
+        _game_end(3600),
+    ]
+    defaults = dict(
+        events=events,
+        winner_color=CellColor.BLUE,
+        win_type=WinType.POINTS,
+        win_line=None,
+        game_type=GameType.BASE,
+        scoring=Scoring.POINTS,
+        red_points=7,
+        blue_points=8,
+    )
+    defaults.update(overrides)
+    return _game(1, **defaults)
+
+
+def _season_3(**overrides) -> VideoExtraction:
+    return _extraction(season="3", games=[_points_game()], **overrides)
+
+
+def test_a_clean_season_3_points_match_has_no_issues():
+    assert validate_extraction(_season_3()) == []
+
+
+def test_a_points_game_won_on_the_line_is_a_winner_mismatch():
+    game = _points_game(winner_color=CellColor.RED, win_type=WinType.LINE, win_line=WinLine.ROW_1)
+    assert "winner_board_mismatch" in _codes(validate_game(game))
+
+
+def test_a_points_game_with_wrong_points_is_reported():
+    assert _codes(validate_game(_points_game(red_points=5))) == ["points_mismatch"]
+
+
+def test_a_lockout_game_records_no_points():
+    assert _codes(validate_game(_game(red_points=5, blue_points=0))) == ["points_mismatch"]
+
+
+def test_a_points_game_must_end_on_its_game_end():
+    game = _points_game()
+    game = _points_game(events=game.events[:-1], winner_color=None, win_type=WinType.NONE)
+    assert "last_event_not_game_end" in _codes(validate_game(game))
+
+
+def test_marks_after_a_line_are_fine_in_a_points_game():
+    assert "mark_after_win" not in _codes(validate_game(_points_game()))
+
+
+def test_season_3_round_robin_games_are_scored_on_points():
+    from scadustats.models import Scoring
+
+    lockout = _points_game(scoring=Scoring.LOCKOUT, red_points=None, blue_points=None)
+    issues = validate_extraction(_extraction(season="3", games=[lockout]))
+    assert "season_scoring" in _codes(issues)
+
+
+def test_season_3_playoff_games_are_lockout():
+    issues = validate_extraction(
+        _extraction(
+            season="3",
+            match_type=MatchType.DOUBLE_ELIMINATION,
+            games=[_points_game(), _points_game()],
+        )
+    )
+    assert "season_scoring" in _codes(issues)
+
+
+def test_scoring_for_each_season_and_match_type():
+    from scadustats.models import Scoring
+    from scadustats.rules.validation import scoring_for
+
+    assert scoring_for("3", MatchType.ROUND_ROBIN) is Scoring.POINTS
+    assert scoring_for("3", MatchType.DOUBLE_ELIMINATION) is Scoring.LOCKOUT
+    assert scoring_for("6", MatchType.ROUND_ROBIN) is Scoring.LOCKOUT
+    assert scoring_for("unknown", MatchType.ROUND_ROBIN) is Scoring.LOCKOUT

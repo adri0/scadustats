@@ -24,7 +24,10 @@ def _clean_team_name(text: str) -> str:
 
 def read_player_names(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> tuple[str, str]:
     """The two sides' names as (red, blue): players' names, or teams' when the layout
-    shows team names (Layout.team_names)."""
+    shows team names (Layout.team_names). Empty for a layout with no names on its
+    gameplay scene (name boxes None)."""
+    if layout_.name_box_red is None or layout_.name_box_blue is None:
+        return "", ""
     height, width = frame.shape[:2]
     red_crop = layout.crop(frame, layout_.name_box_red, width, height)
     blue_crop = layout.crop(frame, layout_.name_box_blue, width, height)
@@ -35,7 +38,9 @@ def read_player_names(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> t
     )
 
 
-def _read_score(frame: np.ndarray, box: layout.FractionalBox) -> int | None:
+def _read_score(frame: np.ndarray, box: layout.FractionalBox | None) -> int | None:
+    if box is None:
+        return None
     height, width = frame.shape[:2]
     crop = layout.crop(frame, box, width, height)
     text = ocr.read_text(crop, psm=7, whitelist="0123456789")
