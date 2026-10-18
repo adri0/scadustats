@@ -64,7 +64,7 @@ _BASE_THEN_DLC = SeasonFormat(
 # and the rules that depend on its format are skipped.
 SEASON_FORMATS: dict[str, SeasonFormat] = {
     # 2v2, both teammates on the same base game board (no DLC yet); a round robin game is
-    # a race to 13 points within the hour (see models.Scoring), the playoffs are lockout.
+    # a race to 13 points (see models.Scoring), the playoffs are lockout.
     "3": SeasonFormat(
         name="2v2 base game",
         game_types=frozenset({GameType.BASE}),
