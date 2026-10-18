@@ -100,6 +100,10 @@ def majority_winner(board: Board) -> CellColor | None:
 # robin, see Scoring.POINTS) -- on top of the line's five squares' own point each.
 LINE_POINTS = 2
 
+# The points that win a points game outright, the moment a side reaches them -- a
+# majority of the board's 25 squares, with each line worth two more.
+POINTS_TO_WIN = 13
+
 
 def points(board: Board) -> tuple[int, int]:
     """(red, blue) points on a points-game board: one per square held plus LINE_POINTS
@@ -127,16 +131,16 @@ def determine_winner(
     squares at that moment wins by MAJORITY, and equal counts are a TIE. See `time_up`
     below for how a game's events say so.
 
-    A POINTS game (see Scoring.POINTS) is only ever decided by the clock: until time is
-    up it has no result, however the board looks, and then the higher `points` total
-    wins (equal totals are a TIE)."""
+    A POINTS game (see Scoring.POINTS) is won by the first side to reach POINTS_TO_WIN
+    `points` -- a line alone doesn't win it -- and failing that, once time is up, by the
+    higher total (equal totals are a TIE)."""
     if scoring is Scoring.POINTS:
-        if not time_up:
-            return None, WinType.NONE, None
         red, blue = points(board)
-        if red == blue:
-            return None, WinType.TIE, None
-        return (CellColor.RED if red > blue else CellColor.BLUE), WinType.POINTS, None
+        if max(red, blue) >= POINTS_TO_WIN or time_up:
+            if red == blue:
+                return None, WinType.TIE, None
+            return (CellColor.RED if red > blue else CellColor.BLUE), WinType.POINTS, None
+        return None, WinType.NONE, None
     if (line_win := winning_line(board)) is not None:
         color, win_line = line_win
         return color, WinType.LINE, win_line
@@ -173,7 +177,10 @@ def board_states(events: Iterable[GameEvent]) -> list[Board]:
 
 
 def settled_result_index(
-    states: Sequence[Board], color: CellColor, win_type: WinType
+    states: Sequence[Board],
+    color: CellColor,
+    win_type: WinType,
+    scoring: Scoring = Scoring.LOCKOUT,
 ) -> int | None:
     """Index of the earliest state in `states` from which `(color, win_type)` is the
     result `determine_winner` keeps giving all the way through to the end -- i.e. when
@@ -187,7 +194,7 @@ def settled_result_index(
     """
     settled = None
     for index in reversed(range(len(states))):
-        if determine_winner(states[index])[:2] == (color, win_type):
+        if determine_winner(states[index], scoring=scoring)[:2] == (color, win_type):
             settled = index
         else:
             break

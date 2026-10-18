@@ -109,7 +109,7 @@ def tag_square_text(text: str, game_type: GameType) -> str:
 class WinType(Enum):
     LINE = "line"
     MAJORITY = "majority"
-    # A points game (see Scoring.POINTS) won on points when the clock ran out.
+    # A points game (see Scoring.POINTS) won on points: first to 13, or ahead at time up.
     POINTS = "points"
     TIE = "tie"
     NONE = "none"
@@ -118,10 +118,11 @@ class WinType(Enum):
 class Scoring(StrEnum):
     """How a game is decided. LOCKOUT is the usual bingo: a completed line wins, and
     without one the most squares (see rules.winner.determine_winner). POINTS is Season 3's
-    round robin: the game always runs its full time, a line doesn't end it, and when the
-    clock stops each side scores one point per square plus two per completed line (see
-    rules.winner.points) -- the higher total wins, and equal totals are a TIE. Set per
-    game at extraction from the season's format (see rules.validation.SEASON_FORMATS).
+    round robin: each side scores one point per square plus two per completed line (see
+    rules.winner.points), a line alone doesn't win, and the first side to 13 points wins
+    (rules.winner.POINTS_TO_WIN). A game nobody wins that way runs to its hour, and then
+    the higher total wins; equal totals are a TIE. Set per game at extraction from the
+    season's format (see rules.validation.SEASON_FORMATS).
     StrEnum like the other persisted enums, so it serializes as its own value."""
 
     LOCKOUT = "lockout"
@@ -292,7 +293,7 @@ class GameResult(BaseModel):
     # How the game is decided (see Scoring) -- LOCKOUT for every game but Season 3's round
     # robin, and for a JSON file written before this was recorded.
     scoring: Scoring = Scoring.LOCKOUT
-    # A points game's points per side when the clock stopped (see rules.winner.points) --
+    # A points game's points per side at its end (see rules.winner.points) --
     # None for a lockout game. Stored, not derived on read, so a reader (the site) doesn't
     # need the line rules to show them; validation checks them against the board.
     red_points: int | None = None

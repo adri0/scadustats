@@ -64,7 +64,7 @@ _BASE_THEN_DLC = SeasonFormat(
 # and the rules that depend on its format are skipped.
 SEASON_FORMATS: dict[str, SeasonFormat] = {
     # 2v2, both teammates on the same base game board (no DLC yet); a round robin game is
-    # one hour scored on points, the playoffs are lockout.
+    # a race to 13 points within the hour (see models.Scoring), the playoffs are lockout.
     "3": SeasonFormat(
         name="2v2 base game",
         game_types=frozenset({GameType.BASE}),
@@ -251,8 +251,8 @@ def _check_last_event_is_game_end(
     found or wasn't itself a MARK (an UNMARK can't complete a line) -- there's nothing
     for extract._detect_game_end to have emitted a GAME_END for in the first place.
 
-    A points game (Scoring.POINTS) always ends on its GAME_END, where the clock stopped:
-    that's what decides it (see winner.determine_winner)."""
+    A points game (Scoring.POINTS) always ends on its GAME_END: at the claim that took a
+    side to winner.POINTS_TO_WIN, or where the clock stopped if neither got there."""
     if game.scoring is Scoring.POINTS:
         if events and events[-1].event_type is EventType.GAME_END:
             return []
@@ -330,15 +330,28 @@ def _check_no_marks_after_win(
 ) -> list[ValidationIssue]:
     """Rule: nothing is claimed once the game has been won.
 
-    Only checked for a LINE win. A line ends the game the moment it completes, so a later
-    mark means the segment ran past the end of its game -- but a MAJORITY win is decided
-    by who's ahead when time runs out, and the board's lines are typically all blocked
-    long before that, so players legitimately keep claiming squares afterward.
+    Only checked for a LINE win, and for a points game won by reaching
+    winner.POINTS_TO_WIN. Either ends the game the moment it happens, so a later mark
+    means the segment ran past the end of its game -- but a MAJORITY win is decided by
+    who's ahead when time runs out, and the board's lines are typically all blocked long
+    before that, so players legitimately keep claiming squares afterward.
     """
-    if game.win_type is not WinType.LINE or game.winner_color is None:
+    if game.winner_color is None:
         return []
-
-    settled = winner.settled_result_index(states, game.winner_color, WinType.LINE)
+    if game.scoring is Scoring.POINTS and game.win_type is WinType.POINTS:
+        # Reaching winner.POINTS_TO_WIN ends a points game the way a line ends a lockout
+        # one. A points game won on time has no such moment (settled is None below).
+        settled = winner.settled_result_index(
+            states, game.winner_color, WinType.POINTS, Scoring.POINTS
+        )
+        what = f"reached {winner.POINTS_TO_WIN} points"
+    elif game.win_type is WinType.LINE:
+        settled = winner.settled_result_index(states, game.winner_color, WinType.LINE)
+        # Falls back to "a line" only when win_line is missing from an otherwise line-won
+        # game -- _check_recorded_winner_matches_board reports that separately.
+        what = f"completed {game.win_line.label if game.win_line else 'a line'}"
+    else:
+        return []
     if settled is None:
         # The board doesn't end on a line at all -- _check_recorded_winner_matches_board
         # already reports that, and re-reporting it here would just be noise.
@@ -347,15 +360,12 @@ def _check_no_marks_after_win(
     after = [event for event in events[settled + 1 :] if event.event_type is EventType.MARK]
     if not after:
         return []
-    # Falls back to "a line" only when win_line is missing from an otherwise line-won
-    # game -- _check_recorded_winner_matches_board reports that separately.
-    line = game.win_line.label if game.win_line else "a line"
     return [
         ValidationIssue(
             code="mark_after_win",
             message=(
-                f"{len(after)} square(s) marked after {game.winner_color.value} completed "
-                f"{line} at {events[settled].video_timestamp} "
+                f"{len(after)} square(s) marked after {game.winner_color.value} {what} "
+                f"at {events[settled].video_timestamp} "
                 f"(first at {after[0].video_timestamp})"
             ),
             game_index=game.game_index,

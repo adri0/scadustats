@@ -438,3 +438,20 @@ def test_text_scene_is_the_whole_segment_without_scenes():
         layout.LAYOUT_SEASON_4,
         segment,
     )
+
+
+def test_settle_game_ends_a_points_game_on_the_claim_that_reaches_13():
+    from scadustats.models import Scoring
+
+    # Red: row 1 (5 + 2 = 7), then six more squares -- the sixth, at 30s, makes 13.
+    events = [_square_event(1, col, R, col) for col in range(1, 6)]
+    events += [_square_event(2 + i // 4, 1 + i % 4, R, 25 + i) for i in range(6)]
+    events += [_square_event(5, 5, B, 40)]
+    game = _unsettled_game(events)
+
+    extract._settle_game(game, Observation(99, 3700.0, _board(), 3598), Scoring.POINTS)
+
+    assert (game.winner_color, game.win_type) == (R, WinType.POINTS)
+    assert (game.red_points, game.blue_points) == (13, 1)
+    assert game.events[-1].event_type is EventType.GAME_END
+    assert game.events[-1].video_timestamp == format_video_timestamp(30)

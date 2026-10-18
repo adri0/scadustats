@@ -746,3 +746,27 @@ def test_scoring_for_each_season_and_match_type():
     assert scoring_for("3", MatchType.DOUBLE_ELIMINATION) is Scoring.LOCKOUT
     assert scoring_for("6", MatchType.ROUND_ROBIN) is Scoring.LOCKOUT
     assert scoring_for("unknown", MatchType.ROUND_ROBIN) is Scoring.LOCKOUT
+
+
+def test_a_mark_after_reaching_13_points_is_reported():
+    from scadustats.models import Scoring
+
+    # Red: row 1 (7 points), then six squares to 13 at 30s; blue claims one more at 40s.
+    events = [
+        _game_start(),
+        *(_mark(0, col, CellColor.RED, 1 + col) for col in range(5)),
+        *(_mark(1 + i // 4, i % 4, CellColor.RED, 25 + i) for i in range(6)),
+        _mark(4, 4, CellColor.BLUE, 40),
+        _game_end(41),
+    ]
+    game = _game(
+        1,
+        events=events,
+        winner_color=CellColor.RED,
+        win_type=WinType.POINTS,
+        win_line=None,
+        scoring=Scoring.POINTS,
+        red_points=13,
+        blue_points=1,
+    )
+    assert "mark_after_win" in _codes(validate_game(game))

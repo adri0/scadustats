@@ -421,7 +421,10 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
 
 
 def _detect_game_end(
-    events: list[GameEvent], winner_color: CellColor | None, win_type: WinType
+    events: list[GameEvent],
+    winner_color: CellColor | None,
+    win_type: WinType,
+    scoring: Scoring = Scoring.LOCKOUT,
 ) -> GameEvent | None:
     """The GAME_END event for a game with a recorded winner (LINE or MAJORITY) --
     timestamped at the one MARK event that locks that outcome in for the rest of the
@@ -440,7 +443,7 @@ def _detect_game_end(
         return None
     ordered = sorted(events, key=lambda event: event.video_timestamp)
     states = winner.board_states(ordered)
-    index = winner.settled_result_index(states, winner_color, win_type)
+    index = winner.settled_result_index(states, winner_color, win_type, scoring)
     if index is None or ordered[index].event_type is not EventType.MARK:
         return None
     settling = ordered[index]
@@ -455,34 +458,32 @@ def _detect_game_end(
 
 
 def _settle_game(game: GameResult, last: Observation, scoring: Scoring) -> None:
-    """Fill in a game's scoring, result and GAME_END, in place. A lockout game's GAME_END
-    is the claim that settled it (see _detect_game_end). A points game (Season 3's round
-    robin) always runs to the clock, so its GAME_END is the segment's last reading -- the
-    game screen gives way to the end screen when time is up -- and the points at that
-    moment decide it (see winner.determine_winner)."""
+    """Fill in a game's scoring, result and GAME_END, in place. A game settled by its
+    claims -- a line or an unbeatable majority in lockout, reaching
+    winner.POINTS_TO_WIN in a points game (Season 3's round robin) -- ends on the claim
+    that settled it (see _detect_game_end). A points game nobody won that way ran out of
+    time: its GAME_END is the segment's last reading -- the game screen gives way to the
+    end screen when time is up -- and the points at that moment decide it."""
     game.scoring = scoring
-    if scoring is Scoring.POINTS:
-        game.events = [
-            *game.events,
-            GameEvent(
-                row=None,
-                col=None,
-                color=None,
-                video_timestamp=format_video_timestamp(last.video_ts_s),
-                game_elapsed_s=last.timer_s if last.timer_s is not None else 0,
-                event_type=EventType.GAME_END,
-            ),
-        ]
-        board_ = winner.replay(game.events)
-        game.winner_color, game.win_type, game.win_line = winner.determine_winner(
-            board_, time_up=True, scoring=scoring
+    game.winner_color, game.win_type, game.win_line = _determine_winner(game.events, scoring)
+    game_end = _detect_game_end(game.events, game.winner_color, game.win_type, scoring)
+    if game_end is None and scoring is Scoring.POINTS:
+        game_end = GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_timestamp=format_video_timestamp(last.video_ts_s),
+            game_elapsed_s=last.timer_s if last.timer_s is not None else 0,
+            event_type=EventType.GAME_END,
         )
-        game.red_points, game.blue_points = winner.points(board_)
-        return
-    game.winner_color, game.win_type, game.win_line = _determine_winner(game.events)
-    game_end = _detect_game_end(game.events, game.winner_color, game.win_type)
     if game_end is not None:
         game.events = [*game.events, game_end]
+    board_ = winner.replay(game.events)
+    if scoring is Scoring.POINTS:
+        game.winner_color, game.win_type, game.win_line = winner.determine_winner(
+            board_, time_up=winner.time_up(game.events), scoring=scoring
+        )
+        game.red_points, game.blue_points = winner.points(board_)
 
 
 def _text_scene(
@@ -516,7 +517,7 @@ def _text_scene(
 
 
 def _determine_winner(
-    events: list[GameEvent],
+    events: list[GameEvent], scoring: Scoring = Scoring.LOCKOUT
 ) -> tuple[CellColor | None, WinType, WinLine | None]:
     """Replay every event (including unclaims) to the final board state and evaluate the
     win condition once there -- rather than stopping at the first claim that completes a
@@ -528,7 +529,7 @@ def _determine_winner(
     Non-square events (e.g. GAME_START) carry no row/col and don't affect board state,
     so winner.replay skips them.
     """
-    return winner.determine_winner(winner.replay(events))
+    return winner.determine_winner(winner.replay(events), scoring=scoring)
 
 
 def _match_id(match_metadata: MatchMetadata, red_name: str | None, blue_name: str | None) -> str:
