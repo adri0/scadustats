@@ -18,10 +18,12 @@ from scadustats.pipeline.extract import (
     _detect_game_start,
     _determine_winner,
     _extract_events,
+    _game_events,
     _match_id,
     _segment_games,
 )
 from scadustats.pipeline.segmentation import Observation
+from scadustats.rules import winner
 
 U, R, B = CellColor.UNCLAIMED, CellColor.RED, CellColor.BLUE
 
@@ -206,6 +208,94 @@ def test_detect_game_end_returns_none_when_the_win_was_undone():
     winner_color, win_type, _ = _determine_winner(events)
 
     assert _detect_game_end(events, winner_color, win_type) is None
+
+
+def _clocked(*boards: list[list[CellColor]], start_s: int) -> list[Observation]:
+    """One sample per board, a second apart, with the game clock ticking up from
+    `start_s` -- for the samples around the time limit."""
+    return [
+        Observation(i, float(start_s + i), board, start_s + i) for i, board in enumerate(boards)
+    ]
+
+
+_LIMIT = extract._TIME_LIMIT_S
+
+
+def test_game_stopped_by_the_time_limit_is_decided_on_the_count():
+    two_one = _board((0, 0, R), (2, 2, R), (4, 4, B))
+    segment = _clocked(*[two_one] * 6, start_s=_LIMIT - 3)
+
+    events, winner_color, win_type, win_line = _game_events(segment)
+
+    assert (winner_color, win_type, win_line) == (R, WinType.MAJORITY, None)
+    game_end = events[-1]
+    assert game_end.event_type is EventType.GAME_END
+    assert (game_end.row, game_end.col, game_end.color) == (None, None, None)
+    # At the last sample kept: the one at the limit plus the mark debounce.
+    stopped_s = _LIMIT + extract._MARK_DEBOUNCE_SAMPLES - 1
+    assert game_end.game_elapsed_s == stopped_s
+    assert game_end.video_timestamp == format_video_timestamp(stopped_s)
+    assert winner.time_up(events)
+
+
+def test_level_count_at_the_time_limit_is_a_tie():
+    one_one = _board((0, 0, R), (4, 4, B))
+    segment = _clocked(*[one_one] * 6, start_s=_LIMIT - 3)
+
+    events, winner_color, win_type, _ = _game_events(segment)
+
+    assert (winner_color, win_type) == (None, WinType.TIE)
+    assert events[-1].event_type is EventType.GAME_END
+
+
+def test_claim_after_the_time_limit_is_dropped():
+    one_one = _board((0, 0, R), (4, 4, B))
+    late = _board((0, 0, R), (4, 4, B), (1, 1, B), (3, 3, B))
+    # The clock reaches the limit on the fourth sample; blue's two squares only show up
+    # well after it.
+    segment = _clocked(*[one_one] * 6, *[late] * 4, start_s=_LIMIT - 3)
+
+    events, winner_color, win_type, _ = _game_events(segment)
+
+    assert (winner_color, win_type) == (None, WinType.TIE)
+    assert [(e.row, e.col) for e in events if e.event_type is EventType.MARK] == [
+        (1, 1),
+        (5, 5),
+    ]
+
+
+def test_claim_showing_when_the_clock_reaches_the_limit_counts():
+    one_one = _board((0, 0, R), (4, 4, B))
+    two_one = _board((0, 0, R), (2, 2, R), (4, 4, B))
+    # Red's second square first shows on the sample where the clock reads the limit.
+    segment = _clocked(*[one_one] * 3, *[two_one] * 4, start_s=_LIMIT - 3)
+
+    _, winner_color, win_type, _ = _game_events(segment)
+
+    assert (winner_color, win_type) == (R, WinType.MAJORITY)
+
+
+def test_misread_timer_jump_to_the_limit_does_not_stop_the_game():
+    two_one = _board((0, 0, R), (2, 2, R), (4, 4, B))
+    segment = _clocked(*[two_one] * 6, start_s=600)
+    # One sample reads two hours more than the clock really shows.
+    segment[3] = Observation(3, segment[3].video_ts_s, two_one, segment[3].timer_s + _LIMIT)
+
+    events, winner_color, win_type, _ = _game_events(segment)
+
+    assert (winner_color, win_type) == (None, WinType.NONE)
+    assert all(e.event_type is not EventType.GAME_END for e in events)
+
+
+def test_game_settled_before_the_time_limit_keeps_its_own_game_end():
+    row = _board(*[(2, c, R) for c in range(5)])
+    segment = _clocked(*[row] * 4, start_s=600)
+
+    events, winner_color, win_type, _ = _game_events(segment)
+
+    assert (winner_color, win_type) == (R, WinType.LINE)
+    assert [e.event_type for e in events].count(EventType.GAME_END) == 1
+    assert events[-1].game_elapsed_s == 600 + extract._MARK_DEBOUNCE_SAMPLES - 1
 
 
 def test_detect_game_start_finds_ascent_from_countdown_minimum():

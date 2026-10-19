@@ -86,6 +86,10 @@ _LAYOUT_DETECTION_MAX_SAMPLES = 180
 _MARK_DEBOUNCE_SAMPLES = 2
 _UNMARK_DEBOUNCE_SAMPLES = 2 * _MARK_DEBOUNCE_SAMPLES
 
+# The game clock reading at which a game is stopped on time (Season 4's two-hour limit;
+# no other season's game has run this long). See _detect_time_limit.
+_TIME_LIMIT_S = 2 * 60 * 60
+
 
 @dataclass
 class ExtractionSummary:
@@ -446,6 +450,75 @@ def _detect_game_end(
     )
 
 
+def _detect_time_limit(segment: list[Observation]) -> int | None:
+    """Position in `segment` of the first sample whose game clock has reached
+    `_TIME_LIMIT_S`, i.e. where the game was stopped on time -- or None if it never does.
+
+    The reading only counts when the clock got there by ticking up: the previous timed
+    sample has to sit within `_CLOCK_STEP_TOLERANCE_S` below it, the same continuity
+    _detect_game_start asks of the clock, so a single misread of the timer box (a stray
+    2 in the hours digit) can't stop a game early. The pre-game countdown never comes
+    near two hours, so it needs no special case.
+    """
+    previous: int | None = None
+    for index, obs in enumerate(segment):
+        if obs.timer_s is None:
+            continue
+        if (
+            obs.timer_s >= _TIME_LIMIT_S
+            and previous is not None
+            and obs.timer_s - _CLOCK_STEP_TOLERANCE_S <= previous <= obs.timer_s
+        ):
+            return index
+        previous = obs.timer_s
+    return None
+
+
+def _game_events(
+    segment: list[Observation],
+) -> tuple[list[GameEvent], CellColor | None, WinType, WinLine | None]:
+    """One game's events and result, from its segment of samples.
+
+    A game stopped by the time limit (see _detect_time_limit) only counts claims seen by
+    the time the clock got there -- the overlay freezes the clock but the board can still
+    change after it (a square handed in late), and that isn't part of the game. The
+    samples are cut `_MARK_DEBOUNCE_SAMPLES` past that point, so a claim already showing
+    when the clock reached the limit still gets the debounce it needs to be confirmed.
+    When the game hadn't been settled by then, a GAME_END is added as its last event at
+    the last sample kept (no confirmed claim can come after it), which is how the JSON
+    records that the count decides the game (see winner.time_up), and the count gives the
+    result: MAJORITY for the leader, TIE when level.
+    """
+    time_limit_index = _detect_time_limit(segment)
+    played = (
+        segment
+        if time_limit_index is None
+        else segment[: time_limit_index + _MARK_DEBOUNCE_SAMPLES]
+    )
+    events = _extract_events(played)
+    game_start = _detect_game_start(segment)
+    if game_start is not None:
+        events = [game_start, *events]
+    winner_color, win_type, win_line = _determine_winner(events)
+    game_end = _detect_game_end(events, winner_color, win_type)
+    if game_end is None and time_limit_index is not None:
+        winner_color, win_type, win_line = winner.determine_winner(
+            winner.replay(events), time_up=True
+        )
+        stopped = played[-1]
+        game_end = GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_timestamp=format_video_timestamp(stopped.video_ts_s),
+            game_elapsed_s=stopped.timer_s if stopped.timer_s is not None else _TIME_LIMIT_S,
+            event_type=EventType.GAME_END,
+        )
+    if game_end is not None:
+        events = [*events, game_end]
+    return events, winner_color, win_type, win_line
+
+
 def _determine_winner(
     events: list[GameEvent],
 ) -> tuple[CellColor | None, WinType, WinLine | None]:
@@ -587,14 +660,7 @@ def extract_video(
             # empty list here rather than a special case -- see commentators.py.
             casters = commentators.majority_commentator_names(square_text_frames, selected_layout)
 
-        events = _extract_events(segment)
-        game_start = _detect_game_start(segment)
-        if game_start is not None:
-            events = [game_start, *events]
-        winner_color, win_type, win_line = _determine_winner(events)
-        game_end = _detect_game_end(events, winner_color, win_type)
-        if game_end is not None:
-            events = [*events, game_end]
+        events, winner_color, win_type, win_line = _game_events(segment)
 
         games.append(
             GameResult(
