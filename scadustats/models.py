@@ -117,12 +117,12 @@ class WinType(Enum):
 
 class Scoring(StrEnum):
     """How a game is decided. LOCKOUT is the usual bingo: a completed line wins, and
-    without one the most squares (see rules.winner.determine_winner). POINTS is Season 3's
-    round robin: each side scores one point per square plus two per completed line (see
-    rules.winner.points), a line alone doesn't win, and the first side to 13 points wins
-    (rules.winner.POINTS_TO_WIN). A game stopped by the clock before either side gets there
-    goes to the higher total; equal totals are a TIE. Set per game at extraction from the
-    season's format (see rules.validation.SEASON_FORMATS).
+    without one the most squares (see rules.winner.determine_winner). POINTS is Season 3,
+    round robin and playoffs alike: each side scores one point per square plus two per
+    completed line (see rules.winner.points), a line alone doesn't win, and the first side
+    to 13 points wins (rules.winner.POINTS_TO_WIN). A game stopped by the clock before
+    either side gets there goes to the higher total; equal totals are a TIE. Set per game
+    at extraction from the season's format (see rules.validation.SEASON_FORMATS).
     StrEnum like the other persisted enums, so it serializes as its own value."""
 
     LOCKOUT = "lockout"

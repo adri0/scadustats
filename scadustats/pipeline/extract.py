@@ -748,7 +748,7 @@ def extract_video(
     if isinstance(match_metadata, Future):
         match_metadata = match_metadata.result()
 
-    scoring = validation.scoring_for(match_metadata.season, match_metadata.match_type)
+    scoring = validation.scoring_for(match_metadata.season)
     for game, segment, stopped in zip(games, segments, stops, strict=True):
         if stopped is None:
             _settle_game(game, segment[-1], scoring)

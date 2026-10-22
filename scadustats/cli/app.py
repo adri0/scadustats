@@ -664,8 +664,8 @@ def match_validate(
     - season_game_type: a game's type isn't one of its season's (dlc in Season 4, 2v2
       in Season 5, base or dlc otherwise)
 
-    - season_scoring: a game isn't scored its season's way (points in Season 3's
-      round robin, lockout everywhere else)
+    - season_scoring: a game isn't scored its season's way (points in Season 3,
+      lockout everywhere else)
 
     - game_count: wrong number of games for the match type and season (a round robin
       match is 2 games in Season 6, 1 in Seasons 4 and 5; a best of 3 is 2 or 3)
