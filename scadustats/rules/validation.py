@@ -22,6 +22,7 @@ from scadustats.models import (
     GameType,
     MatchType,
     MatchWinner,
+    Scoring,
     VideoExtraction,
     WinLine,
     WinType,
@@ -40,12 +41,15 @@ class SeasonFormat:
     `game_types` is every game type the season's boards can be, `round_robin_games` the
     exact number of games in one of its round robin matches, and `opening_game_types`
     the game type each of the first games must be, in order (empty: not checked). A
-    best of 3 is 2 or 3 games in every season, so it isn't part of the format."""
+    best of 3 is 2 or 3 games in every season, so it isn't part of the format.
+    `round_robin_scoring` is how a round robin game is decided (see models.Scoring); a
+    best of 3 is lockout in every season."""
 
     name: str
     game_types: frozenset[GameType]
     round_robin_games: int
     opening_game_types: tuple[GameType, ...] = ()
+    round_robin_scoring: Scoring = Scoring.LOCKOUT
 
 
 # 1v1, a base game then a DLC game; only a best-of-3 decider (game 3) is free to be either.
@@ -59,6 +63,14 @@ _BASE_THEN_DLC = SeasonFormat(
 # Keyed by VideoExtraction.season. A season missing here is reported (unknown_season)
 # and the rules that depend on its format are skipped.
 SEASON_FORMATS: dict[str, SeasonFormat] = {
+    # 2v2, both teammates on the same base game board (no DLC yet); a round robin game is
+    # a race to 13 points (see models.Scoring), the playoffs are lockout.
+    "3": SeasonFormat(
+        name="2v2 base game",
+        game_types=frozenset({GameType.BASE}),
+        round_robin_games=1,
+        round_robin_scoring=Scoring.POINTS,
+    ),
     "4": SeasonFormat(
         name="DLC-only 1v1", game_types=frozenset({GameType.DLC}), round_robin_games=1
     ),
@@ -66,6 +78,16 @@ SEASON_FORMATS: dict[str, SeasonFormat] = {
     "pre-season-6": _BASE_THEN_DLC,
     "6": _BASE_THEN_DLC,
 }
+
+
+def scoring_for(season: str, match_type: MatchType) -> Scoring:
+    """How a game of this season and match type is decided: the season's
+    round_robin_scoring for a round robin game, lockout otherwise (and for a season with
+    no known format)."""
+    format_ = SEASON_FORMATS.get(season)
+    if format_ is not None and match_type is MatchType.ROUND_ROBIN:
+        return format_.round_robin_scoring
+    return Scoring.LOCKOUT
 
 
 @dataclass(frozen=True)
@@ -108,7 +130,9 @@ def _check_recorded_winner_matches_board(
     a win recorded for the wrong color. A game that ends on its GAME_END ran until it was
     called, so an unsettled board there is decided on the count (winner.time_up)."""
     final = states[-1] if states else winner.empty_board()
-    expected = winner.determine_winner(final, time_up=winner.time_up(game.events))
+    expected = winner.determine_winner(
+        final, time_up=winner.time_up(game.events), scoring=game.scoring
+    )
     if (game.winner_color, game.win_type, game.win_line) == expected:
         return []
 
@@ -140,6 +164,35 @@ def _check_recorded_winner_matches_board(
                 f"recorded result is "
                 f"{_describe_result(game.winner_color, game.win_type, game.win_line)}, "
                 f"but replaying this game's events gives {_describe_result(*expected)}"
+            ),
+            game_index=game.game_index,
+        )
+    ]
+
+
+def _check_points(game: GameResult, states: list[Board]) -> list[ValidationIssue]:
+    """Rule: a points game's recorded points are what its final board scores (see
+    winner.points), and a lockout game records none."""
+    if game.scoring is not Scoring.POINTS:
+        if game.red_points is None and game.blue_points is None:
+            return []
+        return [
+            ValidationIssue(
+                code="points_mismatch",
+                message="a lockout game records no points",
+                game_index=game.game_index,
+            )
+        ]
+    final = states[-1] if states else winner.empty_board()
+    expected = winner.points(final)
+    if (game.red_points, game.blue_points) == expected:
+        return []
+    return [
+        ValidationIssue(
+            code="points_mismatch",
+            message=(
+                f"recorded points are red {game.red_points}, blue {game.blue_points}, but "
+                f"the final board scores red {expected[0]}, blue {expected[1]}"
             ),
             game_index=game.game_index,
         )
@@ -196,7 +249,21 @@ def _check_last_event_is_game_end(
     recorded after it and there's no guarantee the last event is (or should be) its
     GAME_END. Also skipped, the same as that rule, when the settling event can't be
     found or wasn't itself a MARK (an UNMARK can't complete a line) -- there's nothing
-    for extract._detect_game_end to have emitted a GAME_END for in the first place."""
+    for extract._detect_game_end to have emitted a GAME_END for in the first place.
+
+    A points game (Scoring.POINTS) always ends on its GAME_END: at the claim that took a
+    side to winner.POINTS_TO_WIN, or where the clock stopped if neither got there."""
+    if game.scoring is Scoring.POINTS:
+        if events and events[-1].event_type is EventType.GAME_END:
+            return []
+        found = events[-1].event_type.value if events else "no events"
+        return [
+            ValidationIssue(
+                code="last_event_not_game_end",
+                message=f"a points game ends on game_end where the clock stopped, found {found}",
+                game_index=game.game_index,
+            )
+        ]
     if game.win_type is not WinType.LINE or game.winner_color is None:
         return []
     settled = winner.settled_result_index(states, game.winner_color, WinType.LINE)
@@ -263,15 +330,28 @@ def _check_no_marks_after_win(
 ) -> list[ValidationIssue]:
     """Rule: nothing is claimed once the game has been won.
 
-    Only checked for a LINE win. A line ends the game the moment it completes, so a later
-    mark means the segment ran past the end of its game -- but a MAJORITY win is decided
-    by who's ahead when time runs out, and the board's lines are typically all blocked
-    long before that, so players legitimately keep claiming squares afterward.
+    Only checked for a LINE win, and for a points game won by reaching
+    winner.POINTS_TO_WIN. Either ends the game the moment it happens, so a later mark
+    means the segment ran past the end of its game -- but a MAJORITY win is decided by
+    who's ahead when time runs out, and the board's lines are typically all blocked long
+    before that, so players legitimately keep claiming squares afterward.
     """
-    if game.win_type is not WinType.LINE or game.winner_color is None:
+    if game.winner_color is None:
         return []
-
-    settled = winner.settled_result_index(states, game.winner_color, WinType.LINE)
+    if game.scoring is Scoring.POINTS and game.win_type is WinType.POINTS:
+        # Reaching winner.POINTS_TO_WIN ends a points game the way a line ends a lockout
+        # one. A points game won on time has no such moment (settled is None below).
+        settled = winner.settled_result_index(
+            states, game.winner_color, WinType.POINTS, Scoring.POINTS
+        )
+        what = f"reached {winner.POINTS_TO_WIN} points"
+    elif game.win_type is WinType.LINE:
+        settled = winner.settled_result_index(states, game.winner_color, WinType.LINE)
+        # Falls back to "a line" only when win_line is missing from an otherwise line-won
+        # game -- _check_recorded_winner_matches_board reports that separately.
+        what = f"completed {game.win_line.label if game.win_line else 'a line'}"
+    else:
+        return []
     if settled is None:
         # The board doesn't end on a line at all -- _check_recorded_winner_matches_board
         # already reports that, and re-reporting it here would just be noise.
@@ -280,15 +360,12 @@ def _check_no_marks_after_win(
     after = [event for event in events[settled + 1 :] if event.event_type is EventType.MARK]
     if not after:
         return []
-    # Falls back to "a line" only when win_line is missing from an otherwise line-won
-    # game -- _check_recorded_winner_matches_board reports that separately.
-    line = game.win_line.label if game.win_line else "a line"
     return [
         ValidationIssue(
             code="mark_after_win",
             message=(
-                f"{len(after)} square(s) marked after {game.winner_color.value} completed "
-                f"{line} at {events[settled].video_timestamp} "
+                f"{len(after)} square(s) marked after {game.winner_color.value} {what} "
+                f"at {events[settled].video_timestamp} "
                 f"(first at {after[0].video_timestamp})"
             ),
             game_index=game.game_index,
@@ -333,6 +410,7 @@ def validate_game(game: GameResult) -> list[ValidationIssue]:
     states = winner.board_states(events)
     return [
         *_check_recorded_winner_matches_board(game, states),
+        *_check_points(game, states),
         *_check_single_game_start(game),
         *_check_first_event_is_game_start(game, events),
         *_check_last_event_is_game_end(game, events, states),
@@ -433,6 +511,24 @@ def _check_opening_game_types(
     return issues
 
 
+def _check_season_scoring(extraction: VideoExtraction) -> list[ValidationIssue]:
+    """Rule: every game is scored the way its season and match type are (see
+    scoring_for) -- points in Season 3's round robin, lockout everywhere else. A game
+    scored the other way has the wrong result rules applied to it."""
+    expected = scoring_for(extraction.season, extraction.match_type)
+    return [
+        ValidationIssue(
+            code="season_scoring",
+            message=(
+                f"game {game.game_index} is scored {game.scoring.value}, but a season "
+                f"{extraction.season} {extraction.match_type.value} game is {expected.value}"
+            ),
+        )
+        for game in extraction.games
+        if game.scoring is not expected
+    ]
+
+
 def _check_season_format(extraction: VideoExtraction) -> list[ValidationIssue]:
     """The rules that depend on the season's format, or unknown_season alone when the
     season has none."""
@@ -441,6 +537,7 @@ def _check_season_format(extraction: VideoExtraction) -> list[ValidationIssue]:
         return _check_season_known(extraction)
     return [
         *_check_season_game_types(extraction, season),
+        *_check_season_scoring(extraction),
         *_check_game_count(extraction, season),
         *_check_opening_game_types(extraction, season),
     ]

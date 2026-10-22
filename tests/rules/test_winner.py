@@ -353,3 +353,97 @@ def test_not_time_up_without_a_final_game_end():
     assert not winner.time_up([_mark(0, 0, R, 1.0)])
     # The game went on after its GAME_END (a line completed and then undone).
     assert not winner.time_up([_game_end(2.0), _unmark(0, 0, R, 3.0)])
+
+
+def test_points_count_squares_plus_two_per_completed_line():
+    # Blue holds row 2 (a line) and 11 squares in all; red holds 12 squares, no line --
+    # the final board of Season 3's Jo W Bush vs Monkey Ballers.
+    board = _board(
+        [R, R, B, B, B],
+        [B, B, B, B, B],
+        [R, B, R, R, R],
+        [R, R, R, R, B],
+        [B, R, U, U, R],
+    )
+    assert winner.points(board) == (12, 13)
+
+
+def test_points_count_every_line_a_square_is_on():
+    # Red's row 1 and column 1 share a corner: 9 squares and two lines.
+    board = _board(
+        [R, R, R, R, R],
+        [R, U, U, U, U],
+        [R, U, U, U, U],
+        [R, U, U, U, U],
+        [R, U, U, U, B],
+    )
+    assert winner.points(board) == (9 + 2 * winner.LINE_POINTS, 1)
+
+
+def test_a_points_game_has_no_result_before_13_points_or_time_up():
+    from scadustats.models import Scoring
+
+    board = _board(
+        [R, R, R, R, R],
+        [U, U, U, U, U],
+        [U, U, U, U, U],
+        [U, U, U, U, U],
+        [U, U, U, U, U],
+    )
+    assert determine_winner(board, scoring=Scoring.POINTS) == (None, WinType.NONE, None)
+    assert determine_winner(board, time_up=True, scoring=Scoring.POINTS) == (
+        R,
+        WinType.POINTS,
+        None,
+    )
+
+
+def test_a_points_game_goes_to_the_higher_total_not_the_line():
+    from scadustats.models import Scoring
+
+    # Red has a line (5 + 2 = 7 points), blue has 8 squares and no line.
+    board = _board(
+        [R, R, R, R, R],
+        [B, B, B, B, U],
+        [B, B, B, B, U],
+        [U, U, U, U, U],
+        [U, U, U, U, U],
+    )
+    assert determine_winner(board, time_up=True, scoring=Scoring.POINTS) == (
+        B,
+        WinType.POINTS,
+        None,
+    )
+
+
+def test_equal_points_are_a_tie():
+    from scadustats.models import Scoring
+
+    board = _board(
+        [R, R, B, B, U],
+        [U, U, U, U, U],
+        [U, U, U, U, U],
+        [U, U, U, U, U],
+        [U, U, U, U, U],
+    )
+    assert determine_winner(board, time_up=True, scoring=Scoring.POINTS) == (
+        None,
+        WinType.TIE,
+        None,
+    )
+
+
+def test_reaching_13_points_wins_a_points_game_before_time_is_up():
+    from scadustats.models import Scoring
+
+    # Blue: 11 squares and column 3 (11 + 2 = 13); red: 7 squares. The final board of
+    # Season 3's Cattery vs BrinoMachino, which ended at 46:05.
+    board = _board(
+        [U, U, B, R, B],
+        [R, U, B, R, R],
+        [B, B, B, R, B],
+        [U, U, B, U, U],
+        [B, B, B, R, R],
+    )
+    assert winner.points(board) == (7, 13)
+    assert determine_winner(board, scoring=Scoring.POINTS) == (B, WinType.POINTS, None)

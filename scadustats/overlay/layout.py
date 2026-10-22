@@ -44,6 +44,16 @@ class Layout:
     way for a template with no "BASE GAME"/"DLC" subtitle at all, leaving the
     game type to be inferred from the board's square texts (see
     pipeline.squares.infer_game_type).
+
+    `score_box_red`/`blue` and `name_box_red`/`blue` are `None` for a template with no
+    claim counts or names on its gameplay scene (Season 3): `board.is_gameplay_frame` then
+    recognizes that scene by its timer reading instead, the counts aren't cross-checked
+    and the names are left for the contributor to fill in.
+
+    `scenes` is for a broadcast that cuts between several gameplay scenes, each with the
+    grid and timer somewhere else (Season 3: a team view and a one-player focus view).
+    Such a Layout is the set of them: every frame is read with whichever of its scenes it
+    shows (see board.scene_for), and its own boxes are unused.
     """
 
     name: LayoutName
@@ -53,10 +63,10 @@ class Layout:
     # itself has no box here: a game is identified by its index within the video (see
     # models.GameResult), so N is never read.
     game_type_box: FractionalBox | None
-    score_box_red: FractionalBox
-    score_box_blue: FractionalBox
-    name_box_red: FractionalBox
-    name_box_blue: FractionalBox
+    score_box_red: FractionalBox | None
+    score_box_blue: FractionalBox | None
+    name_box_red: FractionalBox | None
+    name_box_blue: FractionalBox | None
     commentator_box_left: FractionalBox | None
     commentator_box_right: FractionalBox | None
     # Whether each square's text ends in a "(B)"/"(D)"/"(C)" pool tag -- a Season 5 mixed
@@ -65,6 +75,7 @@ class Layout:
     # Whether the name boxes hold team names (several words, e.g. "POSITIVE VIBES")
     # rather than a single player's name -- see scoreboard.read_player_names.
     team_names: bool = False
+    scenes: tuple["Layout", ...] = ()
 
 
 STANDARD = Layout(
@@ -228,6 +239,56 @@ LAYOUT_SEASON_4 = Layout(
     commentator_box_right=FractionalBox(left=0.649, top=0.906, right=0.844, bottom=0.947),
 )
 
+# Season 3 broadcast (2v2, both teammates in the base game, April 2024). The broadcast cuts
+# between scenes, often every minute or two, and neither shows claim counts or names
+# while a game is on (team names only appear on the end screen), so each scene is
+# recognized by its timer reading (see board.is_gameplay_frame). Measured on 1280x720
+# frames of Jo W Bush vs Monkey Ballers (youtube.com/watch?v=miUkeOU8ue8).
+#
+# The team view, most of the time: one team's two gameplay feeds across the top (team
+# name above them), and the other team's two feeds small along the bottom on either side
+# of the grid -- grid x 507-773 / y 416-657, timer box right of the casters' nameplates at
+# x 704-842 / y 659-702, nameplates x 194-398 / 404-612 at y 672-703.
+LAYOUT_SEASON_3_TEAM = Layout(
+    name=LayoutName.SEASON_3_TEAM,
+    grid_box=FractionalBox(left=0.3961, top=0.5778, right=0.6039, bottom=0.9125),
+    timer_box=FractionalBox(left=0.5531, top=0.9194, right=0.6547, bottom=0.9708),
+    game_type_box=None,
+    score_box_red=None,
+    score_box_blue=None,
+    name_box_red=None,
+    name_box_blue=None,
+    commentator_box_left=FractionalBox(left=0.1516, top=0.9333, right=0.3109, bottom=0.9764),
+    commentator_box_right=FractionalBox(left=0.3156, top=0.9333, right=0.4781, bottom=0.9764),
+)
+
+# The focus view: one player's feed large on the left with the other three small under
+# it, and the grid on the right -- grid x 888-1259 / y 104-440, timer box above it at
+# x 1009-1159 / y 57-101, the casters' nameplates under it at x 890-1072 / 1078-1258,
+# y 445-461.
+LAYOUT_SEASON_3_FOCUS = Layout(
+    name=LayoutName.SEASON_3_FOCUS,
+    grid_box=FractionalBox(left=0.6938, top=0.1444, right=0.9836, bottom=0.6111),
+    timer_box=FractionalBox(left=0.7914, top=0.0833, right=0.9023, bottom=0.1361),
+    game_type_box=None,
+    score_box_red=None,
+    score_box_blue=None,
+    name_box_red=None,
+    name_box_blue=None,
+    commentator_box_left=FractionalBox(left=0.6953, top=0.6181, right=0.8375, bottom=0.6403),
+    commentator_box_right=FractionalBox(left=0.8422, top=0.6181, right=0.9828, bottom=0.6403),
+)
+
+# Both scenes; the focus view first, since its grid is the larger, clearer read when a
+# frame could pass as either. A four-feed scene before the game and the end screen have
+# no live grid and match neither. The boxes here are the team view's, but unused (see
+# Layout.scenes).
+LAYOUT_SEASON_3 = dataclasses.replace(
+    LAYOUT_SEASON_3_TEAM,
+    name=LayoutName.SEASON_3,
+    scenes=(LAYOUT_SEASON_3_FOCUS, LAYOUT_SEASON_3_TEAM),
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
@@ -241,6 +302,9 @@ LAYOUTS: dict[LayoutName, Layout] = {
         LAYOUT_SEASON_5_V2,
         LAYOUT_SEASON_5_V3,
         LAYOUT_SEASON_4,
+        LAYOUT_SEASON_3,
+        LAYOUT_SEASON_3_TEAM,
+        LAYOUT_SEASON_3_FOCUS,
     )
 }
 

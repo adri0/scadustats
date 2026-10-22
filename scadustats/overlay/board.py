@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from scadustats.models import CellColor, FractionalBox, GameType, tag_square_text
-from scadustats.overlay import layout, ocr
+from scadustats.overlay import layout, ocr, timer
 from scadustats.overlay.layout import Layout
 
 # Tesseract's PSM 6 reads square text as multiple lines wrapped to the cell width; only
@@ -83,11 +83,30 @@ def is_gameplay_frame(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> b
     Also doubles as `pipeline.extract`'s layout-detection probe: since each `Layout`'s
     score-bar boxes sit at template-specific coordinates, a frame only satisfies this
     check under the one layout whose boxes actually line up with the broadcast's overlay.
+
+    A layout with no score bars (Season 3) is recognized by its timer box reading as a
+    clock instead -- an OCR call rather than a color check, but the only fixture of that
+    overlay present during a game. A layout made of scenes passes when any scene does
+    (see scene_for).
     """
+    if layout_.scenes:
+        return scene_for(frame, layout_) is not None
+    if layout_.score_box_red is None or layout_.score_box_blue is None:
+        return timer.read_timer(frame, layout_) is not None
     height, width = frame.shape[:2]
     red_bar = layout.crop(frame, layout_.score_box_red, width, height)
     blue_bar = layout.crop(frame, layout_.score_box_blue, width, height)
     return classify_patch(red_bar) is CellColor.RED and classify_patch(blue_bar) is CellColor.BLUE
+
+
+def scene_for(frame: np.ndarray, layout_: Layout) -> Layout | None:
+    """The layout to read this frame with: whichever of `layout_`'s scenes the frame is
+    showing (the first that passes is_gameplay_frame, see Layout.scenes), `layout_` itself
+    when it has no scenes and the frame is a gameplay frame, or None when it isn't."""
+    for scene in layout_.scenes or (layout_,):
+        if is_gameplay_frame(frame, scene):
+            return scene
+    return None
 
 
 # Cell crops are tiny (e.g. ~75x69px at 720p) holding up to 4 wrapped lines of goal text,

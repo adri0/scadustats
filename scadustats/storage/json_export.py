@@ -11,7 +11,9 @@ from scadustats.models import (
     GameEvent,
     GameResult,
     GameType,
+    Scoring,
     Square,
+    Team,
     VideoExtraction,
     format_video_timestamp,
 )
@@ -70,6 +72,18 @@ def _event_to_dict(event: GameEvent, square_texts: list[list[str]]) -> dict:
     }
 
 
+def _points_to_dict(game: GameResult) -> dict:
+    """A points game's (see models.Scoring) scoring and each side's points -- left out
+    of a lockout game's file."""
+    if game.scoring is not Scoring.POINTS:
+        return {}
+    return {
+        "scoring": game.scoring.value,
+        "red_points": game.red_points,
+        "blue_points": game.blue_points,
+    }
+
+
 def _game_to_dict(game: GameResult) -> dict:
     dumped = game.model_dump(mode="json")
     return {
@@ -77,6 +91,7 @@ def _game_to_dict(game: GameResult) -> dict:
         "start_video_ts_s": dumped["start_video_ts_s"],
         "end_video_ts_s": dumped["end_video_ts_s"],
         "game_type": dumped["game_type"],
+        **_points_to_dict(game),
         "winner_color": dumped["winner_color"],
         "win_type": dumped["win_type"],
         "win_line": dumped["win_line"],
@@ -103,6 +118,12 @@ def _metadata_to_dict(extraction: VideoExtraction) -> dict:
     }
 
 
+def _team_to_dict(team: Team) -> dict:
+    """A team as its roster entry has it: base_player/dlc_player, or members (see
+    models.Team) -- whichever it doesn't use is left out."""
+    return team.model_dump(mode="json", exclude_defaults=True)
+
+
 def _extraction_to_dict(extraction: VideoExtraction) -> dict:
     dumped = extraction.model_dump(mode="json")
     return {
@@ -113,8 +134,8 @@ def _extraction_to_dict(extraction: VideoExtraction) -> dict:
         "player_red_name": dumped["player_red_name"],
         "player_blue_name": dumped["player_blue_name"],
         # A 2v2 match's teams (see models.Team), left out of a 1v1 match's file.
-        **({"team_red": dumped["team_red"]} if extraction.team_red else {}),
-        **({"team_blue": dumped["team_blue"]} if extraction.team_blue else {}),
+        **({"team_red": _team_to_dict(extraction.team_red)} if extraction.team_red else {}),
+        **({"team_blue": _team_to_dict(extraction.team_blue)} if extraction.team_blue else {}),
         "commentators": dumped["commentators"],
         "metadata": _metadata_to_dict(extraction),
         # Written as a header for the list below, so a reviewer (or a SQL query against

@@ -8,6 +8,7 @@ from scadustats.models import (
     EventType,
     MatchMetadata,
     MatchType,
+    Scoring,
     WinType,
     format_video_timestamp,
 )
@@ -221,11 +222,22 @@ def _clocked(*boards: list[list[CellColor]], start_s: int) -> list[Observation]:
 _LIMIT = extract._TIME_LIMIT_S
 
 
+def _played(segment: list[Observation]):
+    """A lockout game's events and result, as extract_video gets them from a segment."""
+    events, stopped = _game_events(segment)
+    game = _unsettled_game(events)
+    if stopped is None:
+        extract._settle_game(game, segment[-1], Scoring.LOCKOUT)
+    else:
+        extract._settle_game(game, stopped, Scoring.LOCKOUT, time_limit=True)
+    return game.events, game.winner_color, game.win_type, game.win_line
+
+
 def test_game_stopped_by_the_time_limit_is_decided_on_the_count():
     two_one = _board((0, 0, R), (2, 2, R), (4, 4, B))
     segment = _clocked(*[two_one] * 6, start_s=_LIMIT - 3)
 
-    events, winner_color, win_type, win_line = _game_events(segment)
+    events, winner_color, win_type, win_line = _played(segment)
 
     assert (winner_color, win_type, win_line) == (R, WinType.MAJORITY, None)
     game_end = events[-1]
@@ -242,7 +254,7 @@ def test_level_count_at_the_time_limit_is_a_tie():
     one_one = _board((0, 0, R), (4, 4, B))
     segment = _clocked(*[one_one] * 6, start_s=_LIMIT - 3)
 
-    events, winner_color, win_type, _ = _game_events(segment)
+    events, winner_color, win_type, _ = _played(segment)
 
     assert (winner_color, win_type) == (None, WinType.TIE)
     assert events[-1].event_type is EventType.GAME_END
@@ -255,7 +267,7 @@ def test_claim_after_the_time_limit_is_dropped():
     # well after it.
     segment = _clocked(*[one_one] * 6, *[late] * 4, start_s=_LIMIT - 3)
 
-    events, winner_color, win_type, _ = _game_events(segment)
+    events, winner_color, win_type, _ = _played(segment)
 
     assert (winner_color, win_type) == (None, WinType.TIE)
     assert [(e.row, e.col) for e in events if e.event_type is EventType.MARK] == [
@@ -270,7 +282,7 @@ def test_claim_showing_when_the_clock_reaches_the_limit_counts():
     # Red's second square first shows on the sample where the clock reads the limit.
     segment = _clocked(*[one_one] * 3, *[two_one] * 4, start_s=_LIMIT - 3)
 
-    _, winner_color, win_type, _ = _game_events(segment)
+    _, winner_color, win_type, _ = _played(segment)
 
     assert (winner_color, win_type) == (R, WinType.MAJORITY)
 
@@ -281,7 +293,7 @@ def test_misread_timer_jump_to_the_limit_does_not_stop_the_game():
     # One sample reads two hours more than the clock really shows.
     segment[3] = Observation(3, segment[3].video_ts_s, two_one, segment[3].timer_s + _LIMIT)
 
-    events, winner_color, win_type, _ = _game_events(segment)
+    events, winner_color, win_type, _ = _played(segment)
 
     assert (winner_color, win_type) == (None, WinType.NONE)
     assert all(e.event_type is not EventType.GAME_END for e in events)
@@ -291,7 +303,7 @@ def test_game_settled_before_the_time_limit_keeps_its_own_game_end():
     row = _board(*[(2, c, R) for c in range(5)])
     segment = _clocked(*[row] * 4, start_s=600)
 
-    events, winner_color, win_type, _ = _game_events(segment)
+    events, winner_color, win_type, _ = _played(segment)
 
     assert (winner_color, win_type) == (R, WinType.LINE)
     assert [e.event_type for e in events].count(EventType.GAME_END) == 1
@@ -366,7 +378,7 @@ def test_collect_observations_drops_samples_with_an_unreadable_timer(monkeypatch
     _stub_sampling(monkeypatch, [10, None, None, 12])
 
     with caplog.at_level(logging.WARNING):
-        observations, _ = _collect_observations("video.mp4", 1.0)
+        observations, _, _ = _collect_observations("video.mp4", 1.0)
 
     assert [(obs.sample_index, obs.timer_s) for obs in observations] == [(0, 10), (3, 12)]
     # Half the samples gone is far past "the usual transition" and worth flagging.
@@ -377,7 +389,7 @@ def test_collect_observations_does_not_warn_about_a_few_unreadable_timers(monkey
     _stub_sampling(monkeypatch, [*range(50), None, *range(50)])
 
     with caplog.at_level(logging.WARNING):
-        observations, _ = _collect_observations("video.mp4", 1.0)
+        observations, _, _ = _collect_observations("video.mp4", 1.0)
 
     assert len(observations) == 100
     assert not caplog.records
@@ -440,3 +452,108 @@ def test_find_team_matches_the_overlays_capitals_and_a_stray_misread():
     assert extract._find_team("BUSHY STACHF", roster) is roster[1]
     assert extract._find_team("MONKEY BUSINESS", roster) is None
     assert extract._find_team("POSITIVE VIBES", []) is None
+
+
+def _unsettled_game(events):
+    from scadustats.models import GameResult, GameType
+
+    return GameResult(
+        game_index=1,
+        start_video_ts_s=0.0,
+        end_video_ts_s=100.0,
+        square_texts=[[""] * 5 for _ in range(5)],
+        events=events,
+        winner_color=None,
+        win_type=WinType.NONE,
+        game_type=GameType.BASE,
+    )
+
+
+def _square_event(row, col, color, ts):
+    from scadustats.models import GameEvent
+
+    return GameEvent(
+        row=row,
+        col=col,
+        color=color,
+        video_timestamp=format_video_timestamp(ts),
+        game_elapsed_s=int(ts),
+        event_type=EventType.MARK,
+    )
+
+
+def test_settle_game_decides_a_points_game_at_the_segments_last_reading():
+    from scadustats.models import Scoring
+
+    # Red completes row 1 early (7 points); blue claims 8 squares by the end (8 points).
+    events = [_square_event(1, col, R, col) for col in range(1, 6)]
+    events += [_square_event(2 + i // 4, 1 + i % 4, B, 10 + i) for i in range(8)]
+    game = _unsettled_game(events)
+
+    extract._settle_game(game, Observation(99, 3700.0, _board(), 3598), Scoring.POINTS)
+
+    assert game.scoring is Scoring.POINTS
+    assert (game.winner_color, game.win_type, game.win_line) == (B, WinType.POINTS, None)
+    assert (game.red_points, game.blue_points) == (7, 8)
+    assert game.events[-1].event_type is EventType.GAME_END
+    assert game.events[-1].game_elapsed_s == 3598
+    assert game.events[-1].video_timestamp == "01:01:40"
+
+
+def test_settle_game_decides_a_lockout_game_on_its_line():
+    from scadustats.models import Scoring, WinLine
+
+    game = _unsettled_game([_square_event(1, col, R, col) for col in range(1, 6)])
+
+    extract._settle_game(game, Observation(99, 100.0, _board(), 90), Scoring.LOCKOUT)
+
+    assert (game.winner_color, game.win_type, game.win_line) == (R, WinType.LINE, WinLine.ROW_1)
+    assert game.red_points is None and game.blue_points is None
+    assert game.events[-1].event_type is EventType.GAME_END
+    assert game.events[-1].video_timestamp == format_video_timestamp(5)
+
+
+def test_text_scene_prefers_the_larger_grid_seen_long_enough():
+    from scadustats.overlay import layout
+
+    team, focus = layout.LAYOUT_SEASON_3_TEAM, layout.LAYOUT_SEASON_3_FOCUS
+    segment = [Observation(i, float(i), _board(), i) for i in range(40)]
+    # Mostly the team view, with the focus view for 12 samples.
+    sample_layouts = {i: (focus if 10 <= i < 22 else team) for i in range(40)}
+
+    scene, part = extract._text_scene(segment, sample_layouts, layout.LAYOUT_SEASON_3)
+    assert scene is focus
+    assert [obs.sample_index for obs in part] == list(range(10, 22))
+
+    # Seen for too few samples to vote over, the larger grid loses to the most-seen scene.
+    sample_layouts = {i: (focus if i < 3 else team) for i in range(40)}
+    scene, part = extract._text_scene(segment, sample_layouts, layout.LAYOUT_SEASON_3)
+    assert scene is team
+    assert len(part) == 37
+
+
+def test_text_scene_is_the_whole_segment_without_scenes():
+    from scadustats.overlay import layout
+
+    segment = [Observation(i, float(i), _board(), i) for i in range(5)]
+    assert extract._text_scene(segment, {}, layout.LAYOUT_SEASON_4) == (
+        layout.LAYOUT_SEASON_4,
+        segment,
+    )
+
+
+def test_settle_game_ends_a_points_game_on_the_claim_that_reaches_13():
+    from scadustats.models import Scoring
+
+    # Red: row 1 (5 + 2 = 7), then six more squares -- the sixth, at 30s, makes 13.
+    events = [_square_event(1, col, R, col) for col in range(1, 6)]
+    events += [_square_event(2 + i // 4, 1 + i % 4, R, 25 + i) for i in range(6)]
+    events += [_square_event(5, 5, B, 40)]
+    game = _unsettled_game(events)
+
+    extract._settle_game(game, Observation(99, 3700.0, _board(), 3598), Scoring.POINTS)
+
+    assert (game.winner_color, game.win_type) == (R, WinType.POINTS)
+    assert (game.red_points, game.blue_points) == (13, 1)
+    assert game.events[-1].event_type is EventType.GAME_END
+    assert game.events[-1].video_timestamp == format_video_timestamp(30)
