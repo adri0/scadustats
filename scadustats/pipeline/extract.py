@@ -25,6 +25,7 @@ from scadustats.models import (
     GameType,
     LayoutName,
     MatchMetadata,
+    Scoring,
     Team,
     VideoExtraction,
     WinLine,
@@ -34,7 +35,7 @@ from scadustats.models import (
 from scadustats.overlay import board, commentators, game_type_label, layout, scoreboard, timer
 from scadustats.pipeline import squares
 from scadustats.pipeline.segmentation import Observation, detect_boundaries
-from scadustats.rules import winner
+from scadustats.rules import validation, winner
 from scadustats.storage import json_export, teams
 from scadustats.video import frames
 
@@ -129,8 +130,13 @@ def _collect_observations(
     sample_rate_hz: float,
     on_progress: Callable[[], None] | None = None,
     forced_layout: layout.Layout | None = None,
-) -> tuple[list[Observation], layout.Layout]:
+) -> tuple[list[Observation], layout.Layout, dict[int, layout.Layout]]:
+    """Every readable gameplay sample, the layout the video was read with, and -- keyed
+    by sample index -- which layout each sample was read with: the video's layout itself,
+    or for a layout made of scenes (Season 3, see Layout.scenes) the scene that sample
+    showed."""
     prev_counts = (0, 0)
+    sample_layouts: dict[int, layout.Layout] = {}
     # (index, video_ts_s, colors, timer_future) per gameplay sample, in sample order --
     # the timer OCR runs in the background via the future, so this fills in while later
     # samples are still being decoded, and is drained into Observations only once every
@@ -170,18 +176,20 @@ def _collect_observations(
                 else:
                     logger.info("detected overlay layout: %s", selected_layout.name)
 
-            if not board.is_gameplay_frame(frame, selected_layout):
+            frame_layout = board.scene_for(frame, selected_layout)
+            if frame_layout is None:
                 # Not showing the live overlay (e.g. a "POST GAME" recap screen, which
                 # reuses the same grid coordinates to cycle through other completed games'
                 # boards) -- the cell colors and the timer crop would be meaningless here.
                 continue
+            sample_layouts[i] = frame_layout
 
-            colors = board.cell_colors(frame, selected_layout)
+            colors = board.cell_colors(frame, frame_layout)
 
             red = sum(cell is CellColor.RED for row in colors for cell in row)
             blue = sum(cell is CellColor.BLUE for row in colors for cell in row)
             if (red, blue) != prev_counts:
-                board_red, board_blue = scoreboard.read_scores(frame, selected_layout)
+                board_red, board_blue = scoreboard.read_scores(frame, frame_layout)
                 if board_red is not None and board_red != red:
                     logger.warning(
                         "red claim count mismatch at %.1fs: board=%d scoreboard=%d",
@@ -202,7 +210,7 @@ def _collect_observations(
             # bounded pipeline instead of decoding/queueing the whole video's frames in
             # memory before OCR has processed any of them.
             ocr_slots.acquire()
-            timer_future = executor.submit(timer.read_timer, frame, selected_layout)
+            timer_future = executor.submit(timer.read_timer, frame, frame_layout)
             timer_future.add_done_callback(_release_slot)
 
             pending.append((i, video_ts_s, colors, timer_future))
@@ -240,7 +248,7 @@ def _collect_observations(
     # Only reachable when the whole video ran out before _LAYOUT_DETECTION_MAX_SAMPLES.
     if selected_layout is None:
         selected_layout = layout.STANDARD
-    return observations, selected_layout
+    return observations, selected_layout, sample_layouts
 
 
 def _segment_games(observations: list[Observation]) -> list[list[Observation]]:
@@ -413,7 +421,10 @@ def _extract_events(segment: list[Observation]) -> list[GameEvent]:
 
 
 def _detect_game_end(
-    events: list[GameEvent], winner_color: CellColor | None, win_type: WinType
+    events: list[GameEvent],
+    winner_color: CellColor | None,
+    win_type: WinType,
+    scoring: Scoring = Scoring.LOCKOUT,
 ) -> GameEvent | None:
     """The GAME_END event for a game with a recorded winner (LINE or MAJORITY) --
     timestamped at the one MARK event that locks that outcome in for the rest of the
@@ -432,7 +443,7 @@ def _detect_game_end(
         return None
     ordered = sorted(events, key=lambda event: event.video_timestamp)
     states = winner.board_states(ordered)
-    index = winner.settled_result_index(states, winner_color, win_type)
+    index = winner.settled_result_index(states, winner_color, win_type, scoring)
     if index is None or ordered[index].event_type is not EventType.MARK:
         return None
     settling = ordered[index]
@@ -446,8 +457,67 @@ def _detect_game_end(
     )
 
 
+def _settle_game(game: GameResult, last: Observation, scoring: Scoring) -> None:
+    """Fill in a game's scoring, result and GAME_END, in place. A game settled by its
+    claims -- a line or an unbeatable majority in lockout, reaching
+    winner.POINTS_TO_WIN in a points game (Season 3's round robin) -- ends on the claim
+    that settled it (see _detect_game_end). A points game nobody won that way ran out of
+    time: its GAME_END is the segment's last reading -- the game screen gives way to the
+    end screen when time is up -- and the points at that moment decide it."""
+    game.scoring = scoring
+    game.winner_color, game.win_type, game.win_line = _determine_winner(game.events, scoring)
+    game_end = _detect_game_end(game.events, game.winner_color, game.win_type, scoring)
+    if game_end is None and scoring is Scoring.POINTS:
+        game_end = GameEvent(
+            row=None,
+            col=None,
+            color=None,
+            video_timestamp=format_video_timestamp(last.video_ts_s),
+            game_elapsed_s=last.timer_s if last.timer_s is not None else 0,
+            event_type=EventType.GAME_END,
+        )
+    if game_end is not None:
+        game.events = [*game.events, game_end]
+    board_ = winner.replay(game.events)
+    if scoring is Scoring.POINTS:
+        game.winner_color, game.win_type, game.win_line = winner.determine_winner(
+            board_, time_up=winner.time_up(game.events), scoring=scoring
+        )
+        game.red_points, game.blue_points = winner.points(board_)
+
+
+def _text_scene(
+    segment: list[Observation],
+    sample_layouts: dict[int, layout.Layout],
+    selected_layout: layout.Layout,
+) -> tuple[layout.Layout, list[Observation]]:
+    """The layout and the part of a game's segment to read square text, names and
+    commentators from. The whole segment with the video's layout, unless that layout is
+    made of scenes (Season 3, see Layout.scenes): then the samples of one scene -- the one
+    with the largest grid among those seen for enough samples to majority-vote over, or
+    failing that the most-seen one -- since the text crops only line up within one."""
+    if not selected_layout.scenes:
+        return selected_layout, segment
+    by_scene: dict[LayoutName, list[Observation]] = {}
+    for obs in segment:
+        by_scene.setdefault(sample_layouts[obs.sample_index].name, []).append(obs)
+    scenes = {scene.name: scene for scene in selected_layout.scenes}
+
+    def grid_area(name: LayoutName) -> float:
+        box = scenes[name].grid_box
+        return (box.right - box.left) * (box.bottom - box.top)
+
+    enough = [name for name, obs in by_scene.items() if len(obs) >= _SQUARE_TEXT_FRAME_COUNT]
+    chosen = (
+        max(enough, key=grid_area)
+        if enough
+        else max(by_scene, key=lambda name: len(by_scene[name]))
+    )
+    return scenes[chosen], by_scene[chosen]
+
+
 def _determine_winner(
-    events: list[GameEvent],
+    events: list[GameEvent], scoring: Scoring = Scoring.LOCKOUT
 ) -> tuple[CellColor | None, WinType, WinLine | None]:
     """Replay every event (including unclaims) to the final board state and evaluate the
     win condition once there -- rather than stopping at the first claim that completes a
@@ -459,7 +529,7 @@ def _determine_winner(
     Non-square events (e.g. GAME_START) carry no row/col and don't affect board state,
     so winner.replay skips them.
     """
-    return winner.determine_winner(winner.replay(events))
+    return winner.determine_winner(winner.replay(events), scoring=scoring)
 
 
 def _match_id(match_metadata: MatchMetadata, red_name: str | None, blue_name: str | None) -> str:
@@ -532,7 +602,7 @@ def extract_video(
     # frames.probe couldn't read an fps to divide the frame count by; None ("unknown")
     # rather than a fabricated 0.0 in that case.
     duration_s = frames.probe(video_path).duration_s
-    observations, selected_layout = _collect_observations(
+    observations, selected_layout, sample_layouts = _collect_observations(
         video_path, sample_rate_hz, on_progress, forced_layout
     )
     segments = _segment_games(observations)
@@ -547,16 +617,19 @@ def extract_video(
     # same people throughout.
     casters: list[str] = []
     for game_index, segment in enumerate(segments, start=1):
-        square_text_observations = _select_square_text_observations(segment)
+        # The frames read for square text, names and commentators all come from one
+        # scene (the whole segment unless the layout has scenes, see _text_scene).
+        text_layout, text_segment = _text_scene(segment, sample_layouts, selected_layout)
+        square_text_observations = _select_square_text_observations(text_segment)
         square_text_frames = _grab_frames(
             video_path, [obs.video_ts_s for obs in square_text_observations]
         )
-        square_texts = board.cell_square_texts_majority(square_text_frames, selected_layout)
-        if selected_layout.square_type_tags:
+        square_texts = board.cell_square_texts_majority(square_text_frames, text_layout)
+        if text_layout.square_type_tags:
             # A mixed board (Season 5): every game is TWO_V_TWO, and each square's text
             # ends in its own pool's tag -- see board.tag_square_texts_majority.
             square_texts = board.tag_square_texts_majority(
-                square_text_frames, square_texts, selected_layout
+                square_text_frames, square_texts, text_layout
             )
         # The overlay's own "BASE GAME"/"DLC" subtitle (see game_type_label.py) is tried
         # first -- it's read directly off the same frames already grabbed for square-text
@@ -564,18 +637,18 @@ def extract_video(
         # texts (squares.py) if none of those frames produced a clean reading, e.g. a
         # transition moment or -- see CLAUDE.md -- source footage too compressed for this
         # small a subtitle to OCR reliably.
-        if selected_layout.square_type_tags:
+        if text_layout.square_type_tags:
             game_type = GameType.TWO_V_TWO
         else:
-            game_type = game_type_label.majority_game_type_label(
-                square_text_frames, selected_layout
-            )
+            game_type = game_type_label.majority_game_type_label(square_text_frames, text_layout)
         if game_type is None:
             game_type = squares.infer_game_type(square_texts, known_squares)
         if game_index == 1:
-            representative_frame = _grab_frame(video_path, segment[len(segment) // 2].video_ts_s)
+            representative_frame = _grab_frame(
+                video_path, text_segment[len(text_segment) // 2].video_ts_s
+            )
             player_red_name, player_blue_name = scoreboard.read_player_names(
-                representative_frame, selected_layout
+                representative_frame, text_layout
             )
             # Majority-voted over the frames already grabbed above for square text, so
             # this costs no extra decoding -- only the OCR of two small crops per frame,
@@ -585,17 +658,15 @@ def extract_video(
             # so voting is the only guard against a single bad frame here. A layout with
             # no nameplates at all (Layout.commentator_box_left/right is None) yields an
             # empty list here rather than a special case -- see commentators.py.
-            casters = commentators.majority_commentator_names(square_text_frames, selected_layout)
+            casters = commentators.majority_commentator_names(square_text_frames, text_layout)
 
         events = _extract_events(segment)
         game_start = _detect_game_start(segment)
         if game_start is not None:
             events = [game_start, *events]
-        winner_color, win_type, win_line = _determine_winner(events)
-        game_end = _detect_game_end(events, winner_color, win_type)
-        if game_end is not None:
-            events = [*events, game_end]
 
+        # The result is settled further down, once the match's season and type are known
+        # -- they decide how the game is scored (see _settle_game).
         games.append(
             GameResult(
                 game_index=game_index,
@@ -603,9 +674,8 @@ def extract_video(
                 end_video_ts_s=segment[-1].video_ts_s,
                 square_texts=square_texts,
                 events=events,
-                winner_color=winner_color,
-                win_type=win_type,
-                win_line=win_line,
+                winner_color=None,
+                win_type=WinType.NONE,
                 game_type=game_type,
             )
         )
@@ -617,6 +687,10 @@ def extract_video(
     # actually blocks: prompting takes seconds, extraction takes minutes.
     if isinstance(match_metadata, Future):
         match_metadata = match_metadata.result()
+
+    scoring = validation.scoring_for(match_metadata.season, match_metadata.match_type)
+    for game, segment in zip(games, segments, strict=True):
+        _settle_game(game, segment[-1], scoring)
 
     # Deferred to here (rather than resolved inline with the inference above) so it runs
     # only after match_metadata's own prompting (if any) has fully finished -- both can

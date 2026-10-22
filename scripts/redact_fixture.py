@@ -41,35 +41,49 @@ _CRF = "16"
 
 def _restored_boxes(layout_: layout.Layout) -> tuple[layout.FractionalBox, ...]:
     """Every one of the layout's own boxes other than the grid (which is kept as a whole
-    column, not box-by-box -- see redact()), skipping a commentator box the layout
-    doesn't have at all (and likewise the game-type box)."""
+    column, not box-by-box -- see redact()), skipping any the layout doesn't have at all
+    (a commentator or game-type box, or Season 3's score and name boxes)."""
     boxes = [
         layout_.timer_box,
         layout_.score_box_red,
         layout_.score_box_blue,
         layout_.name_box_red,
         layout_.name_box_blue,
+        layout_.game_type_box,
+        layout_.commentator_box_left,
+        layout_.commentator_box_right,
     ]
-    if layout_.game_type_box is not None:
-        boxes.append(layout_.game_type_box)
-    if layout_.commentator_box_left is not None:
-        boxes.append(layout_.commentator_box_left)
-    if layout_.commentator_box_right is not None:
-        boxes.append(layout_.commentator_box_right)
-    return tuple(boxes)
+    return tuple(box for box in boxes if box is not None)
 
 
 def redact(frame: np.ndarray, layout_: layout.Layout) -> np.ndarray:
-    """Zero everything outside the overlay regions the pipeline reads."""
+    """Zero everything outside the overlay regions the pipeline reads. For Season 3's
+    layouts (no score bars) the grid is kept as just its box rather than a whole column:
+    in those scenes the column above or below the grid holds players' gameplay feeds and
+    webcams. A layout made of scenes (see Layout.scenes) keeps every scene's grid and
+    boxes; cut a clip of one scene with that scene's own layout to keep only its own."""
     height, width = frame.shape[:2]
     out = np.zeros_like(frame)
 
-    grid_left, _, grid_right, _ = layout.to_pixel_box(layout_.grid_box, width, height)
-    out[:, grid_left:grid_right] = frame[:, grid_left:grid_right]
-
-    for box in _restored_boxes(layout_):
+    def restore(box: layout.FractionalBox) -> None:
         left, top, right, bottom = layout.to_pixel_box(box, width, height)
         out[top:bottom, left:right] = frame[top:bottom, left:right]
+
+    if layout_.scenes:
+        for scene in layout_.scenes:
+            restore(scene.grid_box)
+            for box in _restored_boxes(scene):
+                restore(box)
+        return out
+
+    if layout_.score_box_red is None:
+        restore(layout_.grid_box)
+    else:
+        grid_left, _, grid_right, _ = layout.to_pixel_box(layout_.grid_box, width, height)
+        out[:, grid_left:grid_right] = frame[:, grid_left:grid_right]
+
+    for box in _restored_boxes(layout_):
+        restore(box)
 
     return out
 

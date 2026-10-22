@@ -663,6 +663,9 @@ def match_validate(
     - season_game_type: a game's type isn't one of its season's (dlc in Season 4, 2v2
       in Season 5, base or dlc otherwise)
 
+    - season_scoring: a game isn't scored its season's way (points in Season 3's
+      round robin, lockout everywhere else)
+
     - game_count: wrong number of games for the match type and season (a round robin
       match is 2 games in Season 6, 1 in Seasons 4 and 5; a best of 3 is 2 or 3)
 
@@ -679,6 +682,9 @@ def match_validate(
     Then each game's own:
 
     - winner_board_mismatch: the recorded result disagrees with the replayed board
+
+    - points_mismatch: a points game's recorded points disagree with its board (or a
+      lockout game records points)
 
     - win_line_not_recorded: a line win has no win_line (re-extract to fill it in)
 

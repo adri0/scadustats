@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS games (
     -- to unknown, and that should load cleanly rather than fail a NOT NULL constraint.
     game_type VARCHAR CHECK (game_type IN ('base', 'dlc', '2v2')),
     winner_color VARCHAR CHECK (winner_color IN ('red', 'blue')),
-    win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'tie', 'none')),
+    win_type VARCHAR CHECK (win_type IN ('line', 'majority', 'points', 'tie', 'none')),
     -- Which line a win_type='line' win was completed on; NULL for every other win type,
     -- since there's no line to name. Row/column indices are 1-based, like the row/col
     -- columns on squares/events (see models.WinLine).
