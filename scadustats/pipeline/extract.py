@@ -87,6 +87,10 @@ _LAYOUT_DETECTION_MAX_SAMPLES = 180
 _MARK_DEBOUNCE_SAMPLES = 2
 _UNMARK_DEBOUNCE_SAMPLES = 2 * _MARK_DEBOUNCE_SAMPLES
 
+# The game clock reading at which a game is stopped on time (Season 4's two-hour limit;
+# no other season's game has run this long). See _detect_time_limit.
+_TIME_LIMIT_S = 2 * 60 * 60
+
 
 @dataclass
 class ExtractionSummary:
@@ -457,32 +461,88 @@ def _detect_game_end(
     )
 
 
-def _settle_game(game: GameResult, last: Observation, scoring: Scoring) -> None:
+def _detect_time_limit(segment: list[Observation]) -> int | None:
+    """Position in `segment` of the first sample whose game clock has reached
+    `_TIME_LIMIT_S`, i.e. where the game was stopped on time -- or None if it never does.
+
+    The reading only counts when the clock got there by ticking up: the previous timed
+    sample has to sit within `_CLOCK_STEP_TOLERANCE_S` below it, the same continuity
+    _detect_game_start asks of the clock, so a single misread of the timer box (a stray
+    2 in the hours digit) can't stop a game early. The pre-game countdown never comes
+    near two hours, so it needs no special case.
+    """
+    previous: int | None = None
+    for index, obs in enumerate(segment):
+        if obs.timer_s is None:
+            continue
+        if (
+            obs.timer_s >= _TIME_LIMIT_S
+            and previous is not None
+            and obs.timer_s - _CLOCK_STEP_TOLERANCE_S <= previous <= obs.timer_s
+        ):
+            return index
+        previous = obs.timer_s
+    return None
+
+
+def _game_events(segment: list[Observation]) -> tuple[list[GameEvent], Observation | None]:
+    """One game's events from its segment of samples, and the sample where the time limit
+    stopped it (None when it didn't).
+
+    A game stopped by the time limit (see _detect_time_limit) only counts claims seen by
+    the time the clock got there -- the overlay freezes the clock but the board can still
+    change after it (a square handed in late), and that isn't part of the game. The
+    samples are cut `_MARK_DEBOUNCE_SAMPLES` past that point, so a claim already showing
+    when the clock reached the limit still gets the debounce it needs to be confirmed,
+    and the last sample kept is where the game stopped (see _settle_game).
+    """
+    time_limit_index = _detect_time_limit(segment)
+    played = (
+        segment
+        if time_limit_index is None
+        else segment[: time_limit_index + _MARK_DEBOUNCE_SAMPLES]
+    )
+    events = _extract_events(played)
+    game_start = _detect_game_start(segment)
+    if game_start is not None:
+        events = [game_start, *events]
+    return events, (None if time_limit_index is None else played[-1])
+
+
+def _settle_game(
+    game: GameResult, last: Observation, scoring: Scoring, *, time_limit: bool = False
+) -> None:
     """Fill in a game's scoring, result and GAME_END, in place. A game settled by its
     claims -- a line or an unbeatable majority in lockout, reaching
     winner.POINTS_TO_WIN in a points game (Season 3's round robin) -- ends on the claim
-    that settled it (see _detect_game_end). A points game nobody won that way ran out of
-    time: its GAME_END is the segment's last reading -- the game screen gives way to the
-    end screen when time is up -- and the points at that moment decide it."""
+    that settled it (see _detect_game_end). A game nobody won that way ran out of time
+    when it's a points game -- its GAME_END is the segment's last reading, since the game
+    screen gives way to the end screen when time is up -- or when `time_limit` says the
+    clock reached _TIME_LIMIT_S, with `last` the sample it stopped at (see _game_events).
+    Either way the count at that moment decides it: the points, or in lockout MAJORITY
+    for the leader and TIE when level."""
     game.scoring = scoring
     game.winner_color, game.win_type, game.win_line = _determine_winner(game.events, scoring)
     game_end = _detect_game_end(game.events, game.winner_color, game.win_type, scoring)
-    if game_end is None and scoring is Scoring.POINTS:
+    if game_end is None and (scoring is Scoring.POINTS or time_limit):
         game_end = GameEvent(
             row=None,
             col=None,
             color=None,
             video_timestamp=format_video_timestamp(last.video_ts_s),
-            game_elapsed_s=last.timer_s if last.timer_s is not None else 0,
+            game_elapsed_s=(
+                last.timer_s if last.timer_s is not None else _TIME_LIMIT_S if time_limit else 0
+            ),
             event_type=EventType.GAME_END,
         )
     if game_end is not None:
         game.events = [*game.events, game_end]
     board_ = winner.replay(game.events)
-    if scoring is Scoring.POINTS:
+    if scoring is Scoring.POINTS or time_limit:
         game.winner_color, game.win_type, game.win_line = winner.determine_winner(
             board_, time_up=winner.time_up(game.events), scoring=scoring
         )
+    if scoring is Scoring.POINTS:
         game.red_points, game.blue_points = winner.points(board_)
 
 
@@ -608,6 +668,8 @@ def extract_video(
     segments = _segment_games(observations)
 
     games = []
+    # Per game, the sample where the time limit stopped it, if it did (see _game_events).
+    stops: list[Observation | None] = []
     # Player names are read once, from the first game, rather than once per game -- a
     # video is one match, so the same two players hold for every game in it (see
     # VideoExtraction), and re-reading per game would just be redundant OCR cost.
@@ -660,10 +722,8 @@ def extract_video(
             # empty list here rather than a special case -- see commentators.py.
             casters = commentators.majority_commentator_names(square_text_frames, text_layout)
 
-        events = _extract_events(segment)
-        game_start = _detect_game_start(segment)
-        if game_start is not None:
-            events = [game_start, *events]
+        events, stopped = _game_events(segment)
+        stops.append(stopped)
 
         # The result is settled further down, once the match's season and type are known
         # -- they decide how the game is scored (see _settle_game).
@@ -689,8 +749,11 @@ def extract_video(
         match_metadata = match_metadata.result()
 
     scoring = validation.scoring_for(match_metadata.season, match_metadata.match_type)
-    for game, segment in zip(games, segments, strict=True):
-        _settle_game(game, segment[-1], scoring)
+    for game, segment, stopped in zip(games, segments, stops, strict=True):
+        if stopped is None:
+            _settle_game(game, segment[-1], scoring)
+        else:
+            _settle_game(game, stopped, scoring, time_limit=True)
 
     # Deferred to here (rather than resolved inline with the inference above) so it runs
     # only after match_metadata's own prompting (if any) has fully finished -- both can
