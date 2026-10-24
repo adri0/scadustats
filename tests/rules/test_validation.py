@@ -719,7 +719,7 @@ def test_marks_after_a_line_are_fine_in_a_points_game():
     assert "mark_after_win" not in _codes(validate_game(_points_game()))
 
 
-def test_season_3_round_robin_games_are_scored_on_points():
+def test_season_3_games_are_scored_on_points():
     from scadustats.models import Scoring
 
     lockout = _points_game(scoring=Scoring.LOCKOUT, red_points=None, blue_points=None)
@@ -727,7 +727,7 @@ def test_season_3_round_robin_games_are_scored_on_points():
     assert "season_scoring" in _codes(issues)
 
 
-def test_season_3_playoff_games_are_lockout():
+def test_season_3_playoff_games_are_scored_on_points_too():
     issues = validate_extraction(
         _extraction(
             season="3",
@@ -735,17 +735,16 @@ def test_season_3_playoff_games_are_lockout():
             games=[_points_game(), _points_game()],
         )
     )
-    assert "season_scoring" in _codes(issues)
+    assert "season_scoring" not in _codes(issues)
 
 
-def test_scoring_for_each_season_and_match_type():
+def test_scoring_for_each_season():
     from scadustats.models import Scoring
     from scadustats.rules.validation import scoring_for
 
-    assert scoring_for("3", MatchType.ROUND_ROBIN) is Scoring.POINTS
-    assert scoring_for("3", MatchType.DOUBLE_ELIMINATION) is Scoring.LOCKOUT
-    assert scoring_for("6", MatchType.ROUND_ROBIN) is Scoring.LOCKOUT
-    assert scoring_for("unknown", MatchType.ROUND_ROBIN) is Scoring.LOCKOUT
+    assert scoring_for("3") is Scoring.POINTS
+    assert scoring_for("6") is Scoring.LOCKOUT
+    assert scoring_for("unknown") is Scoring.LOCKOUT
 
 
 def test_a_mark_after_reaching_13_points_is_reported():

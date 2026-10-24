@@ -42,14 +42,14 @@ class SeasonFormat:
     exact number of games in one of its round robin matches, and `opening_game_types`
     the game type each of the first games must be, in order (empty: not checked). A
     best of 3 is 2 or 3 games in every season, so it isn't part of the format.
-    `round_robin_scoring` is how a round robin game is decided (see models.Scoring); a
-    best of 3 is lockout in every season."""
+    `scoring` is how every game of the season is decided, round robin and best of 3
+    alike (see models.Scoring)."""
 
     name: str
     game_types: frozenset[GameType]
     round_robin_games: int
     opening_game_types: tuple[GameType, ...] = ()
-    round_robin_scoring: Scoring = Scoring.LOCKOUT
+    scoring: Scoring = Scoring.LOCKOUT
 
 
 # 1v1, a base game then a DLC game; only a best-of-3 decider (game 3) is free to be either.
@@ -63,13 +63,13 @@ _BASE_THEN_DLC = SeasonFormat(
 # Keyed by VideoExtraction.season. A season missing here is reported (unknown_season)
 # and the rules that depend on its format are skipped.
 SEASON_FORMATS: dict[str, SeasonFormat] = {
-    # 2v2, both teammates on the same base game board (no DLC yet); a round robin game is
-    # a race to 13 points (see models.Scoring), the playoffs are lockout.
+    # 2v2, both teammates on the same base game board (no DLC yet); every game, playoffs
+    # included, is a race to 13 points (see models.Scoring).
     "3": SeasonFormat(
         name="2v2 base game",
         game_types=frozenset({GameType.BASE}),
         round_robin_games=1,
-        round_robin_scoring=Scoring.POINTS,
+        scoring=Scoring.POINTS,
     ),
     "4": SeasonFormat(
         name="DLC-only 1v1", game_types=frozenset({GameType.DLC}), round_robin_games=1
@@ -80,14 +80,11 @@ SEASON_FORMATS: dict[str, SeasonFormat] = {
 }
 
 
-def scoring_for(season: str, match_type: MatchType) -> Scoring:
-    """How a game of this season and match type is decided: the season's
-    round_robin_scoring for a round robin game, lockout otherwise (and for a season with
-    no known format)."""
+def scoring_for(season: str) -> Scoring:
+    """How a game of this season is decided: the season's scoring, or lockout for a
+    season with no known format."""
     format_ = SEASON_FORMATS.get(season)
-    if format_ is not None and match_type is MatchType.ROUND_ROBIN:
-        return format_.round_robin_scoring
-    return Scoring.LOCKOUT
+    return format_.scoring if format_ is not None else Scoring.LOCKOUT
 
 
 @dataclass(frozen=True)
@@ -512,16 +509,16 @@ def _check_opening_game_types(
 
 
 def _check_season_scoring(extraction: VideoExtraction) -> list[ValidationIssue]:
-    """Rule: every game is scored the way its season and match type are (see
-    scoring_for) -- points in Season 3's round robin, lockout everywhere else. A game
+    """Rule: every game is scored the way its season is (see scoring_for) -- points
+    in Season 3, lockout everywhere else. A game
     scored the other way has the wrong result rules applied to it."""
-    expected = scoring_for(extraction.season, extraction.match_type)
+    expected = scoring_for(extraction.season)
     return [
         ValidationIssue(
             code="season_scoring",
             message=(
                 f"game {game.game_index} is scored {game.scoring.value}, but a season "
-                f"{extraction.season} {extraction.match_type.value} game is {expected.value}"
+                f"{extraction.season} game is {expected.value}"
             ),
         )
         for game in extraction.games
