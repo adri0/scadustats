@@ -632,6 +632,114 @@ class PlayerInfo(BaseModel):
     bio: str | None = None
 
 
+class GameRef(BaseModel):
+    """One game of one match, and a moment in it on the game clock (GameEvent.
+    game_elapsed_s) -- what a player stat points back to, so a consumer can link it."""
+
+    match_id: str
+    game_index: int
+    time_s: int
+
+
+class PlayerPace(BaseModel):
+    """How fast a player plays (see pipeline.player_insights). Claims are the player's own
+    (a 2v2 player's: their own game's squares plus the team's co-op squares), counted only
+    if still held at the end of the game; win times are their side's."""
+
+    # Games they made at least one claim in, and the median game clock of their first.
+    games: int = 0
+    median_first_claim_s: float | None = None
+    # Their claims per hour of game clock, over every game they played.
+    claims_per_hour: float | None = None
+    # Median game clock at the end of the games they won, and the quickest of those.
+    median_win_time_s: float | None = None
+    fastest_win: GameRef | None = None
+
+
+class ClaimRef(GameRef):
+    """A claim in one game, and the square claimed: its pool (its game type; on a 2v2
+    board, the square's own tag -- see GameResult.cell_goal) and its text (the squares
+    reference's wording when it knows the square, otherwise as read off the board,
+    without a 2v2 tag)."""
+
+    game_type: GameType
+    text: str = ""
+
+
+class NthClaim(BaseModel):
+    """A player's n-th claim of a game (their 1st, 2nd... square), over every game they
+    made that many claims in (see pipeline.player_insights)."""
+
+    n: int
+    # One per game, by time.
+    claims: list[ClaimRef] = Field(default_factory=list)
+    median_s: float | None = None
+    # Everyone else's median for their own n-th claim.
+    field_median_s: float | None = None
+
+
+class WinTypeCounts(BaseModel):
+    """A player's game wins by how they were won (models.WinType)."""
+
+    line: int = 0
+    majority: int = 0
+    # Points games (Season 3), won on points rather than by a line.
+    points: int = 0
+
+
+class FirstSquare(BaseModel):
+    """Who claimed a game's first square (the earliest claim still held at the end), over
+    the decided games a player played -- a 2v2 team's first square counts for both."""
+
+    games: int = 0
+    first_claims: int = 0
+    # Games won out of the first_claims ones.
+    wins_after_first_claim: int = 0
+
+
+class Comebacks(BaseModel):
+    """Games a player's side won after trailing on the board by at least
+    pipeline.player_insights.COMEBACK_DEFICIT squares, and the largest deficit they
+    overcame."""
+
+    count: int = 0
+    largest_deficit: int = 0
+    largest: GameRef | None = None
+
+
+class FormResult(BaseModel):
+    """One decided match's result for a player: "win", "loss" or "draw"."""
+
+    match_id: str
+    result: str
+
+
+class PlayerForm(BaseModel):
+    """A player's recent results and streaks, over decided matches by match date."""
+
+    # Their last five results, most recent first.
+    last: list[FormResult] = Field(default_factory=list)
+    longest_win_streak: int = 0
+    # The run they're on now: its result and how many matches long it is.
+    current_streak_result: str | None = None
+    current_streak: int = 0
+
+
+class SignatureSquare(BaseModel):
+    """A square a player stands out on (see pipeline.player_insights): claimed faster
+    than everyone else, or claimed more often when it's on their board."""
+
+    id: str
+    text: str
+    game_type: GameType
+    # Their claims of it (held at the end of the game) and the games it was dealt to them.
+    claims: int
+    dealt: int
+    median_time_s: float | None = None
+    # Everyone else's median claim time for it.
+    field_median_time_s: float | None = None
+
+
 class PlayerStats(BaseModel):
     """One player's dynamically computed stats, built by
     pipeline.consolidate.consolidate_players from every match they appear in and
@@ -663,6 +771,21 @@ class PlayerStats(BaseModel):
     # Co-op squares on a 2v2 mixed board (see GameType.TWO_V_TWO), which count for both
     # teammates.
     top_squares_coop: list[SquareMarks] = Field(default_factory=list)
+    # Insights from the boards and claims -- see pipeline.player_insights.
+    pace: PlayerPace = Field(default_factory=PlayerPace)
+    # When they made their 1st, 2nd... claim of a game, up to
+    # pipeline.player_insights.CLAIM_ORDER_LIMIT.
+    claim_order: list[NthClaim] = Field(default_factory=list)
+    # The same, counting only squares of one pool: their 1st, 2nd... DLC square.
+    claim_order_by_type: dict[GameType, list[NthClaim]] = Field(default_factory=dict)
+    win_types: WinTypeCounts = Field(default_factory=WinTypeCounts)
+    first_square: FirstSquare = Field(default_factory=FirstSquare)
+    comebacks: Comebacks = Field(default_factory=Comebacks)
+    form: PlayerForm = Field(default_factory=PlayerForm)
+    # Up to 3 squares each: claimed fastest against everyone else's median, and claimed
+    # most often when dealt.
+    quickest_squares: list[SignatureSquare] = Field(default_factory=list)
+    surest_squares: list[SignatureSquare] = Field(default_factory=list)
 
     @field_validator("top_squares_base_game", "top_squares_dlc", mode="before")
     @classmethod

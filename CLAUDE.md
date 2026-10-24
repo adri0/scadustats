@@ -27,7 +27,7 @@ scadustats extracts statistics from Elden Ring "Bingo Brawlers" match videos.
   | `video/` | `download`, `frames` | acquiring footage (yt-dlp) and decoding it into frames |
   | `overlay/` | `layout`, `ocr`, `board`, `timer`, `scoreboard`, `commentators`, `game_type_label` | turning one frame into a reading; the only modules that touch `cv2`/`tesserocr` |
   | `rules/` | `winner`, `validation` | board replay, win conditions, tournament-rule checks — pure Python, no frames or I/O |
-  | `pipeline/` | `extract`, `segmentation`, `squares`, `consolidate` | assembling readings into a `VideoExtraction` |
+  | `pipeline/` | `extract`, `segmentation`, `squares`, `consolidate`, `player_insights` | assembling readings into a `VideoExtraction`, and consolidating matches into squares and player stats |
   | `storage/` | `json_export`, `player_stats`, `player_info`, `square_stats`, `db` | persistence (the JSON file is the source of truth, see below) |
   | `cli/` | `app` (the Typer entry point, `scadustats.cli.app:main`), `display` | flags, prompts, and the rendering they print |
 

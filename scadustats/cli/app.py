@@ -33,6 +33,7 @@ from scadustats.pipeline.consolidate import (
     validate_squares,
 )
 from scadustats.pipeline.extract import estimate_sample_count, extract_video
+from scadustats.pipeline.player_insights import add_player_insights
 from scadustats.rules.validation import validate_extraction
 from scadustats.storage.json_export import (
     read_squares,
@@ -1019,7 +1020,10 @@ def _player_consolidate_match(data_dir: Path, match_id: str) -> None:
     _write_new_player_info(players_dir, slugs)
 
     extractions = _read_matches(data_dir)
-    stats = consolidate_players(extractions, read_squares(Path(data_dir) / "squares"))
+    known_squares = read_squares(Path(data_dir) / "squares")
+    stats = add_player_insights(
+        consolidate_players(extractions, known_squares), extractions, known_squares
+    )
 
     for slug in sorted(slugs & stats.keys()):
         player_stats = stats[slug]
@@ -1043,8 +1047,10 @@ def player_consolidate(
 ) -> None:
     """Rebuild <data_dir>/players/<slug>/stats.yaml from every match under data_dir:
     one file per player, with their win/loss record (per season, and overall/per game
-    type for individual games), every match they've played (most recent first), and
-    their 5 most-claimed squares per game type.
+    type for individual games), every match they've played (most recent first), their 5
+    most-claimed squares per game type, and insights from the boards: pace, wins by line
+    or majority, first squares, comebacks, form and signature squares
+    (pipeline.player_insights).
 
     slug/display_name and every tallied field are wholly regenerated from the current
     match history each run -- not something to hand-edit and expect preserved across a
@@ -1070,7 +1076,10 @@ def player_consolidate(
         typer.echo(f"No matches found in {_matches_dir(data_dir)}")
         return
 
-    stats = consolidate_players(extractions, read_squares(Path(data_dir) / "squares"))
+    known_squares = read_squares(Path(data_dir) / "squares")
+    stats = add_player_insights(
+        consolidate_players(extractions, known_squares), extractions, known_squares
+    )
     players_dir = Path(data_dir) / "players"
     _write_new_player_info(players_dir, set(stats.keys()))
 
