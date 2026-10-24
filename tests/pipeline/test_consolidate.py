@@ -28,6 +28,7 @@ from scadustats.pipeline.consolidate import (
     find_square_issues,
     validate_squares,
 )
+from scadustats.storage.json_export import read_squares, write_squares
 
 
 def _board(*texts: str) -> list[list[str]]:
@@ -219,18 +220,27 @@ def test_find_square_issues_reports_a_duplicate_text():
     assert "Same goal" in issues[0].message
 
 
-def test_find_square_issues_reports_a_square_out_of_alphabetical_order():
+def test_find_square_issues_reports_a_square_out_of_id_order():
     squares = [
-        Square(id="id_0", text="Beta goal", game_type=GameType.BASE),
-        Square(id="id_1", text="Alpha goal", game_type=GameType.BASE),
+        Square(id="beta", text="Alpha goal", game_type=GameType.BASE),
+        Square(id="alpha", text="Beta goal", game_type=GameType.BASE),
     ]
 
     issues = find_square_issues(squares)
 
     assert len(issues) == 1
     assert issues[0].code == "square_order"
-    assert "Alpha goal" in issues[0].message
-    assert "Beta goal" in issues[0].message
+    assert "'alpha'" in issues[0].message
+    assert "'beta'" in issues[0].message
+
+
+def test_find_square_issues_ignores_text_order():
+    squares = [
+        Square(id="alpha", text="Zulu goal", game_type=GameType.BASE),
+        Square(id="beta", text="Alpha goal", game_type=GameType.BASE),
+    ]
+
+    assert find_square_issues(squares) == []
 
 
 def test_find_square_issues_reports_every_kind_of_issue_together():
@@ -243,6 +253,25 @@ def test_find_square_issues_reports_every_kind_of_issue_together():
     codes = {issue.code for issue in find_square_issues(squares)}
 
     assert codes == {"duplicate_id", "duplicate_text", "square_order"}
+
+
+def test_find_square_issues_passes_what_write_squares_wrote(tmp_path):
+    squares = {
+        GameType.BASE: [
+            Square(
+                id="bosses_altus_4", text="Kill 4 Bosses in Altus Plateau", game_type=GameType.BASE
+            ),
+            Square(
+                id="agheel_0", text="Kill Agheel with a +0 Weapon Only", game_type=GameType.BASE
+            ),
+            Square(id="arcane_30", text="30 Arcane", game_type=GameType.BASE),
+        ],
+        GameType.DLC: [],
+    }
+
+    write_squares(tmp_path, squares)
+
+    assert find_square_issues(read_squares(tmp_path)[GameType.BASE]) == []
 
 
 def _known(*texts: str, game_type: GameType = GameType.BASE) -> dict[GameType, list[Square]]:

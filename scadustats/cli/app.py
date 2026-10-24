@@ -895,7 +895,7 @@ def square_validate(
     ] = Path("data"),
 ) -> None:
     """Check the consolidated goal-square reference (issue #87): a duplicated id or text
-    within a game type, and any square listed out of the text's own alphabetical order.
+    within a game type, and any square listed out of id order.
 
     Checks <data_dir>/squares/base_game.json and dlc.json independently, reported one at
     a time the same way `match validate` reports one match at a time. Exits non-zero if

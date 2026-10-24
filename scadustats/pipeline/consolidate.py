@@ -188,7 +188,7 @@ class SquareValidationIssue:
 def find_square_issues(squares: list[Square]) -> list[SquareValidationIssue]:
     """Every problem found in one game type's consolidated square list (issue #87): a
     duplicated `id` or wording (`text` or one of its `aliases`), and any square listed out
-    of the text's own alphabetical order.
+    of `id` order.
 
     This is the same duplicate check validate_squares already enforces as a hard
     regression backstop *during* consolidation (see its own docstring) -- but reported
@@ -197,13 +197,10 @@ def find_square_issues(squares: list[Square]) -> list[SquareValidationIssue]:
     correction" stance rules.validation.validate_extraction takes for matches), not a
     step in building the reference where a raise is the right way to stop.
 
-    The order check is new: `storage.json_export.write_squares` sorts each file by `id`
-    for a stable, diffable file, reasoning that an id -- derived from its own square's
-    text -- already reads "close to alphabetical-by-text" without deliberately sorting by
-    text itself. That's usually true but not guaranteed (an id's slug word is whichever
-    one `_slugify` picked as goal-identifying, which isn't always the text's first word),
-    so this flags wherever it actually isn't, one issue per adjacent pair found out of
-    order.
+    The order check matches `storage.json_export.write_squares`, which sorts each file by
+    `id` for a stable, diffable file, so a reference it wrote passes; this flags a file
+    edited by hand out of that order, one issue per adjacent pair found out of order. (It
+    used to check text order, which every file write_squares wrote failed.)
     """
     issues: list[SquareValidationIssue] = []
 
@@ -217,12 +214,12 @@ def find_square_issues(squares: list[Square]) -> list[SquareValidationIssue]:
     for text in sorted(text for text, count in text_counts.items() if count > 1):
         issues.append(SquareValidationIssue("duplicate_text", f"duplicate square text: {text!r}"))
 
-    texts = [square.text for square in squares]
-    for previous, current in zip(texts, texts[1:], strict=False):
+    ids = [square.id for square in squares]
+    for previous, current in zip(ids, ids[1:], strict=False):
         if current < previous:
             issues.append(
                 SquareValidationIssue(
-                    "square_order", f"{current!r} is out of alphabetical order (after {previous!r})"
+                    "square_order", f"{current!r} is out of id order (after {previous!r})"
                 )
             )
 
