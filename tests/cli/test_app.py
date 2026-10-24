@@ -1459,12 +1459,13 @@ def test_square_validate_reports_a_clean_reference_as_ok(tmp_path):
 def test_square_validate_lists_issues_and_exits_nonzero(tmp_path):
     data_dir = tmp_path / "data"
     write_squares(data_dir / "squares", {GameType.BASE: [], GameType.DLC: []})
-    # Written by hand: write_squares itself keeps a file in text order.
+    # Written by hand: write_squares itself keeps a file in id order.
     (data_dir / "squares" / "base_game.json").write_text(
         json.dumps(
             [
-                {"id": "dup", "text": "Zulu goal", "game_type": "base"},
+                {"id": "zulu", "text": "Zulu goal", "game_type": "base"},
                 {"id": "dup", "text": "Alpha goal", "game_type": "base"},
+                {"id": "dup", "text": "Beta goal", "game_type": "base"},
             ]
         )
     )
