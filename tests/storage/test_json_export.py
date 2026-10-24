@@ -578,11 +578,12 @@ def test_write_squares_creates_the_directory(tmp_path):
     assert squares_dir.is_dir()
 
 
-def test_write_squares_sorts_each_file_by_id(tmp_path):
+def test_write_squares_sorts_each_file_by_text(tmp_path):
+    # Ids in the opposite order to their texts, so an id sort would fail this.
     squares = {
         GameType.BASE: [
-            Square(id="zebra", text="Zebra goal", game_type=GameType.BASE),
-            Square(id="apple", text="Apple goal", game_type=GameType.BASE),
+            Square(id="apple", text="Zebra goal", game_type=GameType.BASE),
+            Square(id="zebra", text="Apple goal", game_type=GameType.BASE),
         ],
         GameType.DLC: [],
     }
@@ -590,7 +591,7 @@ def test_write_squares_sorts_each_file_by_id(tmp_path):
     paths = write_squares(tmp_path, squares)
 
     data = json.loads(paths[GameType.BASE].read_text())
-    assert [entry["id"] for entry in data] == ["apple", "zebra"]
+    assert [entry["text"] for entry in data] == ["Apple goal", "Zebra goal"]
 
 
 def test_read_squares_is_the_inverse_of_write_squares(tmp_path):

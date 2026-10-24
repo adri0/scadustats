@@ -197,13 +197,9 @@ def find_square_issues(squares: list[Square]) -> list[SquareValidationIssue]:
     correction" stance rules.validation.validate_extraction takes for matches), not a
     step in building the reference where a raise is the right way to stop.
 
-    The order check is new: `storage.json_export.write_squares` sorts each file by `id`
-    for a stable, diffable file, reasoning that an id -- derived from its own square's
-    text -- already reads "close to alphabetical-by-text" without deliberately sorting by
-    text itself. That's usually true but not guaranteed (an id's slug word is whichever
-    one `_slugify` picked as goal-identifying, which isn't always the text's first word),
-    so this flags wherever it actually isn't, one issue per adjacent pair found out of
-    order.
+    The order check matches `storage.json_export.write_squares`, which sorts each file by
+    `text` for a stable, diffable file, so a reference it wrote passes; this flags a file
+    edited by hand out of that order, one issue per adjacent pair found out of order.
     """
     issues: list[SquareValidationIssue] = []
 

@@ -297,11 +297,12 @@ def write_squares(
 ) -> dict[GameType, Path]:
     """Write pipeline.consolidate.consolidate_match_squares' grown/corrected reference as
     one JSON file per game type (see squares_path), creating squares_dir if it doesn't
-    exist yet. Each square is written sorted by id -- id already reads close to
-    alphabetical-by-text since it's derived from the text, so this doesn't reorder the
-    list in any surprising way -- purely so a re-run against an unchanged reference
-    produces a byte-identical, diffable file rather than one reordered by whatever order
-    the squares happened to be added in this run.
+    exist yet. Each square is written sorted by text -- the order
+    pipeline.consolidate.find_square_issues checks, so `square validate` passes on
+    whatever this writes -- so a re-run against an unchanged reference produces a
+    byte-identical, diffable file rather than one reordered by whatever order the squares
+    happened to be added in this run. (It used to sort by id, which only reads close to
+    alphabetical-by-text: an id's slug word isn't always the text's first word.)
 
     Unconditionally overwrites, unlike write_video: the caller (cli.app's
     _consolidate_one_match) already read whatever this held before via read_squares and
@@ -318,7 +319,7 @@ def write_squares(
         # mixed boards) isn't written, rather than adding an empty file nobody asked for.
         if not game_squares and not path.exists():
             continue
-        ordered = sorted(game_squares, key=lambda square: square.id)
+        ordered = sorted(game_squares, key=lambda square: square.text)
         body = json.dumps(
             [square.model_dump(mode="json", exclude_defaults=True) for square in ordered],
             indent=2,

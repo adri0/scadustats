@@ -1,4 +1,5 @@
 import datetime
+import json
 
 import pytest
 from typer.testing import CliRunner
@@ -1457,15 +1458,15 @@ def test_square_validate_reports_a_clean_reference_as_ok(tmp_path):
 
 def test_square_validate_lists_issues_and_exits_nonzero(tmp_path):
     data_dir = tmp_path / "data"
-    write_squares(
-        data_dir / "squares",
-        {
-            GameType.BASE: [
-                Square(id="dup", text="Zulu goal", game_type=GameType.BASE),
-                Square(id="dup", text="Alpha goal", game_type=GameType.BASE),
-            ],
-            GameType.DLC: [],
-        },
+    write_squares(data_dir / "squares", {GameType.BASE: [], GameType.DLC: []})
+    # Written by hand: write_squares itself keeps a file in text order.
+    (data_dir / "squares" / "base_game.json").write_text(
+        json.dumps(
+            [
+                {"id": "dup", "text": "Zulu goal", "game_type": "base"},
+                {"id": "dup", "text": "Alpha goal", "game_type": "base"},
+            ]
+        )
     )
 
     result = CliRunner().invoke(app, ["square", "validate", "--data-dir", str(data_dir)])
