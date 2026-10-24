@@ -38,6 +38,11 @@ from scadustats.overlay import layout
 
 _CRF = "16"
 
+# Layouts whose grid column, above the grid, holds a player's gameplay feed and webcam
+# (Seasons 2 and 4: the two feeds side by side across the top, the grid under where they
+# meet): their grid is kept as just its box, like Season 3's.
+_FEEDS_ABOVE_GRID = frozenset({layout.LayoutName.SEASON_4, layout.LayoutName.SEASON_2})
+
 
 def _restored_boxes(layout_: layout.Layout) -> tuple[layout.FractionalBox, ...]:
     """Every one of the layout's own boxes other than the grid (which is kept as a whole
@@ -58,10 +63,11 @@ def _restored_boxes(layout_: layout.Layout) -> tuple[layout.FractionalBox, ...]:
 
 def redact(frame: np.ndarray, layout_: layout.Layout) -> np.ndarray:
     """Zero everything outside the overlay regions the pipeline reads. For Season 3's
-    layouts (no score bars) the grid is kept as just its box rather than a whole column:
-    in those scenes the column above or below the grid holds players' gameplay feeds and
-    webcams. A layout made of scenes (see Layout.scenes) keeps every scene's grid and
-    boxes; cut a clip of one scene with that scene's own layout to keep only its own."""
+    layouts (no score bars) and _FEEDS_ABOVE_GRID the grid is kept as just its box rather
+    than a whole column: in those scenes the column above or below the grid holds players'
+    gameplay feeds and webcams. A layout made of scenes (see Layout.scenes) keeps every
+    scene's grid and boxes; cut a clip of one scene with that scene's own layout to keep
+    only its own."""
     height, width = frame.shape[:2]
     out = np.zeros_like(frame)
 
@@ -76,7 +82,7 @@ def redact(frame: np.ndarray, layout_: layout.Layout) -> np.ndarray:
                 restore(box)
         return out
 
-    if layout_.score_box_red is None:
+    if layout_.score_box_red is None or layout_.name in _FEEDS_ABOVE_GRID:
         restore(layout_.grid_box)
     else:
         grid_left, _, grid_right, _ = layout.to_pixel_box(layout_.grid_box, width, height)

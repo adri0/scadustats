@@ -289,6 +289,27 @@ LAYOUT_SEASON_3 = dataclasses.replace(
     scenes=(LAYOUT_SEASON_3_FOCUS, LAYOUT_SEASON_3_TEAM),
 )
 
+# Season 2 broadcast (1v1, base game, September-November 2023). Both gameplay feeds side by
+# side across the top with the timer in a box between them, the player names under the
+# feeds (red left-aligned, blue right-aligned) with a claim-count badge under each, and the
+# grid at the bottom center between the commentators' webcams, each with a nameplate.
+# Measured on 1280x720 frames of Puppery vs blueberrybrioche
+# (youtube.com/watch?v=CxKs4KtjClY): grid x 468-810 / y 398-708 (where Season 4's is),
+# timer x 575-704 / y 19-54, badges x 32-65 / 1198-1230 at y 427-450, names at y 399-415,
+# nameplates x 232-408 / 905-1072 at y 643-678 (right of each Twitch icon).
+LAYOUT_SEASON_2 = Layout(
+    name=LayoutName.SEASON_2,
+    grid_box=FractionalBox(left=0.3656, top=0.5528, right=0.6328, bottom=0.9833),
+    timer_box=FractionalBox(left=0.4492, top=0.0264, right=0.55, bottom=0.075),
+    game_type_box=None,
+    score_box_red=FractionalBox(left=0.025, top=0.5931, right=0.0508, bottom=0.625),
+    score_box_blue=FractionalBox(left=0.9359, top=0.5931, right=0.9609, bottom=0.625),
+    name_box_red=FractionalBox(left=0.0063, top=0.55, right=0.328, bottom=0.5806),
+    name_box_blue=FractionalBox(left=0.672, top=0.55, right=0.9938, bottom=0.5806),
+    commentator_box_left=FractionalBox(left=0.1813, top=0.8931, right=0.3188, bottom=0.9417),
+    commentator_box_right=FractionalBox(left=0.707, top=0.8931, right=0.8375, bottom=0.9417),
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
@@ -305,6 +326,7 @@ LAYOUTS: dict[LayoutName, Layout] = {
         LAYOUT_SEASON_3,
         LAYOUT_SEASON_3_TEAM,
         LAYOUT_SEASON_3_FOCUS,
+        LAYOUT_SEASON_2,
     )
 }
 

@@ -57,6 +57,7 @@ class LayoutName(StrEnum):
     SEASON_3 = "layout_season_3"
     SEASON_3_TEAM = "layout_season_3_team"
     SEASON_3_FOCUS = "layout_season_3_focus"
+    SEASON_2 = "layout_season_2"
 
 
 class GameType(StrEnum):
@@ -302,6 +303,13 @@ class GameResult(BaseModel):
     red_points: int | None = None
     blue_points: int | None = None
 
+    @property
+    def decided(self) -> bool:
+        """Whether the game has a result: a winner, or a TIE (the clock ran out with the
+        sides level, which Seasons 1 and 2 count as a drawn game). A game with neither is
+        an extraction gap, not a result."""
+        return self.winner_color is not None or self.win_type is WinType.TIE
+
     def cell_goal(self, row: int, col: int) -> tuple[GameType | None, str]:
         """The square at 0-based (row, col): the pool it belongs to and its text as the
         squares reference knows it. On a mixed board (TWO_V_TWO) the pool is the text's
@@ -480,13 +488,15 @@ class VideoExtraction(BaseModel):
         """Who took the match, by game score -- or None when that can't be said.
 
         None ("undetermined") rather than a guess in two cases: a match with no games at
-        all, and one where any game has no winner recorded. In the latter, the scores
-        below don't account for every game, so calling the current leader the winner --
-        or an even split a draw -- would be inventing an outcome from incomplete data.
-        That's exactly what validation's `match_outcome_undetermined` rule reports, and a
-        reviewer should fix the extraction rather than read a number here.
+        all, and one where any game has no result recorded (see GameResult.decided). In
+        the latter, the scores below don't account for every game, so calling the current
+        leader the winner -- or an even split a draw -- would be inventing an outcome from
+        incomplete data. That's exactly what validation's `match_outcome_undetermined`
+        rule reports, and a reviewer should fix the extraction rather than read a number
+        here. A tied game is a result: it scores for neither side, so a one-game round
+        robin match that ties is a draw (Seasons 1 and 2).
         """
-        if not self.games or any(game.winner_color is None for game in self.games):
+        if not self.games or not all(game.decided for game in self.games):
             return None
         if self.red_score > self.blue_score:
             return MatchWinner.RED
