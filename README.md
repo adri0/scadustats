@@ -8,6 +8,7 @@
 [![License](https://img.shields.io/pypi/l/scadustats)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/eYtbyN4fbp)
 
 Extract match data from [Bingo Brawlers](https://bingobrawlers.com/) match VODs. Such as:
 
@@ -109,3 +110,7 @@ Given a `match_id`, only that match's two players get their directories written/
 ### `DownloadError`
 
 Sometimes `extract` fails with a `DownloadError` mentioning that YouTube requires sign-in/authentication. Pass a cookies file with `--cookies` (a Netscape-format `cookies.txt`, e.g. exported from a browser) — see [yt-dlp's guide to exporting YouTube cookies](https://github.com/yt-dlp/yt-dlp/wiki/extractors#exporting-youtube-cookies). Installing the optional `ejs` extra (`uv sync --extra ejs`, or `pip install scadustats[ejs]`), which pulls in [`yt-dlp-ejs`](https://github.com/yt-dlp/yt-dlp-ejs), can also help resolve this class of failure.
+
+## Community
+
+Want to contribute, report something or just talk about scadustats or [scadustats-site](https://github.com/adri0/scadustats-site)? Join the [scadustats Discord server](https://discord.gg/eYtbyN4fbp).
