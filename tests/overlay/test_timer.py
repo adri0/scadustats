@@ -15,6 +15,12 @@ _FIXTURES = "tests/fixtures"
         ("not a timer", None),
         ("", None),
         ("12:34", None),
+        ("02:59:59", 10799),
+        # Readings no game clock shows: a cursor over the first digit, impossible minutes.
+        ("60:00:42", None),
+        ("03:00:00", None),
+        ("00:61:00", None),
+        ("00:00:75", None),
     ],
 )
 def test_parse_timer(text, expected):

@@ -8,6 +8,7 @@ from scadustats.models import (
     GameResult,
     GameType,
     MatchType,
+    MatchWinner,
     VideoExtraction,
     WinLine,
     WinType,
@@ -207,6 +208,32 @@ def test_a_game_without_a_winner_leaves_the_match_outcome_undetermined():
 
     assert "match_outcome_undetermined" in _codes(issues)
     assert "game 1" in next(i for i in issues if i.code == "match_outcome_undetermined").message
+
+
+def test_a_tied_season_2_round_robin_game_is_a_draw():
+    """Seasons 1 and 2: one base game per round robin match, and a game called at the
+    two-hour mark with equal squares is a TIE, which makes the match a draw."""
+    tied = [
+        _game_start(),
+        *(_mark(0, col, CellColor.RED, 1.0 + col) for col in range(4)),
+        *(_mark(1, col, CellColor.BLUE, 10.0 + col) for col in range(4)),
+        _game_end(20.0),
+    ]
+    extraction = _extraction(
+        season="2",
+        games=[_game(1, events=tied, winner_color=None, win_type=WinType.TIE, win_line=None)],
+    )
+
+    assert validate_extraction(extraction) == []
+    assert extraction.winner is MatchWinner.DRAW
+
+
+def test_a_season_1_round_robin_match_is_one_base_game():
+    one_game = _extraction(season="1", games=[_game(1)])
+    two_games = _extraction(season="1")
+
+    assert validate_extraction(one_game) == []
+    assert _codes(validate_extraction(two_games)) == ["season_game_type", "game_count"]
 
 
 def test_an_undetermined_outcome_suppresses_the_decider_rule():

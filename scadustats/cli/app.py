@@ -661,18 +661,18 @@ def match_validate(
 
     - unknown_season: the season has no known format, so the next three aren't checked
 
-    - season_game_type: a game's type isn't one of its season's (dlc in Season 4, 2v2
-      in Season 5, base or dlc otherwise)
+    - season_game_type: a game's type isn't one of its season's (base in Seasons 1-3,
+      dlc in Season 4, 2v2 in Season 5, base or dlc otherwise)
 
     - season_scoring: a game isn't scored its season's way (points in Season 3,
       default everywhere else)
 
     - game_count: wrong number of games for the match type and season (a round robin
-      match is 2 games in Season 6, 1 in Seasons 4 and 5; a best of 3 is 2 or 3)
+      match is 2 games in Season 6, 1 in Seasons 1-5; a best of 3 is 2 or 3)
 
     - opening_game_type: game 1 isn't base game, or game 2 isn't dlc (Season 6)
 
-    - match_outcome_undetermined: some game has no winner recorded
+    - match_outcome_undetermined: some game has no result recorded (a tie is a result)
 
     - double_elimination_draw: a double-elimination match can't end in a draw
 

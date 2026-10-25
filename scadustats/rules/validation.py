@@ -60,9 +60,16 @@ _BASE_THEN_DLC = SeasonFormat(
     opening_game_types=(GameType.BASE, GameType.DLC),
 )
 
+_BASE_GAME_1V1 = SeasonFormat(
+    name="1v1 base game", game_types=frozenset({GameType.BASE}), round_robin_games=1
+)
+
 # Keyed by VideoExtraction.season. A season missing here is reported (unknown_season)
 # and the rules that depend on its format are skipped.
 SEASON_FORMATS: dict[str, SeasonFormat] = {
+    # 1v1 before the DLC: every game is a base game, and a round robin match is one.
+    "1": _BASE_GAME_1V1,
+    "2": _BASE_GAME_1V1,
     # 2v2, both teammates on the same base game board (no DLC yet); every game, playoffs
     # included, is a race to 13 points (see models.Scoring).
     "3": SeasonFormat(
@@ -543,12 +550,13 @@ def _check_season_format(extraction: VideoExtraction) -> list[ValidationIssue]:
 def _check_match_outcome(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: the match must resolve to a winner or (round robin only) a draw.
 
-    Every game has to have a winner for that to be decidable, so an undecided game is
-    reported here and stops the rules below it: with the score unknown, "a decider was
-    missing" or "this was a draw" would both be guesses, and reporting them anyway would
-    bury the one real problem under cascading noise.
+    Every game has to have a result (a winner, or a tie: see GameResult.decided) for that
+    to be decidable, so an undecided game is reported here and stops the rules below it:
+    with the score unknown, "a decider was missing" or "this was a draw" would both be
+    guesses, and reporting them anyway would bury the one real problem under cascading
+    noise.
     """
-    undecided = [game for game in extraction.games if game.winner_color is None]
+    undecided = [game for game in extraction.games if not game.decided]
     if undecided:
         return [
             ValidationIssue(
@@ -561,7 +569,7 @@ def _check_match_outcome(extraction: VideoExtraction) -> list[ValidationIssue]:
         ]
 
     # A round robin match is allowed to end 1-1 (the issue's rule 2 calls that a draw), so
-    # only double elimination has anything left to check here. Every game has a winner by
+    # only double elimination has anything left to check here. Every game has a result by
     # this point, so extraction.winner is guaranteed non-None.
     if (
         extraction.match_type is MatchType.DOUBLE_ELIMINATION

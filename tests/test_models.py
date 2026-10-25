@@ -83,6 +83,16 @@ def test_a_match_with_no_games_has_no_winner():
     assert extraction.winner is None
 
 
+def test_a_tied_one_game_match_is_a_draw():
+    """Seasons 1 and 2: a round robin match is one game, and a game the clock stopped with
+    the sides level is a TIE -- a result, not a gap, so the match is a draw."""
+    tie = _game(1, None).model_copy(update={"win_type": WinType.TIE})
+
+    assert tie.decided
+    assert not _game(1, None).decided
+    assert _extraction(tie).winner is MatchWinner.DRAW
+
+
 def test_team_players_for_each_pool():
     from scadustats.models import GameType, Team
 

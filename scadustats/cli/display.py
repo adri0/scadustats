@@ -66,11 +66,11 @@ def format_clock(seconds: float) -> str:
 
 
 def undecided_games(extraction: VideoExtraction) -> int:
-    """How many of a match's games have no winner recorded. VideoExtraction.winner is
-    None for such a match (it won't name a leader from an incomplete score), so this is
-    what says *why* -- and it's usually an extraction problem rather than a played
-    result."""
-    return sum(game.winner_color is None for game in extraction.games)
+    """How many of a match's games have no result recorded (see GameResult.decided).
+    VideoExtraction.winner is None for such a match (it won't name a leader from an
+    incomplete score), so this is what says *why* -- and it's usually an extraction
+    problem rather than a played result."""
+    return sum(not game.decided for game in extraction.games)
 
 
 def player_names(extraction: VideoExtraction) -> tuple[str, str]:

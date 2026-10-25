@@ -289,6 +289,44 @@ LAYOUT_SEASON_3 = dataclasses.replace(
     scenes=(LAYOUT_SEASON_3_FOCUS, LAYOUT_SEASON_3_TEAM),
 )
 
+# Season 2 broadcast (1v1, base game, September-November 2023). Both gameplay feeds side by
+# side across the top with the timer in a box between them, the player names under the
+# feeds (red left-aligned, blue right-aligned) with a claim-count badge under each, and the
+# grid at the bottom center between the commentators' webcams, each with a nameplate.
+# Measured on 1280x720 frames of Puppery vs blueberrybrioche
+# (youtube.com/watch?v=CxKs4KtjClY): grid x 468-810 / y 398-708 (where Season 4's is),
+# timer x 575-704 / y 19-54, badges x 32-65 / 1198-1230 at y 427-450, names at y 399-415,
+# nameplates x 232-408 / 905-1072 at y 643-678 (right of each Twitch icon).
+LAYOUT_SEASON_2 = Layout(
+    name=LayoutName.SEASON_2,
+    grid_box=FractionalBox(left=0.3656, top=0.5528, right=0.6328, bottom=0.9833),
+    timer_box=FractionalBox(left=0.4492, top=0.0264, right=0.55, bottom=0.075),
+    game_type_box=None,
+    score_box_red=FractionalBox(left=0.025, top=0.5931, right=0.0508, bottom=0.625),
+    score_box_blue=FractionalBox(left=0.9359, top=0.5931, right=0.9609, bottom=0.625),
+    name_box_red=FractionalBox(left=0.0063, top=0.55, right=0.328, bottom=0.5806),
+    name_box_blue=FractionalBox(left=0.672, top=0.55, right=0.9938, bottom=0.5806),
+    commentator_box_left=FractionalBox(left=0.1813, top=0.8931, right=0.3188, bottom=0.9417),
+    commentator_box_right=FractionalBox(left=0.707, top=0.8931, right=0.8375, bottom=0.9417),
+)
+
+# Season 2's second template, used from week 2 (bushy vs catalystz,
+# youtube.com/watch?v=job6WgY9AzM, 2023-09-09) on: LAYOUT_SEASON_2 with the timer box moved up
+# to the top edge, where Season 4's is, and the player names in dark text on yellow bars
+# (which the name reader misses for red). The board, badges and nameplates didn't move.
+# Measured on a 1280x720 frame at 00:45:00 of that video: timer box x 586-692 / y 8-42.
+# Short focus scenes (one feed large, the grid on the right) cut in now and then; they match
+# neither template, so a claim made during one is timed when the broadcast cuts back.
+#
+# Its badges are LAYOUT_SEASON_2's, so is_gameplay_frame can't tell the two apart and
+# _detect_layout always picks LAYOUT_SEASON_2 (registered first) on this footage, whose timer
+# box then reads nothing. Pass `--layout layout_season_2_v2` explicitly.
+LAYOUT_SEASON_2_V2 = dataclasses.replace(
+    LAYOUT_SEASON_2,
+    name=LayoutName.SEASON_2_V2,
+    timer_box=LAYOUT_SEASON_4.timer_box,
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
@@ -305,6 +343,8 @@ LAYOUTS: dict[LayoutName, Layout] = {
         LAYOUT_SEASON_3,
         LAYOUT_SEASON_3_TEAM,
         LAYOUT_SEASON_3_FOCUS,
+        LAYOUT_SEASON_2,
+        LAYOUT_SEASON_2_V2,
     )
 }
 
