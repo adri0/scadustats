@@ -121,7 +121,7 @@ def points(board: Board) -> tuple[int, int]:
 
 
 def determine_winner(
-    board: Board, *, time_up: bool = False, scoring: Scoring = Scoring.LOCKOUT
+    board: Board, *, time_up: bool = False, scoring: Scoring = Scoring.DEFAULT
 ) -> tuple[CellColor | None, WinType, WinLine | None]:
     """The board's result: who won, how, and -- for a LINE win only -- on which line.
     The third element is None for every other outcome, since there's no line to name.
@@ -180,7 +180,7 @@ def settled_result_index(
     states: Sequence[Board],
     color: CellColor,
     win_type: WinType,
-    scoring: Scoring = Scoring.LOCKOUT,
+    scoring: Scoring = Scoring.DEFAULT,
 ) -> int | None:
     """Index of the earliest state in `states` from which `(color, win_type)` is the
     result `determine_winner` keeps giving all the way through to the end -- i.e. when

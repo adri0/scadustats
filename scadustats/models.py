@@ -116,16 +116,18 @@ class WinType(Enum):
 
 
 class Scoring(StrEnum):
-    """How a game is decided. LOCKOUT is the usual bingo: a completed line wins, and
-    without one the most squares (see rules.winner.determine_winner). POINTS is Season 3,
-    round robin and playoffs alike: each side scores one point per square plus two per
-    completed line (see rules.winner.points), a line alone doesn't win, and the first side
-    to 13 points wins (rules.winner.POINTS_TO_WIN). A game stopped by the clock before
+    """How a game is decided. Every game is lockout -- a square one side claims can't be
+    claimed by the other -- and that alone doesn't say who wins. DEFAULT is the usual bingo:
+    a completed line wins, and without one the most squares (see
+    rules.winner.determine_winner). POINTS is Season 3, round robin and playoffs alike:
+    each side scores one point per square plus two per completed line (see
+    rules.winner.points), a line alone doesn't win, and the first side to 13 points wins
+    (rules.winner.POINTS_TO_WIN). A game stopped by the clock before
     either side gets there goes to the higher total; equal totals are a TIE. Set per game
     at extraction from the season's format (see rules.validation.SEASON_FORMATS).
     StrEnum like the other persisted enums, so it serializes as its own value."""
 
-    LOCKOUT = "lockout"
+    DEFAULT = "default"
     POINTS = "points"
 
 
@@ -291,11 +293,11 @@ class GameResult(BaseModel):
     # yet in the reference for the latter), in which case the caller must supply one (see
     # extract_video's on_missing_game_type).
     game_type: GameType | None = None
-    # How the game is decided (see Scoring) -- LOCKOUT for every game but Season 3's round
+    # How the game is decided (see Scoring) -- LINE for every game but Season 3's round
     # robin, and for a JSON file written before this was recorded.
-    scoring: Scoring = Scoring.LOCKOUT
+    scoring: Scoring = Scoring.DEFAULT
     # A points game's points per side at its end (see rules.winner.points) --
-    # None for a lockout game. Stored, not derived on read, so a reader (the site) doesn't
+    # None for a default game. Stored, not derived on read, so a reader (the site) doesn't
     # need the line rules to show them; validation checks them against the board.
     red_points: int | None = None
     blue_points: int | None = None

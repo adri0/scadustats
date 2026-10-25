@@ -74,7 +74,7 @@ def _event_to_dict(event: GameEvent, square_texts: list[list[str]]) -> dict:
 
 def _points_to_dict(game: GameResult) -> dict:
     """A points game's (see models.Scoring) scoring and each side's points -- left out
-    of a lockout game's file."""
+    of a default game's file."""
     if game.scoring is not Scoring.POINTS:
         return {}
     return {
