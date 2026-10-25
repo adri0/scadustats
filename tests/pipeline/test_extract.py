@@ -223,13 +223,13 @@ _LIMIT = extract._TIME_LIMIT_S
 
 
 def _played(segment: list[Observation]):
-    """A lockout game's events and result, as extract_video gets them from a segment."""
+    """A line game's events and result, as extract_video gets them from a segment."""
     events, stopped = _game_events(segment)
     game = _unsettled_game(events)
     if stopped is None:
-        extract._settle_game(game, segment[-1], Scoring.LOCKOUT)
+        extract._settle_game(game, segment[-1], Scoring.LINE)
     else:
-        extract._settle_game(game, stopped, Scoring.LOCKOUT, time_limit=True)
+        extract._settle_game(game, stopped, Scoring.LINE, time_limit=True)
     return game.events, game.winner_color, game.win_type, game.win_line
 
 
@@ -500,12 +500,12 @@ def test_settle_game_decides_a_points_game_at_the_segments_last_reading():
     assert game.events[-1].video_timestamp == "01:01:40"
 
 
-def test_settle_game_decides_a_lockout_game_on_its_line():
+def test_settle_game_decides_a_line_game_on_its_line():
     from scadustats.models import Scoring, WinLine
 
     game = _unsettled_game([_square_event(1, col, R, col) for col in range(1, 6)])
 
-    extract._settle_game(game, Observation(99, 100.0, _board(), 90), Scoring.LOCKOUT)
+    extract._settle_game(game, Observation(99, 100.0, _board(), 90), Scoring.LINE)
 
     assert (game.winner_color, game.win_type, game.win_line) == (R, WinType.LINE, WinLine.ROW_1)
     assert game.red_points is None and game.blue_points is None

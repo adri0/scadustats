@@ -49,7 +49,7 @@ class SeasonFormat:
     game_types: frozenset[GameType]
     round_robin_games: int
     opening_game_types: tuple[GameType, ...] = ()
-    scoring: Scoring = Scoring.LOCKOUT
+    scoring: Scoring = Scoring.LINE
 
 
 # 1v1, a base game then a DLC game; only a best-of-3 decider (game 3) is free to be either.
@@ -81,10 +81,10 @@ SEASON_FORMATS: dict[str, SeasonFormat] = {
 
 
 def scoring_for(season: str) -> Scoring:
-    """How a game of this season is decided: the season's scoring, or lockout for a
+    """How a game of this season is decided: the season's scoring, or line for a
     season with no known format."""
     format_ = SEASON_FORMATS.get(season)
-    return format_.scoring if format_ is not None else Scoring.LOCKOUT
+    return format_.scoring if format_ is not None else Scoring.LINE
 
 
 @dataclass(frozen=True)
@@ -169,14 +169,14 @@ def _check_recorded_winner_matches_board(
 
 def _check_points(game: GameResult, states: list[Board]) -> list[ValidationIssue]:
     """Rule: a points game's recorded points are what its final board scores (see
-    winner.points), and a lockout game records none."""
+    winner.points), and a line game records none."""
     if game.scoring is not Scoring.POINTS:
         if game.red_points is None and game.blue_points is None:
             return []
         return [
             ValidationIssue(
                 code="points_mismatch",
-                message="a lockout game records no points",
+                message="a line game records no points",
                 game_index=game.game_index,
             )
         ]
@@ -336,8 +336,8 @@ def _check_no_marks_after_win(
     if game.winner_color is None:
         return []
     if game.scoring is Scoring.POINTS and game.win_type is WinType.POINTS:
-        # Reaching winner.POINTS_TO_WIN ends a points game the way a line ends a lockout
-        # one. A points game won on time has no such moment (settled is None below).
+        # Reaching winner.POINTS_TO_WIN ends a points game the way a completed line ends a
+        # line game. A points game won on time has no such moment (settled is None below).
         settled = winner.settled_result_index(
             states, game.winner_color, WinType.POINTS, Scoring.POINTS
         )
@@ -510,15 +510,15 @@ def _check_opening_game_types(
 
 def _check_season_scoring(extraction: VideoExtraction) -> list[ValidationIssue]:
     """Rule: every game is scored the way its season is (see scoring_for) -- points
-    in Season 3, lockout everywhere else. A game
+    in Season 3, line everywhere else. A game
     scored the other way has the wrong result rules applied to it."""
     expected = scoring_for(extraction.season)
     return [
         ValidationIssue(
             code="season_scoring",
             message=(
-                f"game {game.game_index} is scored {game.scoring.value}, but a season "
-                f"{extraction.season} game is {expected.value}"
+                f"game {game.game_index} is a {game.scoring.value} game, but a season "
+                f"{extraction.season} game is a {expected.value} game"
             ),
         )
         for game in extraction.games

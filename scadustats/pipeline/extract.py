@@ -428,7 +428,7 @@ def _detect_game_end(
     events: list[GameEvent],
     winner_color: CellColor | None,
     win_type: WinType,
-    scoring: Scoring = Scoring.LOCKOUT,
+    scoring: Scoring = Scoring.LINE,
 ) -> GameEvent | None:
     """The GAME_END event for a game with a recorded winner (LINE or MAJORITY) --
     timestamped at the one MARK event that locks that outcome in for the rest of the
@@ -513,13 +513,13 @@ def _settle_game(
     game: GameResult, last: Observation, scoring: Scoring, *, time_limit: bool = False
 ) -> None:
     """Fill in a game's scoring, result and GAME_END, in place. A game settled by its
-    claims -- a line or an unbeatable majority in lockout, reaching
+    claims -- a line or an unbeatable majority in a line game, reaching
     winner.POINTS_TO_WIN in a points game (Season 3's round robin) -- ends on the claim
     that settled it (see _detect_game_end). A game nobody won that way ran out of time
     when it's a points game -- its GAME_END is the segment's last reading, since the game
     screen gives way to the end screen when time is up -- or when `time_limit` says the
     clock reached _TIME_LIMIT_S, with `last` the sample it stopped at (see _game_events).
-    Either way the count at that moment decides it: the points, or in lockout MAJORITY
+    Either way the count at that moment decides it: the points, or in a line game MAJORITY
     for the leader and TIE when level."""
     game.scoring = scoring
     game.winner_color, game.win_type, game.win_line = _determine_winner(game.events, scoring)
@@ -577,7 +577,7 @@ def _text_scene(
 
 
 def _determine_winner(
-    events: list[GameEvent], scoring: Scoring = Scoring.LOCKOUT
+    events: list[GameEvent], scoring: Scoring = Scoring.LINE
 ) -> tuple[CellColor | None, WinType, WinLine | None]:
     """Replay every event (including unclaims) to the final board state and evaluate the
     win condition once there -- rather than stopping at the first claim that completes a
