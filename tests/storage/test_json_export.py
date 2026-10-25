@@ -739,7 +739,7 @@ def test_write_and_read_video_round_trip_a_points_game_and_teams_without_roles(t
     assert read_video(path) == extraction
 
 
-def test_write_video_leaves_scoring_out_of_a_line_game(tmp_path):
+def test_write_video_leaves_scoring_out_of_a_default_game(tmp_path):
     data = json.loads(write_video(tmp_path, _sample_extraction()).read_text())
 
     assert {"scoring", "red_points", "blue_points"}.isdisjoint(data["games"][0])

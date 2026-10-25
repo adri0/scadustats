@@ -705,7 +705,7 @@ def test_a_points_game_with_wrong_points_is_reported():
     assert _codes(validate_game(_points_game(red_points=5))) == ["points_mismatch"]
 
 
-def test_a_line_game_records_no_points():
+def test_a_default_game_records_no_points():
     assert _codes(validate_game(_game(red_points=5, blue_points=0))) == ["points_mismatch"]
 
 
@@ -722,8 +722,8 @@ def test_marks_after_a_line_are_fine_in_a_points_game():
 def test_season_3_games_are_scored_on_points():
     from scadustats.models import Scoring
 
-    line = _points_game(scoring=Scoring.LINE, red_points=None, blue_points=None)
-    issues = validate_extraction(_extraction(season="3", games=[line]))
+    default = _points_game(scoring=Scoring.DEFAULT, red_points=None, blue_points=None)
+    issues = validate_extraction(_extraction(season="3", games=[default]))
     assert "season_scoring" in _codes(issues)
 
 
@@ -743,8 +743,8 @@ def test_scoring_for_each_season():
     from scadustats.rules.validation import scoring_for
 
     assert scoring_for("3") is Scoring.POINTS
-    assert scoring_for("6") is Scoring.LINE
-    assert scoring_for("unknown") is Scoring.LINE
+    assert scoring_for("6") is Scoring.DEFAULT
+    assert scoring_for("unknown") is Scoring.DEFAULT
 
 
 def test_a_mark_after_reaching_13_points_is_reported():
