@@ -310,6 +310,23 @@ LAYOUT_SEASON_2 = Layout(
     commentator_box_right=FractionalBox(left=0.707, top=0.8931, right=0.8375, bottom=0.9417),
 )
 
+# Season 2's second template, used from week 2 (bushy vs catalystz,
+# youtube.com/watch?v=job6WgY9AzM, 2023-09-09) on: LAYOUT_SEASON_2 with the timer box moved up
+# to the top edge, where Season 4's is, and the player names in dark text on yellow bars
+# (which the name reader misses for red). The board, badges and nameplates didn't move.
+# Measured on a 1280x720 frame at 00:45:00 of that video: timer box x 586-692 / y 8-42.
+# Short focus scenes (one feed large, the grid on the right) cut in now and then; they match
+# neither template, so a claim made during one is timed when the broadcast cuts back.
+#
+# Its badges are LAYOUT_SEASON_2's, so is_gameplay_frame can't tell the two apart and
+# _detect_layout always picks LAYOUT_SEASON_2 (registered first) on this footage, whose timer
+# box then reads nothing. Pass `--layout layout_season_2_v2` explicitly.
+LAYOUT_SEASON_2_V2 = dataclasses.replace(
+    LAYOUT_SEASON_2,
+    name=LayoutName.SEASON_2_V2,
+    timer_box=LAYOUT_SEASON_4.timer_box,
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
@@ -327,6 +344,7 @@ LAYOUTS: dict[LayoutName, Layout] = {
         LAYOUT_SEASON_3_TEAM,
         LAYOUT_SEASON_3_FOCUS,
         LAYOUT_SEASON_2,
+        LAYOUT_SEASON_2_V2,
     )
 }
 

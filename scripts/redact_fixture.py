@@ -41,7 +41,9 @@ _CRF = "16"
 # Layouts whose grid column, above the grid, holds a player's gameplay feed and webcam
 # (Seasons 2 and 4: the two feeds side by side across the top, the grid under where they
 # meet): their grid is kept as just its box, like Season 3's.
-_FEEDS_ABOVE_GRID = frozenset({layout.LayoutName.SEASON_4, layout.LayoutName.SEASON_2})
+_FEEDS_ABOVE_GRID = frozenset(
+    {layout.LayoutName.SEASON_4, layout.LayoutName.SEASON_2, layout.LayoutName.SEASON_2_V2}
+)
 
 
 def _restored_boxes(layout_: layout.Layout) -> tuple[layout.FractionalBox, ...]:
