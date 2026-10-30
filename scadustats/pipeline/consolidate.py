@@ -48,6 +48,7 @@ from scadustats.models import (
     Square,
     SquareClaim,
     SquareMarks,
+    SquareSeasonStats,
     SquareStats,
     VideoExtraction,
     WinLoss,
@@ -711,8 +712,14 @@ def consolidate_square_stats(
     num_games: Counter[tuple[GameType, str]] = Counter()
     player_marks: dict[tuple[GameType, str], Counter[str]] = {}
     claims: dict[tuple[GameType, str], list[SquareClaim]] = {}
+    # The same counts per season: the season's distinct matches, games dealt and games
+    # ending with the square held.
+    season_matches: dict[tuple[GameType, str], dict[str, set[str]]] = {}
+    season_games: dict[tuple[GameType, str], Counter[str]] = {}
+    season_marked: dict[tuple[GameType, str], Counter[str]] = {}
 
     for extraction in extractions:
+        season = extraction.season
         for game in extraction.games:
             held = _final_marks(game)
             for row_index, row in enumerate(game.square_texts):
@@ -726,10 +733,15 @@ def consolidate_square_stats(
                     key = (square.game_type, square.id)
                     match_dates.setdefault(key, {})[extraction.match_id] = extraction.match_date
                     num_games[key] += 1
+                    season_matches.setdefault(key, {}).setdefault(season, set()).add(
+                        extraction.match_id
+                    )
+                    season_games.setdefault(key, Counter())[season] += 1
 
                     mark = held.get((row_index + 1, col_index + 1))
                     if mark is None:
                         continue
+                    season_marked.setdefault(key, Counter())[season] += 1
                     slugs = _claimant_slugs(extraction, mark.color, cell_type)
                     for slug in slugs:
                         player_marks.setdefault(key, Counter())[slug] += 1
@@ -753,6 +765,17 @@ def consolidate_square_stats(
             )
             times = [claim.time_s for claim in held_claims]
             ranked = sorted(player_marks.get(key, Counter()).items(), key=lambda i: (-i[1], i[0]))
+            games_by_season = season_games.get(key, Counter())
+            marked_by_season = season_marked.get(key, Counter())
+            seasons = {
+                season: SquareSeasonStats(
+                    num_matches=len(match_ids),
+                    num_games=games_by_season[season],
+                    games_marked=marked_by_season[season],
+                    mark_rate=round(marked_by_season[season] / games_by_season[season], 4),
+                )
+                for season, match_ids in sorted(season_matches.get(key, {}).items())
+            }
             stats.append(
                 SquareStats(
                     id=square.id,
@@ -769,6 +792,7 @@ def consolidate_square_stats(
                     mark_times_s=times,
                     median_mark_time_s=statistics.median(times) if times else None,
                     claims=held_claims,
+                    seasons=seasons,
                 )
             )
     return stats
