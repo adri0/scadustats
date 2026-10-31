@@ -122,14 +122,13 @@ def test_focus_scene_reads_the_board_in_the_corner():
     assert board.read_claim_colors(frame, layout.LAYOUT_SEASON_1_FOCUS) is None
 
 
-def test_collect_observations_settles_the_colors_then_reads_the_board():
+def test_collect_observations_reads_the_colors_then_the_board():
     observations, selected, _, claim_colors = extract._collect_observations(
         _CLIP, 3.0, forced_layout=layout.LAYOUT_SEASON_1
     )
     assert selected is layout.LAYOUT_SEASON_1
     assert claim_colors == (ClaimColor.BLUE, ClaimColor.GREEN)
-    # The first samples only settle the colours (see _CLAIM_COLOR_CONFIRM_SAMPLES).
-    assert len(observations) == len(_frames(_CLIP)) - extract._CLAIM_COLOR_CONFIRM_SAMPLES + 1
+    assert len(observations) == len(_frames(_CLIP))
     for observation in observations:
         assert _count(observation.board, CellColor.RED) == 8
         assert _count(observation.board, CellColor.BLUE) == 5
@@ -152,10 +151,20 @@ def _patch(bgr: tuple[int, int, int]) -> np.ndarray:
     return np.full((8, 8, 3), bgr, dtype=np.uint8)
 
 
-def test_classify_patch_as_takes_the_nearer_of_the_pair():
-    pair = (ClaimColor.RED, ClaimColor.ORANGE)  # the closest pair, 81 apart
-    assert board.classify_patch_as(_patch((52, 55, 209)), pair) is CellColor.RED
-    assert board.classify_patch_as(_patch((34, 132, 224)), pair) is CellColor.BLUE
-    # Unclaimed: the dark grey background, or a colour the match doesn't use.
-    assert board.classify_patch_as(_patch((79, 75, 76)), pair) is CellColor.UNCLAIMED
-    assert board.classify_patch_as(_patch((201, 147, 35)), pair) is CellColor.UNCLAIMED
+def test_classify_claim_patch_takes_the_nearest_colour():
+    # Red and orange are the closest two, 81 apart.
+    assert board.classify_claim_patch(_patch((52, 55, 209))) is ClaimColor.RED
+    assert board.classify_claim_patch(_patch((34, 132, 224))) is ClaimColor.ORANGE
+    # A purple cell with square text bleeding into its patch.
+    assert board.classify_claim_patch(_patch((185, 86, 141))) is ClaimColor.PURPLE
+    # The dark grey background, and a colour far from all of them.
+    assert board.classify_claim_patch(_patch((79, 75, 76))) is None
+    assert board.classify_claim_patch(_patch((0, 230, 230))) is None
+
+
+def test_claim_side_maps_by_the_pair():
+    pair = (ClaimColor.RED, ClaimColor.ORANGE)
+    assert board.claim_side(ClaimColor.RED, pair) is CellColor.RED
+    assert board.claim_side(ClaimColor.ORANGE, pair) is CellColor.BLUE
+    assert board.claim_side(ClaimColor.BLUE, pair) is CellColor.UNCLAIMED
+    assert board.claim_side(None, pair) is CellColor.UNCLAIMED

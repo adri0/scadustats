@@ -58,9 +58,9 @@ def classify_patch(patch: np.ndarray) -> CellColor:
 
 # Season 1's claim colours (see models.ClaimColor), BGR, as measured on claimed cells'
 # inset patches in 15 Season 1 VODs at 720p -- each held within a few units across VODs.
-# Every match pits two of these against each other, so a cell is classified against just
-# that pair (classify_patch_as) rather than this whole table: nearest of the two, as long
-# as it's close enough to either.
+# A cell is read as the nearest of these (classify_claim_patch), and only then mapped to a
+# side by the match's pair (claim_side): the names that tell the pair can lag behind the
+# board (see extract._collect_observations).
 CLAIM_COLOR_BGR: dict[ClaimColor, tuple[int, int, int]] = {
     ClaimColor.RED: (53, 55, 208),
     ClaimColor.ORANGE: (35, 133, 223),
@@ -72,23 +72,45 @@ CLAIM_COLOR_BGR: dict[ClaimColor, tuple[int, int, int]] = {
 # channels sit closer together than this is unclaimed, whatever it's nearest to.
 _CLAIM_MIN_SATURATION = 60
 # Farthest a claimed patch was seen from its colour's reference: square text bleeding into
-# the patch pulled a purple cell ~60 away. Which of the pair a patch is goes by the nearer
-# of the two, so the closest pair (red and orange, 81 apart, VOD 8) still splits halfway.
+# the patch pulled a purple cell ~60 away. A patch is its nearest colour, so the closest two
+# (red and orange, 81 apart, VOD 8) still split halfway; measured cells sit within a few
+# units of their own.
 _CLAIM_MAX_DISTANCE = 80
 
 
-def classify_patch_as(patch: np.ndarray, claim_colors: tuple[ClaimColor, ClaimColor]) -> CellColor:
-    """A cell claimed in one of the match's two colours (red side's, blue side's): RED or
-    BLUE for whichever side's colour it is nearest, UNCLAIMED if it's near neither."""
+def classify_claim_patch(patch: np.ndarray) -> ClaimColor | None:
+    """The claim colour a cell is filled with (the nearest of CLAIM_COLOR_BGR's), or None
+    for an unclaimed cell: too grey, or near none of them. Which side that colour is depends
+    on the match (see claim_side)."""
     mean = patch.reshape(-1, 3).mean(axis=0)
     if mean.max() - mean.min() < _CLAIM_MIN_SATURATION:
-        return CellColor.UNCLAIMED
+        return None
+    distances = {
+        color: float(np.linalg.norm(mean - reference))
+        for color, reference in CLAIM_COLOR_BGR.items()
+    }
+    nearest = min(distances, key=distances.__getitem__)
+    return nearest if distances[nearest] <= _CLAIM_MAX_DISTANCE else None
+
+
+def claim_side(color: ClaimColor | None, claim_colors: tuple[ClaimColor, ClaimColor]) -> CellColor:
+    """Which side a cell filled with `color` belongs to, given the match's two colours as
+    (red side's, blue side's): UNCLAIMED for no colour or one the match doesn't use."""
     red_color, blue_color = claim_colors
-    red_distance = float(np.linalg.norm(mean - CLAIM_COLOR_BGR[red_color]))
-    blue_distance = float(np.linalg.norm(mean - CLAIM_COLOR_BGR[blue_color]))
-    if min(red_distance, blue_distance) > _CLAIM_MAX_DISTANCE:
-        return CellColor.UNCLAIMED
-    return CellColor.RED if red_distance <= blue_distance else CellColor.BLUE
+    if color is red_color:
+        return CellColor.RED
+    if color is blue_color:
+        return CellColor.BLUE
+    return CellColor.UNCLAIMED
+
+
+def cell_claim_colors(frame: np.ndarray, layout_: Layout) -> list[list[ClaimColor | None]]:
+    """Each cell's claim colour (see classify_claim_patch), for a layout whose players claim
+    in their own (Layout.player_colors)."""
+    return [
+        [classify_claim_patch(_cell_patch(frame, r, c, layout_)) for c in range(5)]
+        for r in range(5)
+    ]
 
 
 # A name is printed in its player's claim colour, anti-aliased onto a dark background, so
@@ -155,8 +177,8 @@ def cell_colors(
             [classify_patch(_cell_patch(frame, r, c, layout_)) for c in range(5)] for r in range(5)
         ]
     return [
-        [classify_patch_as(_cell_patch(frame, r, c, layout_), claim_colors) for c in range(5)]
-        for r in range(5)
+        [claim_side(color, claim_colors) for color in row]
+        for row in cell_claim_colors(frame, layout_)
     ]
 
 

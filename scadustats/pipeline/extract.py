@@ -8,11 +8,13 @@ import logging
 import math
 import os
 import threading
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -74,11 +76,6 @@ _UNREADABLE_TIMER_WARN_FRACTION = 0.05
 # sample rate) without decoding arbitrarily far into a video that never shows a
 # recognizable gameplay frame at all (e.g. one that isn't this broadcast's footage).
 _LAYOUT_DETECTION_MAX_SAMPLES = 180
-
-# Consecutive samples whose names must read the same pair of claim colours before a
-# Season 1 video's colours are settled (see Layout.player_colors) -- samples before that
-# are skipped, which costs a few seconds of the pre-game.
-_CLAIM_COLOR_CONFIRM_SAMPLES = 5
 
 # Consecutive matching samples required to confirm a color change -- see _extract_events.
 # A claim (UNCLAIMED -> RED/BLUE) uses the baseline debounce, same as a direct color swap.
@@ -156,18 +153,28 @@ def _collect_observations(
     """Every readable gameplay sample; the layout the video was read with; keyed by
     sample index, which layout each sample was read with: the video's layout itself, or
     for a layout made of scenes (Season 3, see Layout.scenes) the scene that sample
-    showed; and the two sides' claim colours for a layout whose players claim in their
-    own (Layout.player_colors), as given (`claim_colors`) or read off the names (see
-    board.read_claim_colors), None for any other layout."""
+    showed; and for a layout whose players claim in their own colours
+    (Layout.player_colors) the two sides' colours, None for any other layout (or when no
+    name ever read).
+
+    Those colours are `claim_colors` when given, else the pair the names read most often
+    (see board.read_claim_colors). The names can't be trusted sample by sample: Season 1's
+    VOD 2 opens on the previous match's frozen overlay, names still in its colours, then
+    shows default red/blue names for the first 12 minutes of the game, and only then the
+    players' own -- while the board showed a purple claim before the names turned purple.
+    So each cell is read as its own colour first (board.cell_claim_colors) and mapped to a
+    side only once the video's pair is known. One pair per video: Season 1's VODs are a
+    game each."""
     prev_counts = (0, 0)
-    # The names' colour readings so far, while claim_colors isn't settled yet.
-    color_readings: list[tuple[ClaimColor, ClaimColor] | None] = []
+    # The names' colour readings, for a layout whose players claim in their own colours.
+    name_readings: Counter[tuple[ClaimColor, ClaimColor]] = Counter()
     sample_layouts: dict[int, layout.Layout] = {}
     # (index, video_ts_s, colors, timer_future) per gameplay sample, in sample order --
     # the timer OCR runs in the background via the future, so this fills in while later
     # samples are still being decoded, and is drained into Observations only once every
     # future for it has resolved.
-    pending: list[tuple[int, float, list[list[CellColor]], Future[int | None]]] = []
+    # For such a layout, colors holds each cell's claim colour, mapped to sides at the end.
+    pending: list[tuple[int, float, list[list[Any]], Future[int | None]]] = []
     ocr_slots = threading.Semaphore(_OCR_WORKERS)
 
     def _release_slot(_future: Future) -> None:
@@ -208,53 +215,22 @@ def _collect_observations(
                 # reuses the same grid coordinates to cycle through other completed games'
                 # boards) -- the cell colors and the timer crop would be meaningless here.
                 continue
-            if frame_layout.player_colors and claim_colors is None:
-                # Every cell is read against the two colours, so they're settled before
-                # any sample is kept: only once the names have read the same pair on
-                # several samples in a row, which a passing transition frame can't fake.
-                # A scene that doesn't print both names (Season 1's focus scene) can't
-                # say, so its samples wait.
-                if frame_layout.name_box_red is None or frame_layout.name_box_blue is None:
-                    continue
-                color_readings.append(board.read_claim_colors(frame, frame_layout))
-                recent = color_readings[-_CLAIM_COLOR_CONFIRM_SAMPLES:]
-                if (
-                    len(recent) < _CLAIM_COLOR_CONFIRM_SAMPLES
-                    or recent[0] is None
-                    or recent.count(recent[0]) < len(recent)
-                ):
-                    continue
-                claim_colors = recent[0]
-                logger.info(
-                    "claim colours read off the names: red side %s, blue side %s",
-                    *claim_colors,
-                )
             sample_layouts[i] = frame_layout
 
             if frame_layout.player_colors:
-                colors = board.cell_colors(frame, frame_layout, claim_colors)
+                if (
+                    claim_colors is None
+                    and frame_layout.name_box_red is not None
+                    and frame_layout.name_box_blue is not None
+                ):
+                    reading = board.read_claim_colors(frame, frame_layout)
+                    if reading is not None:
+                        name_readings[reading] += 1
+                colors = board.cell_claim_colors(frame, frame_layout)
             else:
                 colors = board.cell_colors(frame, frame_layout)
-
-            red = sum(cell is CellColor.RED for row in colors for cell in row)
-            blue = sum(cell is CellColor.BLUE for row in colors for cell in row)
-            if (red, blue) != prev_counts:
-                board_red, board_blue = scoreboard.read_scores(frame, frame_layout)
-                if board_red is not None and board_red != red:
-                    logger.warning(
-                        "red claim count mismatch at %.1fs: board=%d scoreboard=%d",
-                        video_ts_s,
-                        red,
-                        board_red,
-                    )
-                if board_blue is not None and board_blue != blue:
-                    logger.warning(
-                        "blue claim count mismatch at %.1fs: board=%d scoreboard=%d",
-                        video_ts_s,
-                        blue,
-                        board_blue,
-                    )
-                prev_counts = (red, blue)
+                _check_counts(frame, frame_layout, colors, video_ts_s, prev_counts)
+                prev_counts = _counts(colors)
 
             # Acquiring a slot (rather than submitting unboundedly) is what keeps this a
             # bounded pipeline instead of decoding/queueing the whole video's frames in
@@ -276,6 +252,27 @@ def _collect_observations(
         # Unreadable timers are otherwise vanishingly rare in practice (8 samples out of
         # 6280 on that video -- all 8 of them this exact transition), so this drops
         # essentially nothing else.
+        if selected_layout is not None and selected_layout.player_colors:
+            if claim_colors is None and name_readings:
+                claim_colors = name_readings.most_common(1)[0][0]
+                logger.info(
+                    "claim colours read off the names: red side %s, blue side %s",
+                    *claim_colors,
+                )
+            pair = claim_colors
+            pending = [
+                (
+                    i,
+                    video_ts_s,
+                    [[board.claim_side(color, pair) for color in row] for row in colors]
+                    if pair
+                    else [[CellColor.UNCLAIMED] * 5 for _ in range(5)],
+                    timer_future,
+                )
+                for i, video_ts_s, colors, timer_future in pending
+            ]
+        else:
+            claim_colors = None
         observations = [
             Observation(i, video_ts_s, colors, timer_s)
             for i, video_ts_s, colors, timer_future in pending
@@ -298,9 +295,41 @@ def _collect_observations(
     # Only reachable when the whole video ran out before _LAYOUT_DETECTION_MAX_SAMPLES.
     if selected_layout is None:
         selected_layout = layout.STANDARD
-    if not selected_layout.player_colors:
-        claim_colors = None
     return observations, selected_layout, sample_layouts, claim_colors
+
+
+def _counts(colors: list[list[CellColor]]) -> tuple[int, int]:
+    red = sum(cell is CellColor.RED for row in colors for cell in row)
+    blue = sum(cell is CellColor.BLUE for row in colors for cell in row)
+    return red, blue
+
+
+def _check_counts(
+    frame: np.ndarray,
+    frame_layout: layout.Layout,
+    colors: list[list[CellColor]],
+    video_ts_s: float,
+    prev_counts: tuple[int, int],
+) -> None:
+    """Cross-check the board's claim counts against the overlay's own, whenever they change."""
+    red, blue = _counts(colors)
+    if (red, blue) == prev_counts:
+        return
+    board_red, board_blue = scoreboard.read_scores(frame, frame_layout)
+    if board_red is not None and board_red != red:
+        logger.warning(
+            "red claim count mismatch at %.1fs: board=%d scoreboard=%d",
+            video_ts_s,
+            red,
+            board_red,
+        )
+    if board_blue is not None and board_blue != blue:
+        logger.warning(
+            "blue claim count mismatch at %.1fs: board=%d scoreboard=%d",
+            video_ts_s,
+            blue,
+            board_blue,
+        )
 
 
 def _segment_games(observations: list[Observation]) -> list[list[Observation]]:
