@@ -32,6 +32,23 @@ class CellColor(Enum):
     BLUE = "blue"
 
 
+class ClaimColor(StrEnum):
+    """The colour a side actually claimed in, when it wasn't the overlay's usual red/blue.
+
+    In Season 1 each player claimed in their own bingosync colour, which changed from
+    match to match (blue vs green, orange vs blue, ...). The red/blue sides stay as
+    everywhere else -- red is the left-hand player -- and GameResult.red_color/blue_color
+    record which colour each side's squares were actually drawn in, so a reader (the site)
+    can draw the board as it was broadcast. Only the colours seen in a broadcast so far are
+    listed (see board.CLAIM_COLOR_BGR, which holds their measured references)."""
+
+    RED = "red"
+    ORANGE = "orange"
+    GREEN = "green"
+    BLUE = "blue"
+    PURPLE = "purple"
+
+
 class MatchType(StrEnum):
     """User-provided, not derivable from the video. StrEnum (unlike the plain Enums
     above) so it doubles directly as a Typer/Click CLI choice type -- see cli/app.py."""
@@ -59,6 +76,9 @@ class LayoutName(StrEnum):
     SEASON_3_FOCUS = "layout_season_3_focus"
     SEASON_2 = "layout_season_2"
     SEASON_2_V2 = "layout_season_2_v2"
+    SEASON_1 = "layout_season_1"
+    SEASON_1_MAIN = "layout_season_1_main"
+    SEASON_1_FOCUS = "layout_season_1_focus"
 
 
 class GameType(StrEnum):
@@ -303,6 +323,10 @@ class GameResult(BaseModel):
     # need the line rules to show them; validation checks them against the board.
     red_points: int | None = None
     blue_points: int | None = None
+    # The colour each side claimed in (see ClaimColor) -- None for a game drawn in the
+    # overlay's usual red and blue, which is every game but Season 1's.
+    red_color: ClaimColor | None = None
+    blue_color: ClaimColor | None = None
 
     @property
     def decided(self) -> bool:

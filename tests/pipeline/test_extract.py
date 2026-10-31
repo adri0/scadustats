@@ -378,7 +378,7 @@ def test_collect_observations_drops_samples_with_an_unreadable_timer(monkeypatch
     _stub_sampling(monkeypatch, [10, None, None, 12])
 
     with caplog.at_level(logging.WARNING):
-        observations, _, _ = _collect_observations("video.mp4", 1.0)
+        observations, _, _, _ = _collect_observations("video.mp4", 1.0)
 
     assert [(obs.sample_index, obs.timer_s) for obs in observations] == [(0, 10), (3, 12)]
     # Half the samples gone is far past "the usual transition" and worth flagging.
@@ -389,7 +389,7 @@ def test_collect_observations_does_not_warn_about_a_few_unreadable_timers(monkey
     _stub_sampling(monkeypatch, [*range(50), None, *range(50)])
 
     with caplog.at_level(logging.WARNING):
-        observations, _, _ = _collect_observations("video.mp4", 1.0)
+        observations, _, _, _ = _collect_observations("video.mp4", 1.0)
 
     assert len(observations) == 100
     assert not caplog.records
@@ -557,3 +557,38 @@ def test_settle_game_ends_a_points_game_on_the_claim_that_reaches_13():
     assert (game.red_points, game.blue_points) == (13, 1)
     assert game.events[-1].event_type is EventType.GAME_END
     assert game.events[-1].video_timestamp == format_video_timestamp(30)
+
+
+def test_collect_observations_maps_claim_colors_by_the_names_most_read_pair(monkeypatch):
+    # A Season 1 video opening on the previous match's names (blue/green), then defaults
+    # (red/blue), then the players' own (purple/blue) -- with a purple claim on the board
+    # while the names still read red/blue. The pair is the one read most often, and every
+    # sample is mapped with it, so that early claim counts from the sample it appears on.
+    from scadustats.models import ClaimColor as C
+    from scadustats.overlay import layout
+
+    readings = [(C.BLUE, C.GREEN)] * 2 + [(C.RED, C.BLUE)] * 4 + [(C.PURPLE, C.BLUE)] * 6
+    claimed_from = 4  # the purple claim shows on sample 4, two samples before the names turn
+    _stub_sampling(monkeypatch, [10 + i for i in range(len(readings))])
+    monkeypatch.setattr(
+        extract.board, "read_claim_colors", lambda frame, layout_: readings[frame[0, 0, 0]]
+    )
+
+    def raw_board(frame, layout_):
+        board = [[None] * 5 for _ in range(5)]
+        if frame[0, 0, 0] >= claimed_from:
+            board[0][0] = C.PURPLE
+        board[4][4] = C.GREEN  # a colour this match doesn't use: nobody's
+        return board
+
+    monkeypatch.setattr(extract.board, "cell_claim_colors", raw_board)
+
+    observations, _, _, claim_colors = _collect_observations(
+        "video.mp4", 1.0, forced_layout=layout.LAYOUT_SEASON_1_MAIN
+    )
+
+    assert claim_colors == (C.PURPLE, C.BLUE)
+    assert len(observations) == len(readings)
+    for obs in observations:
+        expected = _board((0, 0, R)) if obs.sample_index >= claimed_from else _board()
+        assert obs.board == expected

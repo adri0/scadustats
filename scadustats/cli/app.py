@@ -14,6 +14,7 @@ import typer
 from scadustats.cli.display import render_match, render_match_table
 from scadustats.models import (
     CellColor,
+    ClaimColor,
     GameResult,
     GameType,
     LayoutName,
@@ -209,6 +210,23 @@ def _prompt_game_type(game: GameResult) -> GameType:
             typer.echo(f"Invalid game type {raw!r}, must be one of: {', '.join(choices)}")
 
 
+def _parse_claim_colors(value: str) -> tuple[ClaimColor, ClaimColor]:
+    """--claim-colors' "red,blue" pair: two different ClaimColor names."""
+    parts = [part.strip().lower() for part in value.split(",")]
+    names = ", ".join(color.value for color in ClaimColor)
+    if len(parts) != 2 or parts[0] == parts[1]:
+        raise typer.BadParameter(
+            f"expected two different colours, e.g. 'blue,green' (one of {names})",
+            param_hint="--claim-colors",
+        )
+    try:
+        return ClaimColor(parts[0]), ClaimColor(parts[1])
+    except ValueError:
+        raise typer.BadParameter(
+            f"{value!r}: each colour must be one of {names}", param_hint="--claim-colors"
+        ) from None
+
+
 @app.command(short_help="Extract match data from a video into JSON.")
 def extract(
     video_path_or_url: Annotated[
@@ -287,6 +305,14 @@ def extract(
         LayoutName | None,
         typer.Option(help="Force a specific overlay layout instead of auto-detecting it"),
     ] = None,
+    claim_colors: Annotated[
+        str | None,
+        typer.Option(
+            help="The red (left) and blue (right) players' claim colours, e.g. "
+            "'blue,green', for a layout whose players claim in their own (Season 1) -- "
+            "read off the player names by default"
+        ),
+    ] = None,
 ) -> None:
     """Extract bingo board stats from a match video into JSON files under data_dir.
 
@@ -308,7 +334,9 @@ def extract(
 
     Which overlay layout the video uses (the standard template, or an alternate one like
     a finals broadcast's) is auto-detected from the footage itself by default -- --layout
-    forces a specific one instead, skipping detection outright.
+    forces a specific one instead, skipping detection outright. In Season 1 each player
+    claims in their own colour, read off the names by default -- --claim-colors gives
+    them instead.
 
     This only writes JSON -- it never touches a database.
 
@@ -319,6 +347,7 @@ def extract(
     # --video-url wouldn't surface until everything else had already finished. A blank
     # value is still fine unvalidated: video_url stays optional either way (see
     # _prompt_video_url), so only reject a value that was actually supplied.
+    parsed_claim_colors = _parse_claim_colors(claim_colors) if claim_colors else None
     if video_url and not _is_youtube_url(video_url):
         raise typer.BadParameter(
             f"{video_url!r} doesn't look like a youtube.com/youtu.be URL",
@@ -428,6 +457,7 @@ def extract(
                     on_duplicate=on_duplicate,
                     published_at=published_at,
                     layout_name=layout,
+                    claim_colors=parsed_claim_colors,
                 )
 
             # If extraction (typically minutes) finishes faster than the prompts (a handful

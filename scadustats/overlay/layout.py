@@ -76,6 +76,14 @@ class Layout:
     # rather than a single player's name -- see scoreboard.read_player_names.
     team_names: bool = False
     scenes: tuple["Layout", ...] = ()
+    # Whether each player claims in their own colour, printed in their name too, rather than
+    # the overlay's red/blue (Season 1, see models.ClaimColor): the board is then read
+    # against the two colours the names show (see board.read_claim_colors).
+    player_colors: bool = False
+    # A box holding printed white text (a wordmark) that only this scene shows -- what tells
+    # Season 1's main scene from its focus scene, whose clock is in the same place (see
+    # board.is_gameplay_frame).
+    logo_box: FractionalBox | None = None
 
 
 STANDARD = Layout(
@@ -327,6 +335,54 @@ LAYOUT_SEASON_2_V2 = dataclasses.replace(
     timer_box=LAYOUT_SEASON_4.timer_box,
 )
 
+# Season 1 (2023), measured on 1280x720 frames of Ainrun vs Mitchriz
+# (youtube.com/watch?v=MIxT4JcGxIk). Each player claims in their own colour, printed in
+# their name too (player_colors) -- blue vs green, orange vs blue, ... changing from match to
+# match. The broadcast cuts between two scenes, with the unboxed H:MM:SS clock at the top
+# centre (x 579-703 / y 46-72) in both:
+#
+# The main scene: both feeds side by side, the grid at the bottom centre over them (x 466-815
+# / y 403-719), the names either side of it at y 486-515, and the "Bingo Brawlers" wordmark
+# at the top left (logo_box), which the focus scene doesn't print. From week 2 two claim
+# counts sit stacked right of the grid, but in no fixed side order (each is in its player's
+# colour), so they aren't read. The commentators' names are printed over their webcams and
+# read poorly (often a fragment), so check them by hand; their boxes hold just the text line.
+LAYOUT_SEASON_1_MAIN = Layout(
+    name=LayoutName.SEASON_1_MAIN,
+    grid_box=FractionalBox(left=0.3641, top=0.5597, right=0.6367, bottom=0.9986),
+    timer_box=FractionalBox(left=0.4375, top=0.05, right=0.5625, bottom=0.1139),
+    game_type_box=None,
+    score_box_red=None,
+    score_box_blue=None,
+    name_box_red=FractionalBox(left=0.1094, top=0.6611, right=0.3633, bottom=0.7333),
+    name_box_blue=FractionalBox(left=0.6367, top=0.6611, right=0.8438, bottom=0.7333),
+    commentator_box_left=FractionalBox(left=0.0039, top=0.93, right=0.2578, bottom=0.99),
+    commentator_box_right=FractionalBox(left=0.7422, top=0.93, right=0.9984, bottom=0.99),
+    player_colors=True,
+    logo_box=FractionalBox(left=0.09, top=0.03, right=0.21, bottom=0.14),
+)
+
+# The focus scene: one player's feed full screen, the grid at the top right corner at the
+# same size (x 932-1280 / y 0-316), and only that player's name, at the bottom. Its grid is
+# a hair narrower than the main scene's, so square text and names are read off the main
+# scene (see extract._text_scene).
+LAYOUT_SEASON_1_FOCUS = dataclasses.replace(
+    LAYOUT_SEASON_1_MAIN,
+    name=LayoutName.SEASON_1_FOCUS,
+    grid_box=FractionalBox(left=0.7281, top=0.0, right=1.0, bottom=0.4389),
+    name_box_red=None,
+    name_box_blue=None,
+    logo_box=None,
+)
+
+# Both scenes, the main one first: a frame passes as the focus scene on its clock alone, so
+# the main scene's wordmark has to be checked before.
+LAYOUT_SEASON_1 = dataclasses.replace(
+    LAYOUT_SEASON_1_MAIN,
+    name=LayoutName.SEASON_1,
+    scenes=(LAYOUT_SEASON_1_MAIN, LAYOUT_SEASON_1_FOCUS),
+)
+
 # Keyed by Layout.name -- the registry pipeline.extract auto-detects against (STANDARD
 # first, so a frame that happens to satisfy more than one check favors the far more
 # common template) and a --layout CLI override looks up by name.
@@ -345,6 +401,9 @@ LAYOUTS: dict[LayoutName, Layout] = {
         LAYOUT_SEASON_3_FOCUS,
         LAYOUT_SEASON_2,
         LAYOUT_SEASON_2_V2,
+        LAYOUT_SEASON_1,
+        LAYOUT_SEASON_1_MAIN,
+        LAYOUT_SEASON_1_FOCUS,
     )
 }
 
