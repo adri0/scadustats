@@ -576,6 +576,20 @@ class SquareClaim(BaseModel):
     slugs: list[str] = Field(default_factory=list)
 
 
+class SquareSeasonStats(BaseModel):
+    """One square's counts within a single season (see SquareStats.seasons): the same
+    num_matches/num_games/games_marked/mark_rate as SquareStats's own all-time ones,
+    restricted to that season's matches -- so a consumer can show a season's figures
+    without re-deriving them from the match files."""
+
+    num_matches: int = 0
+    num_games: int = 0
+    games_marked: int = 0
+    # games_marked / num_games; never None, since a season only gets an entry once the
+    # square was dealt in it.
+    mark_rate: float = 0.0
+
+
 class SquareStats(BaseModel):
     """One goal square's dynamically computed stats, built by
     pipeline.consolidate.consolidate_square_stats from every game it appeared in and
@@ -616,6 +630,9 @@ class SquareStats(BaseModel):
     # time, then match_id, then game_index), with the match, game and player behind each
     # -- so a consumer can link a point of the distribution back to its match.
     claims: list[SquareClaim] = Field(default_factory=list)
+    # The counts above split by VideoExtraction.season, keyed by season and sorted by
+    # it -- only the seasons the square was dealt in, so a square never dealt has none.
+    seasons: dict[str, SquareSeasonStats] = Field(default_factory=dict)
 
 
 class PlayerInfo(BaseModel):

@@ -14,6 +14,7 @@ from scadustats.models import (
     Square,
     SquareClaim,
     SquareMarks,
+    SquareSeasonStats,
     SquareStats,
     Team,
     VideoExtraction,
@@ -812,6 +813,34 @@ def test_consolidate_square_stats_mark_rate_counts_only_squares_held_at_game_end
     assert stats.games_marked == 1
     assert stats.mark_rate == pytest.approx(1 / 3, abs=1e-4)
     assert stats.mark_times_s == [300]
+
+
+def test_consolidate_square_stats_splits_counts_by_season():
+    marked = _game(GameType.BASE, "Kill a Crystalian", events=(_event(1, 1, CellColor.RED, 300),))
+    season_5 = _extraction(
+        marked,
+        _game(GameType.BASE, "Kill a Crystalian", game_index=2),
+        match_id="s5-a",
+        season="5",
+    )
+    season_6_first = _extraction(_game(GameType.BASE, "Kill a Crystalian"), match_id="s6-a")
+    season_6_second = _extraction(marked, match_id="s6-b")
+
+    stats = _square_stats(season_6_first, season_5, season_6_second)["crystalian"]
+
+    assert list(stats.seasons) == ["5", "6"]
+    assert stats.seasons["5"] == SquareSeasonStats(
+        num_matches=1, num_games=2, games_marked=1, mark_rate=0.5
+    )
+    assert stats.seasons["6"] == SquareSeasonStats(
+        num_matches=2, num_games=2, games_marked=1, mark_rate=0.5
+    )
+
+
+def test_consolidate_square_stats_leaves_seasons_empty_for_a_square_never_dealt():
+    stats = _square_stats(_extraction(_game(GameType.BASE, "Kill a Crystalian")))
+
+    assert stats["merchant"].seasons == {}
 
 
 def test_consolidate_square_stats_times_a_remark_from_its_persisting_mark():
