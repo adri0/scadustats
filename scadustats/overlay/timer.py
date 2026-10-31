@@ -7,7 +7,8 @@ import numpy as np
 from scadustats.overlay import layout, ocr
 from scadustats.overlay.layout import Layout
 
-_TIMER_RE = re.compile(r"(\d{2}):(\d{2}):(\d{2})")
+# One or two hour digits: Season 1's clock reads "0:38:25", every later one "00:38:25".
+_TIMER_RE = re.compile(r"(\d{1,2}):(\d{2}):(\d{2})")
 
 # No game's clock gets near this (the longest are stopped at two hours), so a reading at or
 # above it is a misread -- e.g. a mouse cursor over the first digit turning "00:00:42" into
@@ -16,7 +17,7 @@ _MAX_CLOCK_S = 3 * 60 * 60
 
 
 def parse_timer(text: str) -> int | None:
-    """Parse an HH:MM:SS reading into elapsed seconds, tolerating OCR noise around it.
+    """Parse an H:MM:SS or HH:MM:SS reading into elapsed seconds, tolerating OCR noise around it.
     A reading no game clock can show (minutes or seconds past 59, or `_MAX_CLOCK_S` and
     over) is None."""
     match = _TIMER_RE.search(text)

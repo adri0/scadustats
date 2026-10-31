@@ -378,7 +378,7 @@ def test_collect_observations_drops_samples_with_an_unreadable_timer(monkeypatch
     _stub_sampling(monkeypatch, [10, None, None, 12])
 
     with caplog.at_level(logging.WARNING):
-        observations, _, _ = _collect_observations("video.mp4", 1.0)
+        observations, _, _, _ = _collect_observations("video.mp4", 1.0)
 
     assert [(obs.sample_index, obs.timer_s) for obs in observations] == [(0, 10), (3, 12)]
     # Half the samples gone is far past "the usual transition" and worth flagging.
@@ -389,7 +389,7 @@ def test_collect_observations_does_not_warn_about_a_few_unreadable_timers(monkey
     _stub_sampling(monkeypatch, [*range(50), None, *range(50)])
 
     with caplog.at_level(logging.WARNING):
-        observations, _, _ = _collect_observations("video.mp4", 1.0)
+        observations, _, _, _ = _collect_observations("video.mp4", 1.0)
 
     assert len(observations) == 100
     assert not caplog.records

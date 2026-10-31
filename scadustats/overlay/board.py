@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from scadustats.models import CellColor, FractionalBox, GameType, tag_square_text
+from scadustats.models import CellColor, ClaimColor, FractionalBox, GameType, tag_square_text
 from scadustats.overlay import layout, ocr, timer
 from scadustats.overlay.layout import Layout
 
@@ -56,6 +56,79 @@ def classify_patch(patch: np.ndarray) -> CellColor:
     return CellColor.UNCLAIMED
 
 
+# Season 1's claim colours (see models.ClaimColor), BGR, as measured on claimed cells'
+# inset patches in 15 Season 1 VODs at 720p -- each held within a few units across VODs.
+# Every match pits two of these against each other, so a cell is classified against just
+# that pair (classify_patch_as) rather than this whole table: nearest of the two, as long
+# as it's close enough to either.
+CLAIM_COLOR_BGR: dict[ClaimColor, tuple[int, int, int]] = {
+    ClaimColor.RED: (53, 55, 208),
+    ClaimColor.ORANGE: (35, 133, 223),
+    ClaimColor.GREEN: (34, 167, 33),
+    ClaimColor.BLUE: (201, 147, 35),
+    ClaimColor.PURPLE: (171, 35, 114),
+}
+# An unclaimed Season 1 cell is a near-neutral dark grey (~79,75,76): any patch whose
+# channels sit closer together than this is unclaimed, whatever it's nearest to.
+_CLAIM_MIN_SATURATION = 60
+# Farthest a claimed patch was seen from its colour's reference: square text bleeding into
+# the patch pulled a purple cell ~60 away. Which of the pair a patch is goes by the nearer
+# of the two, so the closest pair (red and orange, 81 apart, VOD 8) still splits halfway.
+_CLAIM_MAX_DISTANCE = 80
+
+
+def classify_patch_as(patch: np.ndarray, claim_colors: tuple[ClaimColor, ClaimColor]) -> CellColor:
+    """A cell claimed in one of the match's two colours (red side's, blue side's): RED or
+    BLUE for whichever side's colour it is nearest, UNCLAIMED if it's near neither."""
+    mean = patch.reshape(-1, 3).mean(axis=0)
+    if mean.max() - mean.min() < _CLAIM_MIN_SATURATION:
+        return CellColor.UNCLAIMED
+    red_color, blue_color = claim_colors
+    red_distance = float(np.linalg.norm(mean - CLAIM_COLOR_BGR[red_color]))
+    blue_distance = float(np.linalg.norm(mean - CLAIM_COLOR_BGR[blue_color]))
+    if min(red_distance, blue_distance) > _CLAIM_MAX_DISTANCE:
+        return CellColor.UNCLAIMED
+    return CellColor.RED if red_distance <= blue_distance else CellColor.BLUE
+
+
+# A name is printed in its player's claim colour, anti-aliased onto a dark background, so
+# its pixels come out darker than a claimed cell but in the same direction: each saturated
+# pixel votes for the reference it points closest to (cosine of the angle between them), and
+# the name is that colour if it wins at least this share of the votes. Measured on 16
+# Season 1 VODs, names won 95-100% of their pixels, except one with a webcam's edge in the
+# box (VOD 30) at 80% -- where a mean over the box's pixels had drifted to a cosine of
+# just 0.97 with its own colour.
+_NAME_COLOR_MIN_SHARE = 0.6
+
+
+def _text_claim_color(crop: np.ndarray) -> ClaimColor | None:
+    pixels = crop.reshape(-1, 3).astype(float)
+    text = pixels[pixels.max(axis=1) - pixels.min(axis=1) > _CLAIM_MIN_SATURATION]
+    # A handful of saturated pixels is noise (a game feed's edge), not a printed name.
+    if len(text) < 20:
+        return None
+    colors = list(CLAIM_COLOR_BGR)
+    references = np.array([CLAIM_COLOR_BGR[color] for color in colors], dtype=float)
+    references /= np.linalg.norm(references, axis=1, keepdims=True)
+    votes = np.argmax(text @ references.T, axis=1)
+    winner, count = Counter(votes.tolist()).most_common(1)[0]
+    return colors[winner] if count >= _NAME_COLOR_MIN_SHARE * len(text) else None
+
+
+def read_claim_colors(frame: np.ndarray, layout_: Layout) -> tuple[ClaimColor, ClaimColor] | None:
+    """The two sides' claim colours as (red, blue), read off the player names, which a
+    Season 1 overlay prints in each player's own colour (see Layout.player_colors). None
+    when either name's colour isn't one of CLAIM_COLOR_BGR's, or both read the same."""
+    if layout_.name_box_red is None or layout_.name_box_blue is None:
+        return None
+    height, width = frame.shape[:2]
+    red = _text_claim_color(layout.crop(frame, layout_.name_box_red, width, height))
+    blue = _text_claim_color(layout.crop(frame, layout_.name_box_blue, width, height))
+    if red is None or blue is None or red is blue:
+        return None
+    return red, blue
+
+
 def _cell_patch(frame: np.ndarray, row: int, col: int, layout_: Layout) -> np.ndarray:
     height, width = frame.shape[:2]
     box = layout.grid_cell_box(row, col, layout_.grid_box)
@@ -69,8 +142,22 @@ def _cell_patch(frame: np.ndarray, row: int, col: int, layout_: Layout) -> np.nd
     return frame[py0:py1, px0:px1]
 
 
-def cell_colors(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> list[list[CellColor]]:
-    return [[classify_patch(_cell_patch(frame, r, c, layout_)) for c in range(5)] for r in range(5)]
+def cell_colors(
+    frame: np.ndarray,
+    layout_: Layout = layout.STANDARD,
+    claim_colors: tuple[ClaimColor, ClaimColor] | None = None,
+) -> list[list[CellColor]]:
+    """Each cell's claim, red/blue by side. `claim_colors` is the two sides' colours for a
+    layout whose players claim in their own (Layout.player_colors); without it a cell is
+    read as the overlay's usual red or blue."""
+    if claim_colors is None:
+        return [
+            [classify_patch(_cell_patch(frame, r, c, layout_)) for c in range(5)] for r in range(5)
+        ]
+    return [
+        [classify_patch_as(_cell_patch(frame, r, c, layout_), claim_colors) for c in range(5)]
+        for r in range(5)
+    ]
 
 
 def is_gameplay_frame(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> bool:
@@ -86,17 +173,31 @@ def is_gameplay_frame(frame: np.ndarray, layout_: Layout = layout.STANDARD) -> b
 
     A layout with no score bars (Season 3) is recognized by its timer box reading as a
     clock instead -- an OCR call rather than a color check, but the only fixture of that
-    overlay present during a game. A layout made of scenes passes when any scene does
+    overlay present during a game. A layout with a logo box (Season 1's main scene) also
+    needs its wordmark showing there. A layout made of scenes passes when any scene does
     (see scene_for).
     """
     if layout_.scenes:
         return scene_for(frame, layout_) is not None
+    if layout_.logo_box is not None and not _shows_logo(frame, layout_.logo_box):
+        return False
     if layout_.score_box_red is None or layout_.score_box_blue is None:
         return timer.read_timer(frame, layout_) is not None
     height, width = frame.shape[:2]
     red_bar = layout.crop(frame, layout_.score_box_red, width, height)
     blue_bar = layout.crop(frame, layout_.score_box_blue, width, height)
     return classify_patch(red_bar) is CellColor.RED and classify_patch(blue_bar) is CellColor.BLUE
+
+
+# Share of near-white pixels in a Layout.logo_box that says the wordmark is there: Season 1's
+# main scene measured 13.5-14.2% across 16 VODs, its focus scene (dark background there) 0.
+_LOGO_MIN_WHITE_SHARE = 0.05
+
+
+def _shows_logo(frame: np.ndarray, box: FractionalBox) -> bool:
+    height, width = frame.shape[:2]
+    crop = layout.crop(frame, box, width, height)
+    return float((crop.min(axis=2) > 190).mean()) >= _LOGO_MIN_WHITE_SHARE
 
 
 def scene_for(frame: np.ndarray, layout_: Layout) -> Layout | None:
