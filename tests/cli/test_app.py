@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 
 import pytest
 from typer.testing import CliRunner
@@ -306,6 +307,53 @@ def test_extract_rejects_an_unknown_layout_before_doing_any_work():
 
     assert result.exit_code != 0
     assert "layout_season_6_final" in result.output
+
+
+@pytest.mark.parametrize("value", ["blue", "blue,blue", "blue,teal", "blue,green,red"])
+def test_extract_rejects_bad_claim_colors_before_doing_any_work(value):
+    result = CliRunner().invoke(
+        app,
+        [
+            "extract",
+            "nonexistent.mp4",
+            "--claim-colors",
+            value,
+            "--match-date",
+            "2023-03-04",
+            "--season",
+            "1",
+            "--match-type",
+            "round_robin",
+        ],
+    )
+
+    assert result.exit_code != 0
+    # CI forces Rich's colours on (GITHUB_ACTIONS), which splits the option name with
+    # escape codes.
+    assert "--claim-colors" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+
+
+def test_extract_passes_claim_colors_on(tmp_path, monkeypatch):
+    from scadustats.models import ClaimColor
+
+    local = tmp_path / "local.mp4"
+    local.write_bytes(b"fake video")
+    seen = {}
+
+    def fake(*args, **kwargs):
+        seen.update(kwargs)
+        return _fake_extract_video_success()
+
+    monkeypatch.setattr("scadustats.cli.app.estimate_sample_count", lambda path: 1)
+    monkeypatch.setattr("scadustats.cli.app.extract_video", fake)
+    result = CliRunner().invoke(
+        app,
+        ["extract", str(local), "--claim-colors", "Blue, green", "--data-dir", str(tmp_path)]
+        + _EXTRACT_ARGS,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen["claim_colors"] == (ClaimColor.BLUE, ClaimColor.GREEN)
 
 
 _EXTRACT_ARGS = [

@@ -39,17 +39,22 @@ from scadustats.overlay import layout
 _CRF = "16"
 
 # Layouts whose grid column, above the grid, holds a player's gameplay feed and webcam
-# (Seasons 2 and 4: the two feeds side by side across the top, the grid under where they
+# (Seasons 1, 2 and 4: the two feeds side by side across the top, the grid under where they
 # meet): their grid is kept as just its box, like Season 3's.
 _FEEDS_ABOVE_GRID = frozenset(
-    {layout.LayoutName.SEASON_4, layout.LayoutName.SEASON_2, layout.LayoutName.SEASON_2_V2}
+    {
+        layout.LayoutName.SEASON_4,
+        layout.LayoutName.SEASON_2,
+        layout.LayoutName.SEASON_2_V2,
+        layout.LayoutName.SEASON_1,
+    }
 )
 
 
 def _restored_boxes(layout_: layout.Layout) -> tuple[layout.FractionalBox, ...]:
     """Every one of the layout's own boxes other than the grid (which is kept as a whole
     column, not box-by-box -- see redact()), skipping any the layout doesn't have at all
-    (a commentator or game-type box, or Season 3's score and name boxes)."""
+    (a commentator, game-type or logo box, or Season 3's score and name boxes)."""
     boxes = [
         layout_.timer_box,
         layout_.score_box_red,
@@ -59,6 +64,7 @@ def _restored_boxes(layout_: layout.Layout) -> tuple[layout.FractionalBox, ...]:
         layout_.game_type_box,
         layout_.commentator_box_left,
         layout_.commentator_box_right,
+        layout_.logo_box,
     ]
     return tuple(box for box in boxes if box is not None)
 

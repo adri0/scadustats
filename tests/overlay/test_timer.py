@@ -16,6 +16,9 @@ _FIXTURES = "tests/fixtures"
         ("", None),
         ("12:34", None),
         ("02:59:59", 10799),
+        # Season 1's clock has a one-digit hour.
+        ("0:38:25", 2305),
+        ("1:01:47", 3707),
         # Readings no game clock shows: a cursor over the first digit, impossible minutes.
         ("60:00:42", None),
         ("03:00:00", None),

@@ -743,3 +743,23 @@ def test_write_video_leaves_scoring_out_of_a_default_game(tmp_path):
     data = json.loads(write_video(tmp_path, _sample_extraction()).read_text())
 
     assert {"scoring", "red_points", "blue_points"}.isdisjoint(data["games"][0])
+
+
+def test_write_and_read_video_round_trip_claim_colors(tmp_path):
+    from scadustats.models import ClaimColor
+
+    game = _sample_game()
+    game.red_color, game.blue_color = ClaimColor.BLUE, ClaimColor.GREEN
+    extraction = _sample_extraction(games=[game], season="1")
+
+    path = write_video(tmp_path, extraction)
+    data = json.loads(path.read_text())
+
+    assert (data["games"][0]["red_color"], data["games"][0]["blue_color"]) == ("blue", "green")
+    assert read_video(path) == extraction
+
+
+def test_write_video_leaves_claim_colors_out_of_a_red_blue_game(tmp_path):
+    data = json.loads(write_video(tmp_path, _sample_extraction()).read_text())
+
+    assert {"red_color", "blue_color"}.isdisjoint(data["games"][0])

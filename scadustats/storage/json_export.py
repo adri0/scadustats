@@ -84,6 +84,17 @@ def _points_to_dict(game: GameResult) -> dict:
     }
 
 
+def _claim_colors_to_dict(game: GameResult) -> dict:
+    """The colour each side claimed in (see models.ClaimColor) -- left out of a game drawn
+    in the overlay's usual red and blue, which is every game but Season 1's."""
+    if game.red_color is None and game.blue_color is None:
+        return {}
+    return {
+        "red_color": game.red_color.value if game.red_color else None,
+        "blue_color": game.blue_color.value if game.blue_color else None,
+    }
+
+
 def _game_to_dict(game: GameResult) -> dict:
     dumped = game.model_dump(mode="json")
     return {
@@ -92,6 +103,7 @@ def _game_to_dict(game: GameResult) -> dict:
         "end_video_ts_s": dumped["end_video_ts_s"],
         "game_type": dumped["game_type"],
         **_points_to_dict(game),
+        **_claim_colors_to_dict(game),
         "winner_color": dumped["winner_color"],
         "win_type": dumped["win_type"],
         "win_line": dumped["win_line"],
