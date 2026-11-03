@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 
 import pytest
 from typer.testing import CliRunner
@@ -327,7 +328,9 @@ def test_extract_rejects_bad_claim_colors_before_doing_any_work(value):
     )
 
     assert result.exit_code != 0
-    assert "--claim-colors" in result.output
+    # CI forces Rich's colours on (GITHUB_ACTIONS), which splits the option name with
+    # escape codes.
+    assert "--claim-colors" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
 
 
 def test_extract_passes_claim_colors_on(tmp_path, monkeypatch):
