@@ -248,8 +248,11 @@ def render_game(game: GameResult, extraction: VideoExtraction, *, events: bool) 
         f"unclaimed {claimed[CellColor.UNCLAIMED]}",
         f"    events   {marks} mark{'s' if marks != 1 else ''}, "
         f"{unmarks} unmark{'s' if unmarks != 1 else ''}",
-        "",
     ]
+    # A game in its own VOD (a match recorded across several), not the match's.
+    if game.video_url:
+        lines.append(f"    video    {game.video_url}")
+    lines.append("")
     lines.extend(f"    {line}" for line in render_board(board))
     if events:
         lines.append("")

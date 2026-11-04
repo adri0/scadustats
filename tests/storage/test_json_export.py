@@ -763,3 +763,21 @@ def test_write_video_leaves_claim_colors_out_of_a_red_blue_game(tmp_path):
     data = json.loads(write_video(tmp_path, _sample_extraction()).read_text())
 
     assert {"red_color", "blue_color"}.isdisjoint(data["games"][0])
+
+
+def test_write_and_read_video_round_trip_game_video_url(tmp_path):
+    game = _sample_game()
+    game.video_url = "https://www.youtube.com/watch?v=game2"
+    extraction = _sample_extraction(games=[game], season="1")
+
+    path = write_video(tmp_path, extraction)
+    data = json.loads(path.read_text())
+
+    assert data["games"][0]["video_url"] == "https://www.youtube.com/watch?v=game2"
+    assert read_video(path) == extraction
+
+
+def test_write_video_leaves_video_url_out_of_a_game_in_the_match_video(tmp_path):
+    data = json.loads(write_video(tmp_path, _sample_extraction()).read_text())
+
+    assert "video_url" not in data["games"][0]

@@ -95,10 +95,17 @@ def _claim_colors_to_dict(game: GameResult) -> dict:
     }
 
 
+def _video_url_to_dict(game: GameResult) -> dict:
+    """The game's own video (see GameResult.video_url) -- left out of a game in the
+    match's video, which is every game but a match recorded across several VODs."""
+    return {"video_url": game.video_url} if game.video_url else {}
+
+
 def _game_to_dict(game: GameResult) -> dict:
     dumped = game.model_dump(mode="json")
     return {
         "game_index": dumped["game_index"],
+        **_video_url_to_dict(game),
         "start_video_ts_s": dumped["start_video_ts_s"],
         "end_video_ts_s": dumped["end_video_ts_s"],
         "game_type": dumped["game_type"],

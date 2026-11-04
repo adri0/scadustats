@@ -327,6 +327,11 @@ class GameResult(BaseModel):
     # overlay's usual red and blue, which is every game but Season 1's.
     red_color: ClaimColor | None = None
     blue_color: ClaimColor | None = None
+    # The game's own video, for a match recorded across several (Season 1's playoffs put
+    # each game of a best of 3 in its own VOD) -- None for a game in the match's video
+    # (VideoExtraction.video_url), which is every game but those. start_video_ts_s,
+    # end_video_ts_s and the events' video_timestamps are then times in this video.
+    video_url: str | None = None
 
     @property
     def decided(self) -> bool:
