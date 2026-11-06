@@ -25,3 +25,4 @@ data/players/*/*
 youtube_cookies.txt
 .envrc
 .claude
+uv.lock
