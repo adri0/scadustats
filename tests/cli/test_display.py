@@ -246,6 +246,14 @@ def test_render_match_omits_length_and_url_when_they_are_unknown():
     assert "extracted 2026-03-06" in text
 
 
+def test_render_match_gives_a_game_its_own_video_when_it_has_one():
+    games = [_game(1), _game(2, video_url="https://youtu.be/game2")]
+    text = "\n".join(render_match(_extraction(games=games)))
+
+    assert text.count("video    ") == 1
+    assert "video    https://youtu.be/game2" in text
+
+
 def test_render_match_names_the_commentators_in_order():
     text = "\n".join(render_match(_extraction(commentators=["star0chris", "Captain_Domo"])))
 
