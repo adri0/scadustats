@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/pypi/l/scadustats)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/eYtbyN4fbp)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/xtdu28QBRd)
 
 Extract match data from [Bingo Brawlers](https://bingobrawlers.com/) match VODs. Such as:
 
@@ -113,4 +113,4 @@ Sometimes `extract` fails with a `DownloadError` mentioning that YouTube require
 
 ## Community
 
-Want to contribute, report something or just talk about scadustats or [scadustats-site](https://github.com/adri0/scadustats-site)? Join the [scadustats Discord server](https://discord.gg/eYtbyN4fbp).
+Want to contribute, report something or just talk about scadustats or [scadustats-site](https://github.com/adri0/scadustats-site)? Join the [scadustats Discord server](https://discord.gg/xtdu28QBRd).
